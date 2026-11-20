@@ -1420,14 +1420,16 @@ class Hub {
       await run(['kill-window', '-t', box.windowId]);
     }
     const sid = (this.ended.get(name) || this.state.boxes.find((b) => b.name === name) || {}).sessionId;
-    if (UUID_RE.test(sid || '')) this.removed = [{ id: sid, name, at: Date.now() }, ...this.removed.filter((e) => e.id !== sid)].slice(0, 6);
+    const kept = this.resumable(sid);
+    if (kept) this.removed = [{ id: sid, name, at: Date.now() }, ...this.removed.filter((e) => e.id !== sid)].slice(0, 6);
     this.ended.delete(name);
     this.state.boxes = this.state.boxes.filter((b) => b.name !== name);
     this.log('closed ended', { name });
     await this.scan();
     this.recordState();
     this.emitBoxes();
-    return { ok: true };
+    // The app keeps his typed text with the session, for a resume from New Box.
+    return kept ? { ok: true, session: sid } : { ok: true };
   }
 
   // ---- what the app did lately, per box -------------------------------------

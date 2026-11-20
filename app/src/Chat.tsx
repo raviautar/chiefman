@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { api, Box, Draft, Item, Menu } from './api';
+import { api, Box, Draft, Item, Menu, Result } from './api';
 import { Arrow, Check } from './icons';
 import { Markdown } from './Markdown';
 
@@ -157,6 +157,7 @@ export function ChatView({
   attachDir,
   onTaken,
   onDraft,
+  onRemove,
   onOpen,
   onSend,
   onError,
@@ -171,6 +172,7 @@ export function ChatView({
   attachDir: string;
   onTaken: () => void;
   onDraft: (d: Draft | null) => void;
+  onRemove: () => Promise<Result>;
   onOpen: (url: string) => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
@@ -201,6 +203,7 @@ export function ChatView({
   const off = box.status === 'off';
   const ended = box.status === 'ended' || !!box.ended;
   const closed = off || starting || resuming || failed || ended;
+  const typed = !!draft.trim() || atts.length > 0;
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.map((p) => p.t)];
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
@@ -348,7 +351,7 @@ export function ChatView({
 
   async function closeEnded() {
     setEndBusy(true);
-    const r = await api().closeEnded(box.name);
+    const r = await onRemove();
     setEndBusy(false);
     if (!r.ok) onError(r.reason || 'Not closed.');
   }
@@ -563,7 +566,15 @@ export function ChatView({
                 Remove from list
               </button>
             </div>
-            {box.ended?.later && <div className="ended-note">The conversation stays saved. You can resume it later from New Box.</div>}
+            {box.ended?.later ? (
+              <div className="ended-note">
+                {typed
+                  ? 'The conversation and your typed text stay saved. You can resume them later from New Box.'
+                  : 'The conversation stays saved. You can resume it later from New Box.'}
+              </div>
+            ) : (
+              typed && <div className="ended-note">Your typed text goes too.</div>
+            )}
           </div>
         )}
         {failed && (

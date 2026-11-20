@@ -183,11 +183,42 @@ export function App() {
     keepDrafts();
   }
 
+  // A box removed from the list leaves its draft under its session
+  // ("session.<id>"), for New Box. Six are kept, the newest.
+  function keepForSession(id: string, d: Draft) {
+    const next = { ...saved.current };
+    delete next[`session.${id}`];
+    next[`session.${id}`] = d;
+    const old = Object.keys(next).filter((k) => k.startsWith('session.'));
+    for (const k of old.slice(0, Math.max(0, old.length - 6))) delete next[k];
+    saved.current = next;
+    keepDrafts();
+  }
+
+  async function removeEnded(name: string) {
+    const d = saved.current[name];
+    const r = await api().closeEnded(name);
+    if (r.ok && r.session && d) keepForSession(r.session, d);
+    return r;
+  }
+
+  // A resumed session's box gets that draft once the box shows.
+  const adopt = useRef<{ name: string; key: string } | null>(null);
+  useEffect(() => {
+    const a = adopt.current;
+    if (!a || !boxes.some((b) => b.name === a.name)) return;
+    adopt.current = null;
+    const d = saved.current[a.key];
+    if (!d) return;
+    if (!saved.current[a.name]) setDraftFor(a.name, d);
+    setDraftFor(a.key, null);
+  }, [boxes]);
+
   // A box that is gone takes its draft with it.
   useEffect(() => {
     if (!draftsReady || info.phase !== 'ready' || !boxes.length) return;
     const names = new Set(boxes.map((b) => b.name));
-    const gone = Object.keys(saved.current).filter((n) => !names.has(n));
+    const gone = Object.keys(saved.current).filter((n) => !n.startsWith('session.') && !names.has(n));
     if (!gone.length) return;
     const next = { ...saved.current };
     for (const n of gone) delete next[n];
@@ -425,6 +456,7 @@ export function App() {
   function startBox(spec: BoxSpec) {
     setOverlay(null);
     wantSelect.current = spec.name;
+    if (spec.resume) adopt.current = { name: spec.name, key: `session.${spec.resume}` };
     api()
       .newBox(spec)
       .then((r) => !r.ok && show(r.reason || 'Could not start the box.', true));
@@ -547,7 +579,7 @@ export function App() {
         quiet={quiet.current}
         fold={fold}
         incoming={box.paneId ? incoming[box.paneId] : undefined}
-        initial={saved.current[box.name]}
+        initial={saved.current[box.name] ?? (adopt.current?.name === box.name ? saved.current[adopt.current.key] : undefined)}
         attachDir={config?.attachDir ?? ''}
         onTaken={() => {
           const p = box.paneId!;
@@ -558,6 +590,7 @@ export function App() {
           });
         }}
         onDraft={(d) => setDraftFor(box.name, d)}
+        onRemove={() => removeEnded(box.name)}
         onOpen={setFull}
         onSend={sendToBox}
         onError={(t) => show(t, true)}

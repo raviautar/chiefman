@@ -1510,6 +1510,15 @@ button {
   color: var(--faint);
 }
 
+.used-before {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.used-before .text-btn {
+  color: var(--muted);
+}
+
 .pill.meter {
   font-variant-numeric: tabular-nums;
 }

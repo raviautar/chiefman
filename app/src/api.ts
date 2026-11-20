@@ -110,6 +110,7 @@ export interface Result {
   typed?: string;
   duplicate?: boolean;
   pending?: boolean;
+  session?: string;
 }
 
 interface Bridge {

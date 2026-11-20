@@ -34,12 +34,41 @@ export function NewBoxSheet({
     return m < 60 ? `${Math.max(1, m)} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`;
   };
   const [name, setName] = useState('');
+  // What he typed himself. Name shows it again when no session is picked.
+  const [own, setOwn] = useState('');
   const [color, setColor] = useState(PALETTE[4][1]);
   const [icon, setIcon] = useState('doc');
   const [message, setMessage] = useState('');
   const clean = name.trim();
   const err = !clean ? '' : !NAME.test(clean) ? 'Lowercase letters, digits and dashes.' : taken.includes(clean) ? 'That name is taken.' : '';
   const ready = !!clean && !err;
+
+  // A session's own name: its title, or the first words he sent it.
+  const nameOf = (r: Recent) => slug(r.title || r.first.split(/\s+/).slice(0, 4).join(' ')).replace(/-+$/, '');
+  const freeName = (r: Recent) => {
+    const base = NAME.test(nameOf(r)) ? nameOf(r) : 'resumed';
+    let n = base;
+    for (let i = 2; taken.includes(n); i++) n = `${base.slice(0, 28)}-${i}`;
+    return n;
+  };
+  const pick = (r: Recent) => {
+    setResume(r.id);
+    if (!own) setName(freeName(r));
+  };
+  const pickNew = () => {
+    setResume(null);
+    setName(own);
+  };
+  const start = (id: string | null, raw: string) => {
+    const n = raw.replace(/-+$/, '');
+    if (fired.current || !NAME.test(n) || taken.includes(n)) return;
+    fired.current = true;
+    onStart({ name: n, icon, color, message: message.trim(), model, effort, ...(id ? { resume: id } : {}) });
+  };
+  const usedBefore = !resume && clean && !err ? recent.find((r) => nameOf(r) === clean.replace(/-+$/, '')) : undefined;
+  const shown = recent.slice(0, 6);
+  const picked = recent.find((r) => r.id === resume);
+  if (picked && !shown.includes(picked)) shown.push(picked);
   return (
     <>
       <div className="scrim" onClick={onCancel} />
@@ -62,7 +91,26 @@ export function NewBoxSheet({
         </div>
         <div className="field">
           <label htmlFor="boxname">Name</label>
-          <input id="boxname" autoFocus autoComplete="off" value={name} placeholder="release-notes" onChange={(e) => setName(slug(e.target.value))} />
+          <input
+            id="boxname"
+            autoFocus
+            autoComplete="off"
+            value={name}
+            placeholder="release-notes"
+            onChange={(e) => {
+              const v = slug(e.target.value);
+              setName(v);
+              setOwn(v);
+            }}
+          />
+          {usedBefore && (
+            <div className="used-before">
+              This name was used before.{' '}
+              <button className="text-btn" onClick={() => pick(usedBefore)}>
+                Resume it instead?
+              </button>
+            </div>
+          )}
         </div>
         <div className="field" style={{ gap: 8 }}>
           <span className="label">Icon</span>
@@ -96,16 +144,18 @@ export function NewBoxSheet({
         {recent.length > 0 && (
           <div className="field">
             <span className="label">Or resume an earlier session</span>
+            {/* One click picks a row; a double click resumes it at once. */}
             <div className="recent">
-              {recent.slice(0, 6).map((r) => (
+              <button className={resume === null ? 'on' : ''} onClick={pickNew}>
+                <span className="t">New</span>
+              </button>
+              {shown.map((r) => (
                 <button
                   key={r.id}
                   className={resume === r.id ? 'on' : ''}
-                  onClick={() => {
-                    const pick = resume === r.id ? null : r.id;
-                    setResume(pick);
-                    if (pick && !name && r.title) setName(slug(r.title));
-                  }}
+                  onClick={() => pick(r)}
+                  onDoubleClick={() => start(r.id, own ? clean : freeName(r))}
+                  title="Double-click to resume"
                 >
                   <span className="t">{r.title || r.first}</span>
                   <span className="when">{ago(r.at)}</span>
@@ -122,11 +172,7 @@ export function NewBoxSheet({
           <button
             className="btn dark"
             disabled={!ready}
-            onClick={() => {
-              if (fired.current) return;
-              fired.current = true;
-              onStart({ name: clean.replace(/-+$/, ''), icon, color, message: message.trim(), model, effort, ...(resume ? { resume } : {}) });
-            }}
+            onClick={() => start(resume, clean)}
           >
             {resume ? 'Resume' : 'Start box'}
           </button>
