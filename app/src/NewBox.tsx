@@ -175,7 +175,11 @@ export function NewBoxSheet({
                   onDoubleClick={() => start(r.id, nameFor(r))}
                   title="Double-click to resume"
                 >
-                  <span className="t">{r.title || r.first}</span>
+                  {/* Same-name sessions differ by what he first asked them. */}
+                  <span className="t">
+                    {r.title || r.first}
+                    {r.title && r.first && <span className="sub"> · {r.first}</span>}
+                  </span>
                   <span className="when">{ago(r.at)}</span>
                 </button>
               ))}

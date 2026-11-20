@@ -1510,6 +1510,14 @@ button {
   color: var(--faint);
 }
 
+.recent .sub {
+  color: var(--faint);
+}
+.recent button.on .sub {
+  color: inherit;
+  opacity: 0.7;
+}
+
 .field input:read-only {
   color: var(--muted);
   background: var(--sand);
