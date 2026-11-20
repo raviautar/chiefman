@@ -31,6 +31,8 @@ function readJson(file) {
   }
 }
 const SHELLS = /^-?(zsh|bash|sh|fish|dash|ksh|tcsh|csh)$/;
+const TRUST = /trust (the files in )?this folder/i;
+const NOT_TRUSTED = 'Its folder was not trusted.';
 // tmux names a running Claude by its version number, or claude or node.
 const CLAUDE_CMD = /^(claude|node|\d+\.\d+\.\d+)$/i;
 
@@ -67,6 +69,8 @@ class Hub {
     this.ended = new Map((Array.isArray(this.state.ended) ? this.state.ended : []).filter((e) => e && NAME_RE.test(e.name || '')).map((e) => [e.name, e]));
     // Sessions of boxes he removed from the list: New Box offers them first.
     this.removed = (Array.isArray(this.state.removed) ? this.state.removed : []).filter((e) => e && UUID_RE.test(e.id || '') && NAME_RE.test(e.name || '')).slice(0, 6);
+    // Why a box ended as it started, by name, for the line above its actions.
+    this.endWhy = new Map();
     // Panes last seen running Claude, and when: keys go only there.
     this.claudeAt = new Map();
     this.closing = new Set();
@@ -256,7 +260,7 @@ class Hub {
     if (b.claude || this.status(b) !== 'off') return null;
     const saved = this.state.boxes.find((s) => s.name === b.name);
     if (!saved || (!UUID_RE.test(saved.sessionId || '') && !saved.pending)) return null;
-    return { start: this.hasConversation(saved.sessionId, saved.cwd), window: true, later: this.resumable(saved.sessionId) };
+    return { start: this.hasConversation(saved.sessionId, saved.cwd), window: true, later: this.resumable(saved.sessionId), why: this.endWhy.get(b.name) || null };
   }
 
   // New Box resumes sessions from the working folder only.
@@ -272,7 +276,7 @@ class Hub {
     return UUID_RE.test(id || '') && fs.existsSync(this.sessionFile(id));
   }
 
-  // Start it again resumes in the box's own folder, or the working folder.
+  // Resume runs in the box's own folder, or the working folder.
   hasConversation(id, cwd) {
     if (this.resumable(id)) return true;
     const dir = path.join(this.cfg.claudeHome, 'projects', String(cwd || '').replace(/[^A-Za-z0-9]/g, '-'));
@@ -302,7 +306,7 @@ class Hub {
         modelName: null,
         effort: null,
         remote: false,
-        ended: { start: this.hasConversation(e.sessionId, e.cwd), window: false, later: this.resumable(e.sessionId) },
+        ended: { start: this.hasConversation(e.sessionId, e.cwd), window: false, later: this.resumable(e.sessionId), why: this.endWhy.get(e.name) || null },
         session: UUID_RE.test(e.sessionId || '') ? e.sessionId : null,
       }));
     return this.livePublicBoxes().concat(gone);
@@ -1241,7 +1245,7 @@ class Hub {
       if ((asked || seen.asked) && SHELLS.test(cmd)) return 'exited';
       const menu = CLAUDE_CMD.test(cmd) ? parseMenu(s) : null;
       if (menu) seen.asked = true;
-      if (/trust (the files in )?this folder/i.test(s) && menu) {
+      if (TRUST.test(s) && menu) {
         if (!asked) {
           asked = true;
           end = Date.now() + 600000;
@@ -1284,13 +1288,7 @@ class Hub {
       }
       if (row) {
         this.log('resume uses its row', { name: row.name, live: false });
-        const r = await this.startAgain(row.name);
-        const keep = message ? { unsent: message } : {};
-        if (!r.ok || !message) return { ...r, ...keep, name: row.name, existing: true };
-        const seen = {};
-        const ready = await this.waitReady(r.paneId, START_LIMIT, seen);
-        if (ready !== true) return { ...r, ...keep, name: row.name, existing: true };
-        return { ...r, ...(await this.sendFirst(r.paneId, row.name, message, seen.asked)), name: row.name, existing: true };
+        return { ...(await this.resumeWith(row.name, message)), name: row.name, existing: true };
       }
       if (liveSessionIds(this.cfg.claudeHome).has(resume)) return { ok: false, reason: 'Already running in a window outside chiefman.' };
     }
@@ -1301,6 +1299,7 @@ class Hub {
     else if (this.nameTaken(name)) return { ok: false, reason: `A box named ${name} already exists.` };
     if (!this.ctl) return { ok: false, reason: 'chiefman is not connected to tmux yet.' };
     this.starting.add(final);
+    this.endWhy.delete(final);
     try {
       const r = await this.startBox(final, icon, color, message, model, effort, resume);
       return { ...r, name: final, ...(final !== name ? { renamed: name } : {}) };
@@ -1342,7 +1341,10 @@ class Hub {
     const seen = {};
     const ready = await this.waitReady(paneId, 90000, seen);
     const keep = message ? { unsent: message } : {};
-    if (ready === 'exited') return { ok: false, ended: true, reason: `${name} ended: its folder was not trusted.`, paneId, ...keep };
+    if (ready === 'exited') {
+      this.endWhy.set(name, NOT_TRUSTED);
+      return { ok: false, ended: true, reason: NOT_TRUSTED, paneId, ...keep };
+    }
     if (!ready) return { ok: false, reason: `${name} did not start in time. Open Terminal to see why.`, paneId, ...keep };
     await this.promptEmpty(paneId, 5000);
     await this.deliverChecked(paneId, `/rename ${name}`).catch(() => false);
@@ -1454,6 +1456,7 @@ class Hub {
           this.soon('poll', 100, () => this.pollScreens());
         }
         r.asking = true;
+        r.trust = TRUST.test(s);
         end = Date.now() + START_LIMIT;
         continue;
       }
@@ -1478,8 +1481,11 @@ class Hub {
       setTimeout(() => this.emitBoxes(), 6500);
     }
     // Claude quit (he said "No, exit", or it stopped): the box has ended, with
-    // Start it again, like any box whose Claude quit.
-    if (r.why === 'exited') this.resuming.delete(name);
+    // Resume, like any box whose Claude quit.
+    if (r.why === 'exited') {
+      this.resuming.delete(name);
+      if (r.trust) this.endWhy.set(name, NOT_TRUSTED);
+    }
     await this.scan().catch(() => {});
     this.emitBoxes();
   }
@@ -1506,26 +1512,38 @@ class Hub {
 
   // Starts an ended box again on its own session: in a new window with the
   // same name when its window closed, or in its window when only Claude exited.
+  // Resume, or Resume and send: his message goes in once the prompt is
+  // ready, as New Box's first message does, or waits in the field.
+  async resumeWith(name, message) {
+    const r = await this.startAgain(name);
+    const keep = message ? { unsent: message } : {};
+    if (!r.ok || !message) return { ...r, ...keep };
+    const seen = {};
+    const ready = await this.waitReady(r.paneId, START_LIMIT, seen);
+    if (ready !== true) return { ...r, ...keep };
+    return { ...r, ...(await this.sendFirst(r.paneId, name, message, seen.asked)) };
+  }
+
   async startAgain(name) {
     const e = this.ended.get(name);
     const box = this.boxes.find((b) => b.name === name);
     const saved = e || this.state.boxes.find((s) => s.name === name);
-    if (!saved || !UUID_RE.test(saved.sessionId || '')) return { ok: false, reason: `Couldn't start: ${name} has no conversation to resume.` };
-    if ((this.resuming.get(name) || {}).state === 'resuming') return { ok: false, reason: `Already starting ${name}.` };
+    if (!saved || !UUID_RE.test(saved.sessionId || '')) return { ok: false, reason: `Couldn't resume:${name} has no conversation to resume.` };
+    if ((this.resuming.get(name) || {}).state === 'resuming') return { ok: false, reason: `Already resuming ${name}.` };
     if (liveSessionIds(this.cfg.claudeHome).has(saved.sessionId)) {
       const row = this.rowForSession(saved.sessionId);
       return { ok: false, reason: row && row.live ? `Already running as ${row.name}.` : 'Already running in a window outside chiefman.' };
     }
-    if (!this.hasConversation(saved.sessionId, saved.cwd)) return { ok: false, reason: `Couldn't start: ${name} never got a message, so there is nothing to resume.` };
-    if (!this.ctl) return { ok: false, reason: "Couldn't start: chiefman is not connected to tmux yet." };
+    if (!this.hasConversation(saved.sessionId, saved.cwd)) return { ok: false, reason: `Couldn't resume:${name} never got a message, so there is nothing to resume.` };
+    if (!this.ctl) return { ok: false, reason: "Couldn't resume:chiefman is not connected to tmux yet." };
     const cmd = this.claudeCmd(saved.sessionId, saved.model, saved.effort);
     const cwd = saved.cwd && fs.existsSync(saved.cwd) ? saved.cwd : this.cfg.workdir;
     let paneId;
     if (box) {
       if (!this.endedInfo(box)) return { ok: false, reason: `Already running as ${name}.` };
       const now = (await run(['display', '-p', '-t', box.paneId, '#{pane_current_command}']).catch(() => '')).trim();
-      if (!SHELLS.test(now)) return { ok: false, reason: `Couldn't start: something else runs in ${name}'s window.` };
-    } else if (!e) return { ok: false, reason: `Couldn't start: ${name} is gone.` };
+      if (!SHELLS.test(now)) return { ok: false, reason: `Couldn't resume:something else runs in ${name}'s window.` };
+    } else if (!e) return { ok: false, reason: `Couldn't resume:${name} is gone.` };
     try {
       if (box) {
         await run(['respawn-pane', '-k', '-t', box.paneId, '-c', cwd]);
@@ -1546,9 +1564,10 @@ class Hub {
       await run(['send-keys', '-t', paneId, 'Enter']);
     } catch (err) {
       this.resuming.delete(name);
-      return { ok: false, reason: `Couldn't start: ${String((err && err.message) || err).slice(0, 120)}` };
+      return { ok: false, reason: `Couldn't resume:${String((err && err.message) || err).slice(0, 120)}` };
     }
     this.log('start again', { name });
+    this.endWhy.delete(name);
     this.followStart(name);
     return { ok: true, paneId };
   }
@@ -1577,6 +1596,7 @@ class Hub {
     this.ended.delete(name);
     this.state.boxes = this.state.boxes.filter((b) => b.name !== name);
     this.log('closed ended', { name });
+    this.endWhy.delete(name);
     await this.scan();
     this.recordState();
     this.emitBoxes();

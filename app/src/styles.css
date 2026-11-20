@@ -1904,6 +1904,14 @@ button {
 .composer.shell {
   box-shadow: 0 0 0 2px var(--lilac), 0 10px 30px rgba(26, 26, 26, 0.18);
 }
+/* An ended box's bar: not live, but it takes text for Resume and send. */
+.composer.dim {
+  opacity: 0.5;
+  box-shadow: none;
+}
+.composer.dim:focus-within {
+  opacity: 0.75;
+}
 .shell-hint {
   font-size: 11.5px;
   color: var(--muted);

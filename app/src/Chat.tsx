@@ -160,7 +160,7 @@ export function ChatView({
   onRemove,
   note,
   waiting,
-  why,
+  onResume,
   onOpen,
   onSend,
   onError,
@@ -178,7 +178,7 @@ export function ChatView({
   onRemove: () => Promise<Result>;
   note?: string;
   waiting?: string;
-  why?: string;
+  onResume: () => Promise<Result>;
   onOpen: (url: string) => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
@@ -211,6 +211,8 @@ export function ChatView({
   const ended = box.status === 'ended' || !!box.ended;
   const closed = off || starting || resuming || failed || ended;
   const typed = !!draft.trim() || atts.length > 0;
+  // An ended box takes text for Resume and send; it does not send itself.
+  const typeAhead = !!ended && !!box.ended?.start;
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.map((p) => p.t)];
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
@@ -350,12 +352,12 @@ export function ChatView({
 
   // A box that ended starts again on its session, or is closed with its draft.
   // A click that does not do its job says why, on a line under the buttons.
-  async function startAgain() {
+  async function resume() {
     setEndBusy(true);
     setEndWhy(null);
-    const r = await api().startAgain(box.name);
+    const r = await onResume();
     setEndBusy(false);
-    if (!r.ok) setEndWhy(r.reason || "Couldn't start it again.");
+    if (!r.ok) setEndWhy(r.reason || "Couldn't resume it.");
   }
 
   async function closeEnded() {
@@ -575,30 +577,26 @@ export function ChatView({
         {ended && (
           <div className="ended rise" role="status">
             {/* The reason has its own line, above the actions it explains. */}
-            {(endWhy || why) && (
+            {(endWhy || box.ended?.why) && (
               <div className="ended-why" role="alert">
-                {endWhy || why}
+                {endWhy || box.ended?.why}
               </div>
             )}
             <div className="ended-line">
               <span>{box.name} ended</span>
               {box.ended?.start && (
-                <button className="text-btn" onClick={startAgain} disabled={endBusy}>
-                  Start it again
+                <button className="text-btn" onClick={resume} disabled={endBusy}>
+                  {typed ? 'Resume and send' : 'Resume'}
                 </button>
               )}
               <button className="text-btn" onClick={closeEnded} disabled={endBusy}>
-                Remove from list
+                Remove
               </button>
             </div>
-            {box.ended?.later ? (
-              <div className="ended-note">
-                {typed
-                  ? 'The conversation and your typed text stay saved. You can resume them later from New Box.'
-                  : 'The conversation stays saved. You can resume it later from New Box.'}
-              </div>
+            {box.ended?.start ? (
+              <div className="ended-note">Kept under Ended. Resume brings it back.</div>
             ) : (
-              typed && <div className="ended-note">Your typed text goes too.</div>
+              typed && <div className="ended-note">Remove takes your typed text too.</div>
             )}
           </div>
         )}
@@ -694,7 +692,7 @@ export function ChatView({
             {menu.esc ? 'Pick an option above, or Esc to cancel' : 'Pick an option above'}
           </div>
         )}
-        <div className={'composer' + (draft.includes('\n') || draft.length > 70 ? ' tall' : '') + (draft.startsWith('!') ? ' shell' : '')}>
+        <div className={'composer' + (draft.includes('\n') || draft.length > 70 ? ' tall' : '') + (draft.startsWith('!') ? ' shell' : '') + (ended ? ' dim' : '')}>
           <label htmlFor="composer" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
             Message {box.name}
           </label>
@@ -705,9 +703,9 @@ export function ChatView({
             autoComplete="off"
             spellCheck={false}
             value={draft}
-            readOnly={closed}
+            readOnly={closed && !typeAhead}
             aria-expanded={pop ? 'true' : 'false'}
-            placeholder={closed ? '' : menu?.free ? 'Type your own answer' : 'Message'}
+            placeholder={typeAhead ? 'Type, then Resume and send' : closed ? '' : menu?.free ? 'Type your own answer' : 'Message'}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);

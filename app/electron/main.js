@@ -206,7 +206,11 @@ function wireIpc() {
   );
   act('cm:retry', (p) => (PANE.test(p) ? hub.retryStart(p) : { ok: false, reason: 'Bad request.' }));
   const BOX_NAME = /^[A-Za-z0-9._-]{1,64}$/;
-  act('cm:start-again', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.startAgain(n) : { ok: false, reason: 'Bad request.' }));
+  act('cm:start-again', (n, m) =>
+    typeof n === 'string' && BOX_NAME.test(n) && (m == null || (typeof m === 'string' && m.length <= 20000))
+      ? hub.resumeWith(n, m ? m.trim() : '')
+      : { ok: false, reason: 'Bad request.' },
+  );
   act('cm:close-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.closeEnded(n) : { ok: false, reason: 'Bad request.' }));  act('cm:rewind', (p, spec) =>
     PANE.test(p) && spec && typeof spec.text === 'string' && spec.text.length < 100000
       ? hub.rewind(p, { text: spec.text, id: typeof spec.id === 'string' ? spec.id : '', dupAfter: Number(spec.dupAfter) || 0 })

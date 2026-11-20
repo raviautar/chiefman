@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('chiefman', {
   copy: (text) => ipcRenderer.send('cm:copy', text),
   attach: (name, data) => ipcRenderer.invoke('cm:attach', name, data),
   retry: (paneId) => ipcRenderer.invoke('cm:retry', paneId),
-  startAgain: (name) => ipcRenderer.invoke('cm:start-again', name),
+  startAgain: (name, message) => ipcRenderer.invoke('cm:start-again', name, message),
   closeEnded: (name) => ipcRenderer.invoke('cm:close-ended', name),  rewind: (paneId, spec) => ipcRenderer.invoke('cm:rewind', paneId, spec),
   files: (paneId, query) => ipcRenderer.invoke('cm:files', paneId, query),
   drafts: () => ipcRenderer.invoke('cm:drafts'),

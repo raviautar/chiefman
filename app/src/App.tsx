@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, Snapshot } from './api';
+import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, Result, Snapshot } from './api';
 import { BoxIcon, Check, Spinner } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
@@ -85,8 +85,6 @@ export function App() {
   const [endedOpen, setEndedOpen] = useState(false);
   // The ended box he is looking at that stays a row until he leaves it.
   const [stay, setStay] = useState<string | null>(null);
-  // Why a box ended as it started, shown above its ended line.
-  const [whyFor, setWhyFor] = useState<Record<string, string>>({});
   const pending = useRef<Record<string, Pending[]>>({});
   const quiet = useRef(new Set<string>());
   const wantSelect = useRef<string | null>(null);
@@ -312,21 +310,25 @@ export function App() {
       if (b.ended && wasLive.current[b.name] && b.name === box?.name) setStay(b.name);
       wasLive.current[b.name] = !b.ended;
     }
-    // A reason goes once its box runs Claude again.
-    const back = Object.keys(whyFor).filter((n) => {
-      const b = boxes.find((x) => x.name === n);
-      return !b || ['working', 'idle', 'resuming', 'resumed'].includes(b.status);
-    });
-    if (back.length)
-      setWhyFor((w) => {
-        const next = { ...w };
-        for (const n of back) delete next[n];
-        return next;
-      });
   }, [boxes]);
   useEffect(() => {
     setStay((s) => (s === box?.name ? s : null));
   }, [box?.name]);
+
+  // Resume, or Resume and send: what he typed in an ended box goes along,
+  // the way New Box's first message does, or stays in its field.
+  async function resumeBox(name: string): Promise<Result> {
+    const d = saved.current[name];
+    const text = d ? [d.text.trim(), ...d.atts.map((a) => a.path)].filter(Boolean).join(' ') : '';
+    const r = await api().startAgain(name, text || undefined);
+    if (r.sent) {
+      setDraftFor(name, null);
+      const p = r.paneId;
+      if (p) setIncoming((x) => ({ ...x, [p]: { text: '', seq: Date.now() } }));
+    }
+    if (r.ok && r.unsent && r.reason) show(r.reason, true);
+    return r;
+  }
 
   async function clearEnded(names: string[]) {
     for (const n of names) await removeEnded(n);
@@ -553,8 +555,7 @@ export function App() {
           setDraftFor(NEW_BOX, null);
         }
         // A box that ended as it started says why above its own ended line.
-        if (!r.ok && r.ended) setWhyFor((w) => ({ ...w, [r.name || spec.name]: r.reason || "Couldn't start the box." }));
-        else if (!r.ok) show(r.reason || "Couldn't start the box.", true);
+        if (!r.ok && !r.ended) show(r.reason || "Couldn't start the box.", true);
         else if (r.unsent && r.reason) show(r.reason, true);
       });
   }
@@ -609,8 +610,18 @@ export function App() {
           { label: box.remote ? 'Copy Remote Control link' : 'Turn on Remote Control', hint: box.remote ? 'on' : '', run: remote },
         ]
       : [];
+  // An ended box: Resume (and send what he typed), or Remove.
+  const endedActions: Action[] = box?.ended
+    ? [
+        ...(box.ended.start
+          ? [{ label: hasText(box.name) ? 'Resume and send' : 'Resume', run: () => void resumeBox(box.name).then((r) => !r.ok && show(r.reason || "Couldn't resume it.", true)) }]
+          : []),
+        { label: 'Remove', run: () => void removeEnded(box.name).then((r) => !r.ok && show(r.reason || "Couldn't remove it.", true)) },
+      ]
+    : [];
   const paletteActions: Action[] = [
     ...boxActions,
+    ...endedActions,
     { label: 'Model and effort', run: () => setPicking(true) },
     { label: 'New box', run: () => setOverlay('newbox') },
     { label: view === 'chat' ? 'Terminal' : 'Chat', run: () => setView(view === 'chat' ? 'terminal' : 'chat') },
@@ -696,9 +707,9 @@ export function App() {
         }}
         onDraft={(d) => setDraftFor(box.name, d)}
         onRemove={() => removeEnded(box.name)}
+        onResume={() => resumeBox(box.name)}
         note={notes[box.name]}
         waiting={held[box.name]}
-        why={whyFor[box.name]}
         onOpen={setFull}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
@@ -744,7 +755,7 @@ export function App() {
             </button>
             {endedShown && (
               <div className="ended-items">
-                {/* A click opens its chat to read; only Start it again there resumes it. */}
+                {/* A click opens its chat to read; only Resume there brings it back. */}
                 {endedLine.map((b) => (
                   <div key={b.id} className={'ended-item' + (box?.name === b.name ? ' on' : '')}>
                     <button
@@ -758,13 +769,13 @@ export function App() {
                       {b.name}
                     </button>
                     <button className="text-btn" onClick={() => clearEnded([b.name])}>
-                      Clear
+                      Remove
                     </button>
                   </div>
                 ))}
                 {endedLine.length > 1 && (
                   <button className="text-btn ended-all" onClick={() => clearEnded(endedLine.map((b) => b.name))}>
-                    Clear all
+                    Remove all
                   </button>
                 )}
               </div>
