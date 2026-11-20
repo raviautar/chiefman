@@ -1,4 +1,8 @@
-# Architect in the Loop
+# chiefman
+
+*Architect in the loop: you do the thinking, the agent runs in the loop.*
+
+Formerly `architect-in-the-loop`.
 
 A small set of [Claude Code](https://www.claude.com/product/claude-code) skills for staying the architect while an agent does the work.
 
@@ -8,28 +12,34 @@ The bet: coding agents are strongest when a human does the thinking up front and
 
 **`plain-english`**: the voice. How the agent talks to you on every reply: high-school level language, short sentences with one fact each, no AI tells, honest about what it did and did not check. Say *"less text"* or *"high-school language"* once and the tighter style holds for the rest of the session. The foundation the others build on.
 
-**`teach`**: learning mode. One concept per message, anchored to real code, one diagram extended in place instead of fresh walls of prose, and it backs up the moment you're lost.
+**`explain`**: understanding mode. When a reply did not land, it finds the one piece you are missing and fills only that, built on what you already know, one idea per reply. Say "explain" again and the next reply goes lower, never longer. It replaces the older `teach`.
 
-**`goal-alignment`**: the loop. Do all the deciding and proving *before* the loop starts, co-write a plain-english brief (Problem, Implementation, Verification), then hand the agent a self-correcting loop whose only completion criteria are checks that actually land in the transcript. Preparation is the product; the loop is the cheap part.
+**`goal-alignment`**: the loop. Do all the deciding and proving *before* the loop starts, co-write a plain-english brief (Problem, Implementation, Verification), then hand the agent a self-correcting loop whose only completion criteria are fast checks that actually appear in the transcript. The end-to-end check through the real UI comes after the loop is green. Preparation is the product; the loop is the cheap part.
 
-**`chief`**: the operating model, and the biggest change to day-to-day work in this repo. One loop is easy to watch. Five loops in five terminals are not, and the human quietly becomes their switchboard. `chief` fixes that: you talk to one session, the chief. Every other session is a *box* (a long-lived workstream in its own tmux window) or a *runner* (a background worker for one job). The chief routes work, drives the boxes, keeps a registry of what is running, reads an append-only ledger the boxes write to, and brings you one thing at a time. It ships with twelve rules, each written down the day breaking it cost something, and each with its reason next to it.
+**`chief`**: the operating model, and the biggest change to day-to-day work in this repo. One loop is easy to watch. Five loops in five terminals are not, and the human quietly becomes their switchboard. `chief` fixes that: you talk to one session, the chief. Every other session is a *box* (a long-lived workstream in its own tmux window) or a *runner* (a background worker for one job). The chief routes work, drives the boxes, keeps a registry of what is running, reads an append-only ledger the boxes write to, and brings you one thing at a time. Ask for the *drill-down* and it gives a short numbered list of what needs you now, one plain line per item with the answer words in quotes, and you answer by number. It ships with thirteen rules, each written down the day breaking it cost something, and each with its reason next to it.
 
 ## How they fit together
 
-`plain-english` is the foundation: the voice and working rules every reply obeys. `teach`, `goal-alignment` and `chief` inherit it, and `goal-alignment` also reuses `teach`'s pacing whenever it has to explain code mid-design. `chief` sits one level up: each `goal-alignment` loop runs inside a box, and the chief keeps all of them moving while you deal with one thing at a time.
+`plain-english` is the foundation: the voice and working rules every reply obeys. `explain`, `goal-alignment` and `chief` inherit it, and `goal-alignment` also reuses `explain`'s pacing whenever it has to explain code mid-design. `chief` sits one level up: each `goal-alignment` loop runs inside a box, and the chief keeps all of them moving while you deal with one thing at a time. chiefman, the app below, is the screen you see it all on.
 
 ```mermaid
 flowchart TD
     plain["plain-english<br/>the voice"]
-    teach["teach<br/>learning mode"]
+    explain["explain<br/>understanding mode"]
     goal["goal-alignment<br/>the loop"]
     chief["chief<br/>many loops, one conversation"]
-    plain -->|inherited by| teach
+    app["chiefman<br/>the Mac app"]
+    plain -->|inherited by| explain
     plain -->|inherited by| goal
     plain -->|inherited by| chief
-    teach -->|pacing reused by| goal
+    explain -->|pacing reused by| goal
     chief -->|runs each loop in a box| goal
+    app -->|shows the boxes and the drill-down of| chief
 ```
+
+## chiefman, the Mac app
+
+chiefman is the visual front end of these skills, and it will live in this repo in the `chiefman/` folder. It is a small Mac app (Electron) over the chief's tmux session. It shows each box's conversation one message at a time, with the tool work hidden. It types your messages into a box, starts new boxes, and brings them all back after a reboot. The chief's drill-down shows as answer cards, one click per answer. The skills are shaped for it: replies read on their own without the tool work (`plain-english` R14), and the drill-down has a fixed shape the app can read (`chief`).
 
 ## Why "in the loop"
 
@@ -42,13 +52,13 @@ Two readings, both intended. The agent runs *in a loop*, a condition re-graded e
 You can install these skills as a local Claude Code plugin directly from your cloned directory:
 
 ```sh
-claude plugin install /path/to/architect-in-the-loop
+claude plugin install /path/to/chiefman
 ```
 
 Alternatively, you can test it temporarily in a single Claude Code session:
 
 ```sh
-claude --plugin-dir /path/to/architect-in-the-loop
+claude --plugin-dir /path/to/chiefman
 ```
 
 ### Option 2: Copy Manual Skills
@@ -56,17 +66,17 @@ claude --plugin-dir /path/to/architect-in-the-loop
 If you prefer to install them manually as individual skills, copy the folders into your skills directory:
 
 ```sh
-cp -r skills/plain-english skills/teach skills/goal-alignment skills/chief ~/.claude/skills/
+cp -r skills/plain-english skills/explain skills/goal-alignment skills/chief ~/.claude/skills/
 ```
 
 ### Invocation
 
-Then invoke by name (*"align the goal"*, *"walk me through X"*, *"put this in a box"*) or let Claude pick them up by their descriptions.
+Then invoke by name (*"align the goal"*, *"explain"*, *"put this in a box"*, *"drill down"*) or let Claude pick them up by their descriptions.
 
 `plain-english` is meant to be always on. To load it in every session, import it from your `~/.claude/CLAUDE.md`:
 
 ```
-@/path/to/architect-in-the-loop/skills/plain-english/SKILL.md
+@/path/to/chiefman/skills/plain-english/SKILL.md
 ```
 
 It sets the reading level and the wording. It sets no length budget of its own, so it works well next to Claude Code's Concise output style.
@@ -84,7 +94,7 @@ Fill it in and keep it out of any public repo.
 
 ### Running the chief
 
-`chief` needs tmux. Start one tmux session named `chief` from your workspace root, run Claude Code in window 0, and tell it to be the chief. It opens a window per box as work comes in. Copy [registry-template.md](skills/chief/registry-template.md) to `.agents/chief/registry.md` in your workspace; the ledger lives next to it in `.agents/ledger/`. Keep both out of any public repo, like the resources file.
+`chief` needs tmux. Start one tmux session named `chief` from your working folder, run Claude Code in window 0, and tell it to be the chief. It opens a window per box as work comes in. With chiefman running, the app keeps the list of boxes for you. Without it, copy [registry-template.md](skills/chief/registry-template.md) to the registry file. The resources file names the working folder, the registry and the ledger under Folders; the defaults sit in `.agents/`. Keep all of them out of any public repo.
 
 ## Notes
 

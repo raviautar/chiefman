@@ -1,12 +1,12 @@
 {
-  "name": "architect-in-the-loop",
-  "version": "1.0.0",
+  "name": "chiefman",
+  "version": "1.1.0",
   "description": "Skills for staying the architect while an agent does the work. You do the thinking; the agent runs in the loop.",
   "owner": {
     "name": "Ravi Autar",
     "email": "ravilutionary@gmail.com"
   },
-  "repository": "https://github.com/raviautar/architect-in-the-loop",
+  "repository": "https://github.com/raviautar/chiefman",
   "license": "MIT",
   "skills": [
     {
@@ -15,19 +15,19 @@
       "description": "Foundation voice skill. High-school level language, short sentences, no AI tells. Every other skill layers on top."
     },
     {
-      "name": "teach",
-      "path": "skills/teach",
-      "description": "Learning-mode pacing. One concept per message, anchored to real code, checkpoint before the next."
+      "name": "explain",
+      "path": "skills/explain",
+      "description": "Understanding mode. Finds the one piece you are missing and fills only that, one idea per reply, built on what you already know."
     },
     {
       "name": "goal-alignment",
       "path": "skills/goal-alignment",
-      "description": "Co-write a PIV brief, resolve all decisions, prove prerequisites, then hand the agent a self-correcting loop."
+      "description": "Co-write a PIV brief, settle the decisions, prove prerequisites, then hand the agent a self-correcting loop of fast checks; the end-to-end check follows."
     },
     {
       "name": "chief",
       "path": "skills/chief",
-      "description": "Run many Claude Code sessions at once. One chief routes work between tmux-hosted boxes and background runners, coordinates through a ledger, and presents one thing at a time."
+      "description": "Run many Claude Code sessions at once. One chief routes work between tmux-hosted boxes and background runners, coordinates through a ledger, brings you one thing at a time, and on request gives the drill-down: a short numbered list of what needs you. chiefman, the Mac app, is its visual front end."
     }
   ]
 }
