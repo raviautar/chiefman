@@ -63,6 +63,9 @@ export interface Drill {
   at?: string;
   items: DrillItem[];
   total?: number;
+  // Older lists in the chief's chat, by message id: all answered, or
+  // replaced by a newer list that still has some of their items open.
+  folds?: Record<string, 'answered' | 'earlier'>;
   rest: number;
   also: string | null;
 }
@@ -119,6 +122,9 @@ export interface Result {
   name?: string;
   existing?: boolean;
   renamed?: string;
+  // The first message: seen sent, or given back to go in the box's field.
+  sent?: boolean;
+  unsent?: string;
 }
 
 interface Bridge {

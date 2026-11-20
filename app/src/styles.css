@@ -1510,8 +1510,26 @@ button {
   color: var(--faint);
 }
 
-.recent .sub {
+.recent .sub,
+.picked .sub {
   color: var(--faint);
+}
+.picked {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picked-name {
+  font-weight: 600;
+}
+.look-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.look-line .text-btn {
+  color: var(--muted);
 }
 .recent button.on .sub {
   color: inherit;

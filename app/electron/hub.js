@@ -1162,7 +1162,8 @@ class Hub {
   // answer, so it ends the wait instead of being answered here.
   // Waits for the prompt. The trust question shows as buttons in the chat
   // and is never answered for him; it gets up to ten more minutes.
-  async waitReady(paneId, ms) {
+  // seen.asked: a question showed before the prompt was ready.
+  async waitReady(paneId, ms, seen = {}) {
     let end = Date.now() + ms;
     let asked = false;
     while (Date.now() < end) {
@@ -1173,6 +1174,7 @@ class Hub {
       } catch {
         return false;
       }
+      if (parseMenu(s)) seen.asked = true;
       if (/trust (the files in )?this folder/i.test(s) && parseMenu(s)) {
         if (!asked) {
           asked = true;
@@ -1216,11 +1218,17 @@ class Hub {
       const row = this.rowForSession(resume);
       if (row && row.live) {
         this.log('resume uses its row', { name: row.name, live: true });
-        return { ok: true, name: row.name, existing: true };
+        return { ok: true, name: row.name, existing: true, ...(message ? { unsent: message } : {}) };
       }
       if (row) {
         this.log('resume uses its row', { name: row.name, live: false });
-        return { ...(await this.startAgain(row.name)), name: row.name, existing: true };
+        const r = await this.startAgain(row.name);
+        const keep = message ? { unsent: message } : {};
+        if (!r.ok || !message) return { ...r, ...keep, name: row.name, existing: true };
+        const seen = {};
+        const ready = await this.waitReady(r.paneId, START_LIMIT, seen);
+        if (ready !== true) return { ...r, ...keep, name: row.name, existing: true };
+        return { ...r, ...(await this.sendFirst(r.paneId, row.name, message, seen.asked)), name: row.name, existing: true };
       }
       if (liveSessionIds(this.cfg.claudeHome).has(resume)) return { ok: false, reason: 'Already running in a window outside chiefman.' };
     }
@@ -1269,23 +1277,42 @@ class Hub {
     await sleep(900);
     await run(['send-keys', '-t', paneId, '-l', '--', this.claudeCmd(resume, model, effort)]);
     await run(['send-keys', '-t', paneId, 'Enter']);
-    const ready = await this.waitReady(paneId, 90000);
-    if (ready === 'exited') return { ok: false, reason: `${name} closed: its folder was not trusted.`, paneId };
-    if (!ready) return { ok: false, reason: `${name} did not start in time. Open Terminal to see why.`, paneId };
+    const seen = {};
+    const ready = await this.waitReady(paneId, 90000, seen);
+    const keep = message ? { unsent: message } : {};
+    if (ready === 'exited') return { ok: false, reason: `${name} closed: its folder was not trusted.`, paneId, ...keep };
+    if (!ready) return { ok: false, reason: `${name} did not start in time. Open Terminal to see why.`, paneId, ...keep };
     await this.promptEmpty(paneId, 5000);
     await this.deliverChecked(paneId, `/rename ${name}`);
-    if (message) {
-      await sleep(600);
-      await this.promptEmpty(paneId, 8000);
-      this.typedByApp.set(paneId, [message]);
-      if (!(await this.deliverChecked(paneId, message))) {
-        this.log('first message stuck', { name });
-        return { ok: false, reason: `${name} started, but its first message is still typed there. Press Enter in Terminal.`, paneId };
-      }
-    }
+    const first = await this.sendFirst(paneId, name, message, seen.asked);
     this.log('box started', { name });
     await this.scan();
-    return { ok: true, paneId };
+    return { ok: true, paneId, ...first };
+  }
+
+  // His first message goes in once the prompt is ready, and must be seen
+  // sent. When a question came first, or it does not go through, it goes
+  // back to the app as the box's draft: never lost.
+  async sendFirst(paneId, name, message, asked) {
+    if (!message) return {};
+    if (asked) {
+      this.log('first message kept', { name, why: 'asked first' });
+      return { unsent: message };
+    }
+    await sleep(600);
+    if (!(await this.promptEmpty(paneId, 8000))) {
+      this.log('first message kept', { name, why: 'prompt not empty' });
+      return { unsent: message };
+    }
+    this.typedByApp.set(paneId, [message]);
+    if (!(await this.deliverChecked(paneId, message))) {
+      // Taken back out of the terminal, so it is in one place only.
+      await this.clearPrompt(paneId, message).catch(() => false);
+      this.log('first message kept', { name, why: 'stuck' });
+      return { unsent: message, reason: `${name} did not take its first message. It is in the field.` };
+    }
+    this.log('first message sent', { name });
+    return { sent: true };
   }
 
   // ---- bringing boxes back ------------------------------------------------

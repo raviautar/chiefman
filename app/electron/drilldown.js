@@ -139,21 +139,72 @@ function answeredNumbers(text) {
   return out;
 }
 
-// The chief's newest list, without the lines he already answered. Output of
-// a slash command is never a list.
-function newestDrill(items) {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (it.k !== 'box' || it.id.startsWith('o:')) continue;
-    const list = parseList(it.t);
-    if (!list) continue;
-    const answered = new Set();
-    for (const later of items.slice(i + 1)) if (later.k === 'you') for (const n of answeredNumbers(later.t)) answered.add(n);
-    const open = list.filter((x) => !answered.has(x.n));
-    // total: what needed him when the list came, answered or not.
-    return { id: it.id, at: it.ts, items: open.filter((x) => x.now), total: list.filter((x) => x.now).length, rest: open.filter((x) => !x.now).length, also: list.also || null };
+// The chief's log is read again on every change: each message is parsed once.
+const parsed = new Map();
+function listOf(it) {
+  const hit = parsed.get(it.id);
+  if (hit && hit.t === it.t) return hit.list;
+  const list = parseList(it.t);
+  if (parsed.size > 5000) parsed.clear();
+  parsed.set(it.id, { t: it.t, list });
+  return list;
+}
+
+const same = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+
+// Every older list that needed him folds in the chat. "answered": each of
+// its items got a numbered reply before the next list, or the next list
+// dropped it, or carried it and it was answered there. "earlier": some of
+// its items are still open in a newer list.
+function drillFolds(items, lists) {
+  const folds = {};
+  let next = null;
+  for (let k = lists.length - 1; k >= 0; k--) {
+    const L = lists[k];
+    const end = k + 1 < lists.length ? lists[k + 1].i : items.length;
+    const replied = new Set();
+    for (const it of items.slice(L.i + 1, end)) if (it.k === 'you') for (const n of answeredNumbers(it.t)) replied.add(n);
+    const resolved = new Set();
+    let done = 0;
+    for (const x of L.now) {
+      const key = same(x.full);
+      let ok = replied.has(x.n);
+      if (!ok && next) ok = !next.now.some((y) => same(y.full) === key) || next.resolved.has(key);
+      if (ok) {
+        resolved.add(key);
+        done++;
+      }
+    }
+    if (k < lists.length - 1 && L.now.length) folds[L.id] = done === L.now.length ? 'answered' : 'earlier';
+    next = { now: L.now, resolved };
   }
-  return null;
+  return folds;
+}
+
+// The chief's newest list, without the lines he already answered, and how
+// each older list folds. Output of a slash command is never a list.
+function newestDrill(items) {
+  const lists = [];
+  items.forEach((it, i) => {
+    if (it.k !== 'box' || it.id.startsWith('o:')) return;
+    const list = listOf(it);
+    if (list) lists.push({ i, id: it.id, it, list, now: list.filter((x) => x.now) });
+  });
+  const last = lists[lists.length - 1];
+  if (!last) return null;
+  const answered = new Set();
+  for (const later of items.slice(last.i + 1)) if (later.k === 'you') for (const n of answeredNumbers(later.t)) answered.add(n);
+  const open = last.list.filter((x) => !answered.has(x.n));
+  // total: what needed him when the list came, answered or not.
+  return {
+    id: last.id,
+    at: last.it.ts,
+    items: open.filter((x) => x.now),
+    total: last.now.length,
+    rest: open.filter((x) => !x.now).length,
+    also: last.list.also || null,
+    folds: drillFolds(items, lists),
+  };
 }
 
 module.exports = { parseList, newestDrill, answerWords, shortLine };

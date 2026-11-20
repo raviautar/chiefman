@@ -10,6 +10,9 @@ import { NewBoxSheet } from './NewBox';
 
 type Toast = { text: string; bad?: boolean; id: number };
 
+// New Box's message is kept with the drafts, under a key no box name can have.
+const NEW_BOX = 'new.box';
+
 // Below this width the drill-down floats over the chat instead of taking room.
 const NARROW = '(max-width: 1179px)';
 
@@ -220,7 +223,7 @@ export function App() {
   useEffect(() => {
     if (!draftsReady || info.phase !== 'ready' || !boxes.length) return;
     const names = new Set(boxes.map((b) => b.name));
-    const gone = Object.keys(saved.current).filter((n) => !n.startsWith('session.') && !names.has(n));
+    const gone = Object.keys(saved.current).filter((n) => !n.includes('.') && !names.has(n));
     if (!gone.length) return;
     const next = { ...saved.current };
     for (const n of gone) delete next[n];
@@ -455,6 +458,16 @@ export function App() {
     return keep;
   }
 
+  // A message that did not go in waits in the box's field, after anything
+  // he typed there, and is saved like any draft.
+  function giveBack(name: string, paneId: string | undefined, text: string) {
+    const cur = saved.current[name];
+    const full = cur?.text ? `${cur.text}\n${text}` : text;
+    setDraftFor(name, { text: full, caret: full.length, atts: cur?.atts ?? [] });
+    const p = paneId ?? boxesRef.current.find((b) => b.name === name)?.paneId;
+    if (p) setIncoming((d) => ({ ...d, [p]: { text: full, seq: Date.now() } }));
+  }
+
   function startBox(spec: BoxSpec, note?: string) {
     setOverlay(null);
     if (note) setNotes((n) => ({ ...n, [spec.name]: note }));
@@ -476,7 +489,15 @@ export function App() {
         }
         if (r.existing && r.name) setSelected(r.name);
         if (r.renamed && r.name) setNotes((n) => ({ ...n, [r.name!]: `${r.renamed} is a different conversation, so this one is ${r.name}.` }));
+        // His first message: sent, or put in the box's field. New Box keeps
+        // it only when the box never came up.
+        if (r.sent) setDraftFor(NEW_BOX, null);
+        if (r.unsent) {
+          giveBack(r.name || spec.name, r.paneId, r.unsent);
+          setDraftFor(NEW_BOX, null);
+        }
         if (!r.ok) show(r.reason || "Couldn't start the box.", true);
+        else if (r.unsent && r.reason) show(r.reason, true);
       });
   }
 
@@ -558,16 +579,15 @@ export function App() {
   const title = box ? box.name : 'chiefman';
   const meter = box ? meterLine(box) : '';
   const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
-  // The chief's list folds to one line while the panel shows it, and once
-  // all of it is answered. A list that never had items stays plain text.
-  const fold =
-    box && box.name === 'chief' && drill
-      ? asks > 0 && drillShown
-        ? { id: drill.id, text: `Drill-down · ${asks} need${asks === 1 ? 's' : ''} you` }
-        : asks === 0 && (drill.total ?? 0) > 0
-          ? { id: drill.id, text: 'Drill-down · all answered' }
-          : null
-      : null;
+  // The chief's lists fold to one line each: the newest while the panel shows
+  // it or once all of it is answered, older ones always. A list that never
+  // had items stays plain text.
+  const folds: Record<string, string> = {};
+  if (box && box.name === 'chief' && drill) {
+    for (const [id, kind] of Object.entries(drill.folds || {})) folds[id] = kind === 'answered' ? 'Drill-down · all answered' : 'Earlier drill-down';
+    if (asks > 0 && drillShown) folds[drill.id] = `Drill-down · ${asks} need${asks === 1 ? 's' : ''} you`;
+    else if (asks === 0 && (drill.total ?? 0) > 0) folds[drill.id] = 'Drill-down · all answered';
+  }
   const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
 
   let body;
@@ -604,7 +624,7 @@ export function App() {
         chat={shownPane ? chats[shownPane] : undefined}
         pending={shownPane ? pendingFor(shownPane) : []}
         quiet={quiet.current}
-        fold={fold}
+        folds={folds}
         incoming={box.paneId ? incoming[box.paneId] : undefined}
         initial={saved.current[box.name] ?? (adopt.current?.name === box.name ? saved.current[adopt.current.key] : undefined)}
         attachDir={config?.attachDir ?? ''}
@@ -779,7 +799,13 @@ export function App() {
         {body}
 
         {overlay === 'newbox' && (
-          <NewBoxSheet boxes={boxes} onCancel={() => setOverlay(null)} onStart={startBox} />
+          <NewBoxSheet
+            boxes={boxes}
+            initialMessage={saved.current[NEW_BOX]?.text ?? ''}
+            onMessage={(t) => setDraftFor(NEW_BOX, t ? { text: t, caret: t.length, atts: [] } : null)}
+            onCancel={() => setOverlay(null)}
+            onStart={startBox}
+          />
         )}
         {overlay === 'switch' && (
           <Palette

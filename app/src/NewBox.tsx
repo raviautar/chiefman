@@ -8,12 +8,25 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 // "Release Notes 2" becomes "release-notes-2".
 const slug = (s: string) => s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+/, '').slice(0, 32);
 
+// A box's icon and colour come from its name, until he picks them. The
+// crown stays the chief's.
+const AUTO = SYMBOLS.filter((s) => s !== 'crown');
+function lookFor(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return { icon: AUTO[h % AUTO.length], color: PALETTE[(h >>> 8) % PALETTE.length][1] };
+}
+
 export function NewBoxSheet({
   boxes,
+  initialMessage,
+  onMessage,
   onCancel,
   onStart,
 }: {
   boxes: Box[];
+  initialMessage: string;
+  onMessage: (text: string) => void;
   onCancel: () => void;
   onStart: (spec: BoxSpec, note?: string) => void;
 }) {
@@ -37,10 +50,12 @@ export function NewBoxSheet({
   const [name, setName] = useState('');
   // What he typed himself. Name shows it again when no session is picked.
   const [own, setOwn] = useState('');
-  const [color, setColor] = useState(PALETTE[4][1]);
-  const [icon, setIcon] = useState('doc');
-  const [message, setMessage] = useState('');
+  const [chosen, setLook] = useState<{ icon: string; color: string } | null>(null);
+  const [looking, setLooking] = useState(false);
+  // His message survives a restart, as a draft, until it is sent.
+  const [message, setMessage] = useState(initialMessage);
   const clean = name.trim();
+  const look = chosen ?? lookFor(clean || 'box');
 
   // A session's own name: its title, or the first words he sent it.
   const nameOf = (r: Recent) => slug(r.title || r.first.split(/\s+/).slice(0, 4).join(' ')).replace(/-+$/, '');
@@ -68,7 +83,8 @@ export function NewBoxSheet({
     fired.current = true;
     const r = id ? recent.find((x) => x.id === id) : undefined;
     const note = r && !row && n !== base(r) ? `${base(r)} is a different conversation, so this one is ${n}.` : undefined;
-    onStart({ name: n, icon, color, message: message.trim(), model, effort, ...(id ? { resume: id } : {}) }, note);
+    const lk = id ? lookFor(n) : look;
+    onStart({ name: n, icon: lk.icon, color: lk.color, message: message.trim(), model, effort, ...(id ? { resume: id } : {}) }, note);
   };
   const picked = recent.find((r) => r.id === resume);
   const pickedRow = picked ? rowOf(picked.id) : undefined;
@@ -104,61 +120,89 @@ export function NewBoxSheet({
             )}
           </div>
         </div>
+        {picked ? (
+          // A picked session keeps its own name and look: only what it is shows.
+          <div className="field">
+            <span className="label">Resuming</span>
+            <div className="picked">
+              <span className="picked-name">{clean}</span>
+              {picked.first && <span className="sub"> · {picked.first}</span>}
+            </div>
+            {why && <div className="used-before">{why}</div>}
+          </div>
+        ) : (
+          <div className="field">
+            <label htmlFor="boxname">Name</label>
+            <input
+              id="boxname"
+              autoFocus
+              autoComplete="off"
+              value={name}
+              placeholder="release-notes"
+              onChange={(e) => {
+                const v = slug(e.target.value);
+                setName(v);
+                setOwn(v);
+              }}
+            />
+            {usedBefore && (
+              <div className="used-before">
+                This name was used before.{' '}
+                <button className="text-btn" onClick={() => pick(usedBefore)}>
+                  Resume it instead?
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="field">
-          <label htmlFor="boxname">Name</label>
-          <input
-            id="boxname"
-            autoFocus
-            autoComplete="off"
-            value={name}
-            readOnly={!!resume}
-            title={resume ? 'A resumed conversation keeps its own name. Pick "New" to name a new box.' : undefined}
-            placeholder="release-notes"
+          <label htmlFor="firstmsg">{picked ? 'Message (optional)' : 'First message'}</label>
+          <textarea
+            id="firstmsg"
+            rows={picked ? 2 : 4}
+            value={message}
+            placeholder={picked ? 'Sent once it is back' : 'What should this box do?'}
             onChange={(e) => {
-              const v = slug(e.target.value);
-              setName(v);
-              setOwn(v);
+              setMessage(e.target.value);
+              onMessage(e.target.value);
             }}
           />
-          {why && <div className="used-before">{why}</div>}
-          {usedBefore && (
-            <div className="used-before">
-              This name was used before.{' '}
-              <button className="text-btn" onClick={() => pick(usedBefore)}>
-                Resume it instead?
+        </div>
+        {!picked &&
+          (looking ? (
+            <div className="field" style={{ gap: 8 }}>
+              <span className="label">Look</span>
+              <div className="dots">
+                {PALETTE.map(([label, c]) => (
+                  <button
+                    key={c}
+                    aria-label={label}
+                    onClick={() => setLook({ icon: look.icon, color: c })}
+                    style={{ background: c, boxShadow: c === look.color ? `0 0 0 2px #FCFCFB, 0 0 0 4px ${c}` : 'none' }}
+                  />
+                ))}
+              </div>
+              <div className="tiles">
+                {SYMBOLS.map((s) => (
+                  <button
+                    key={s}
+                    aria-label={s}
+                    onClick={() => setLook({ icon: s, color: look.color })}
+                    style={s === look.icon ? { borderColor: look.color, background: look.color + '14' } : undefined}
+                  >
+                    <BoxIcon icon={s} color={s === look.icon ? look.color : '#5B5B59'} size={17} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="look-line">
+              <BoxIcon icon={look.icon} color={look.color} size={15} />
+              <button className="text-btn" onClick={() => setLooking(true)}>
+                Change look
               </button>
             </div>
-          )}
-        </div>
-        <div className="field" style={{ gap: 8 }}>
-          <span className="label">Icon</span>
-          <div className="dots">
-            {PALETTE.map(([label, c]) => (
-              <button
-                key={c}
-                aria-label={label}
-                onClick={() => setColor(c)}
-                style={{ background: c, boxShadow: c === color ? `0 0 0 2px #FCFCFB, 0 0 0 4px ${c}` : 'none' }}
-              />
-            ))}
-          </div>
-          <div className="tiles">
-            {SYMBOLS.map((s) => (
-              <button
-                key={s}
-                aria-label={s}
-                onClick={() => setIcon(s)}
-                style={s === icon ? { borderColor: color, background: color + '14' } : undefined}
-              >
-                <BoxIcon icon={s} color={s === icon ? color : '#5B5B59'} size={17} />
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="firstmsg">First message</label>
-          <textarea id="firstmsg" rows={4} value={message} placeholder="What should this box do?" onChange={(e) => setMessage(e.target.value)} />
-        </div>
+          ))}
         {recent.length > 0 && (
           <div className="field">
             <span className="label">Or resume an earlier session</span>
@@ -196,7 +240,7 @@ export function NewBoxSheet({
             disabled={!ready}
             onClick={() => start(resume, clean)}
           >
-            {resume ? 'Resume' : 'Start box'}
+            {resume ? (message.trim() ? 'Resume and send' : 'Resume') : 'Start box'}
           </button>
         </div>
       </div>

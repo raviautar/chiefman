@@ -151,7 +151,7 @@ export function ChatView({
   chat,
   pending,
   quiet,
-  fold,
+  folds,
   incoming,
   initial,
   attachDir,
@@ -167,7 +167,7 @@ export function ChatView({
   chat: ChatState | undefined;
   pending: Pending[];
   quiet: Set<string>;
-  fold: { id: string; text: string } | null;
+  folds: Record<string, string>;
   incoming: { text: string; seq: number } | undefined;
   initial: Draft | undefined;
   attachDir: string;
@@ -185,7 +185,7 @@ export function ChatView({
   const [hist, setHist] = useState<number | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
   const [atts, setAtts] = useState<Attachment[]>(initial?.atts ?? []);
-  const [unfold, setUnfold] = useState<string | null>(null);
+  const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set());
   const [retrying, setRetrying] = useState(false);
   const [endBusy, setEndBusy] = useState(false);
   const [endWhy, setEndWhy] = useState<string | null>(null);
@@ -490,11 +490,12 @@ export function ChatView({
         {note && <div className="ended-note">{note}</div>}
         {shown.map((m) => {
           const isFresh = chat!.fresh.has(m.id);
-          if (fold && m.id === fold.id && unfold !== fold.id)
+          const folded = folds[m.id];
+          if (folded && !unfolded.has(m.id))
             return (
-              <button key={m.id} className="work fold" onClick={() => setUnfold(fold.id)} title="Show the whole message">
+              <button key={m.id} className="work fold" onClick={() => setUnfolded((s) => new Set(s).add(m.id))} title="Show the whole message">
                 <Chevron />
-                {fold.text}
+                {folded}
               </button>
             );
           if (m.k === 'you')
