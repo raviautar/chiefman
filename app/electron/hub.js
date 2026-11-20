@@ -67,9 +67,6 @@ class Hub {
     this.ended = new Map((Array.isArray(this.state.ended) ? this.state.ended : []).filter((e) => e && NAME_RE.test(e.name || '')).map((e) => [e.name, e]));
     // Sessions of boxes he removed from the list: New Box offers them first.
     this.removed = (Array.isArray(this.state.removed) ? this.state.removed : []).filter((e) => e && UUID_RE.test(e.id || '') && NAME_RE.test(e.name || '')).slice(0, 6);
-    // When each ended box ended, and when he first saw it ended (null: not yet).
-    const marks = this.state.endMarks && typeof this.state.endMarks === 'object' ? this.state.endMarks : {};
-    this.endMarks = new Map(Object.entries(marks).filter(([n, m]) => NAME_RE.test(n) && m && Number.isFinite(m.at)));
     // Panes last seen running Claude, and when: keys go only there.
     this.claudeAt = new Map();
     this.closing = new Set();
@@ -262,45 +259,6 @@ class Hub {
     return { start: this.hasConversation(saved.sessionId, saved.cwd), window: true, later: this.resumable(saved.sessionId) };
   }
 
-  // Every ended row carries when it ended and when he saw it, kept across
-  // restarts. A box that ended while the app was closed is not seen yet.
-  markEnded(rows) {
-    let changed = false;
-    const names = new Set();
-    for (const r of rows) {
-      if (!r.ended) continue;
-      names.add(r.name);
-      let m = this.endMarks.get(r.name);
-      if (!m) {
-        const e = this.ended.get(r.name);
-        m = { at: (e && e.at) || Date.now(), seen: null };
-        this.endMarks.set(r.name, m);
-        changed = true;
-      }
-      r.ended = { ...r.ended, at: m.at, seen: m.seen };
-    }
-    // Before the first full scan the list is not complete yet.
-    if (this.phase === 'ready') {
-      for (const n of [...this.endMarks.keys()]) {
-        if (names.has(n)) continue;
-        this.endMarks.delete(n);
-        changed = true;
-      }
-    }
-    if (changed) this.soon('record', 300, () => this.recordState());
-    return rows;
-  }
-
-  seenEnded(name) {
-    const m = this.endMarks.get(name);
-    if (!m || m.seen) return { ok: true };
-    m.seen = Date.now();
-    this.log('seen ended', { name });
-    this.recordState();
-    this.emitBoxes();
-    return { ok: true };
-  }
-
   // New Box resumes sessions from the working folder only.
   sessionDir() {
     return path.join(this.cfg.claudeHome, 'projects', this.cfg.workdir.replace(/[^A-Za-z0-9]/g, '-'));
@@ -347,7 +305,7 @@ class Hub {
         ended: { start: this.hasConversation(e.sessionId, e.cwd), window: false, later: this.resumable(e.sessionId) },
         session: UUID_RE.test(e.sessionId || '') ? e.sessionId : null,
       }));
-    return this.markEnded(this.livePublicBoxes().concat(gone));
+    return this.livePublicBoxes().concat(gone);
   }
 
   livePublicBoxes() {
@@ -754,10 +712,7 @@ class Hub {
       if (!entry.sessionId && old.pending) entry.pending = true;
       return entry;
     });
-    const next = {
-      version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()], removed: this.removed,
-      endMarks: Object.fromEntries(this.endMarks),
-    };
+    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()], removed: this.removed };
     if (JSON.stringify(next) !== JSON.stringify(this.state)) {
       this.state = next;
       try {
@@ -1387,7 +1342,7 @@ class Hub {
     const seen = {};
     const ready = await this.waitReady(paneId, 90000, seen);
     const keep = message ? { unsent: message } : {};
-    if (ready === 'exited') return { ok: false, reason: `${name} closed: its folder was not trusted.`, paneId, ...keep };
+    if (ready === 'exited') return { ok: false, ended: true, reason: `${name} closed: its folder was not trusted.`, paneId, ...keep };
     if (!ready) return { ok: false, reason: `${name} did not start in time. Open Terminal to see why.`, paneId, ...keep };
     await this.promptEmpty(paneId, 5000);
     await this.deliverChecked(paneId, `/rename ${name}`).catch(() => false);

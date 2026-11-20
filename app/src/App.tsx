@@ -83,6 +83,10 @@ export function App() {
   // First messages held while their box starts, by box name.
   const [held, setHeld] = useState<Record<string, string>>({});
   const [endedOpen, setEndedOpen] = useState(false);
+  // The ended box he is looking at that stays a row until he leaves it.
+  const [stay, setStay] = useState<string | null>(null);
+  // Why a box ended as it started, shown above its ended line.
+  const [whyFor, setWhyFor] = useState<Record<string, string>>({});
   const pending = useRef<Record<string, Pending[]>>({});
   const quiet = useRef(new Set<string>());
   const wantSelect = useRef<string | null>(null);
@@ -286,63 +290,43 @@ export function App() {
     }
   }, [boxes]);
 
-  // Ended boxes. One he never saw end waits in the quiet "Ended" line; one
-  // he saw leaves the list by itself; one that holds his typed text stays a
-  // row until he sends, resumes or removes it. The chief always stays.
+  // Ended boxes sit in the quiet "Ended" line, never on a timer. One that
+  // ends while he looks at it stays a row until he leaves it. One that holds
+  // his typed text stays a row. The chief always stays a row.
   const hasText = (name: string) => {
     const d = saved.current[name];
     return !!d && (!!d.text.trim() || d.atts.length > 0);
   };
-  const tucked = (b: Box) => !!b.ended && !b.ended.seen && b.name !== 'chief' && b.name !== selected && !hasText(b.name);
+  const tucked = (b: Box) => !!b.ended && b.name !== 'chief' && b.name !== stay && !hasText(b.name);
   const listed = boxes.filter((b) => !tucked(b));
   const endedLine = boxes.filter(tucked);
+  // The line stays open while he reads one of its boxes.
+  const endedShown = endedOpen || endedLine.some((b) => b.name === selected);
 
   const box = useMemo(() => boxes.find((b) => b.name === selected) || listed[0] || null, [boxes, selected]);
   const paneId = box ? box.paneId : null;
 
-  // He has seen a box end once it is in front while the window is on screen.
-  const endedNow = box?.ended ? box.name : null;
-  const seenNow = box?.ended?.seen ?? null;
+  const wasLive = useRef<Record<string, boolean>>({});
   useEffect(() => {
-    if (!endedNow || seenNow) return;
-    const mark = () => {
-      if (document.visibilityState === 'visible') api().seenEnded(endedNow);
-    };
-    mark();
-    document.addEventListener('visibilitychange', mark);
-    return () => document.removeEventListener('visibilitychange', mark);
-  }, [endedNow, seenNow]);
-
-  // A seen ended box with none of his text leaves when he switches away, or
-  // about 10 s after he saw it end while it stays in front.
-  const leaving = useRef(new Set<string>());
-  const [leaveTick, setLeaveTick] = useState(0);
-  useEffect(() => {
-    let due = Infinity;
     for (const b of boxes) {
-      if (!b.ended?.seen || b.name === 'chief' || hasText(b.name) || leaving.current.has(b.name)) continue;
-      const at = Math.max(b.ended.at ?? 0, b.ended.seen) + 10000;
-      if (b.name !== box?.name || Date.now() >= at) {
-        leaving.current.add(b.name);
-        // One try only: a window that runs something else stays.
-        removeEnded(b.name).then((r) => r.ok && leaving.current.delete(b.name));
-      } else due = Math.min(due, at);
+      if (b.ended && wasLive.current[b.name] && b.name === box?.name) setStay(b.name);
+      wasLive.current[b.name] = !b.ended;
     }
-    if (due === Infinity) return;
-    const t = setTimeout(() => setLeaveTick((x) => x + 1), due - Date.now() + 50);
-    return () => clearTimeout(t);
-  }, [boxes, box?.name, leaveTick]);
-
-  function resumeEnded(name: string) {
-    api()
-      .startAgain(name)
-      .then((r) => {
-        if (r.ok) {
-          setSelected(name);
-          setView('chat');
-        } else show(r.reason || "Couldn't start it.", true);
+    // A reason goes once its box runs Claude again.
+    const back = Object.keys(whyFor).filter((n) => {
+      const b = boxes.find((x) => x.name === n);
+      return !b || ['working', 'idle', 'resuming', 'resumed'].includes(b.status);
+    });
+    if (back.length)
+      setWhyFor((w) => {
+        const next = { ...w };
+        for (const n of back) delete next[n];
+        return next;
       });
-  }
+  }, [boxes]);
+  useEffect(() => {
+    setStay((s) => (s === box?.name ? s : null));
+  }, [box?.name]);
 
   async function clearEnded(names: string[]) {
     for (const n of names) await removeEnded(n);
@@ -568,7 +552,9 @@ export function App() {
           giveBack(r.name || spec.name, r.paneId, r.unsent);
           setDraftFor(NEW_BOX, null);
         }
-        if (!r.ok) show(r.reason || "Couldn't start the box.", true);
+        // A box that ended as it started says why above its own ended line.
+        if (!r.ok && r.ended) setWhyFor((w) => ({ ...w, [r.name || spec.name]: r.reason || "Couldn't start the box." }));
+        else if (!r.ok) show(r.reason || "Couldn't start the box.", true);
         else if (r.unsent && r.reason) show(r.reason, true);
       });
   }
@@ -712,6 +698,7 @@ export function App() {
         onRemove={() => removeEnded(box.name)}
         note={notes[box.name]}
         waiting={held[box.name]}
+        why={whyFor[box.name]}
         onOpen={setFull}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
@@ -749,22 +736,27 @@ export function App() {
         </div>
         {endedLine.length > 0 && (
           <div className="ended-group">
-            <button className="ended-toggle" aria-expanded={endedOpen} onClick={() => setEndedOpen(!endedOpen)}>
-              <svg className={'ended-chev' + (endedOpen ? ' open' : '')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <button className="ended-toggle" aria-expanded={endedShown} onClick={() => setEndedOpen(!endedShown)}>
+              <svg className={'ended-chev' + (endedShown ? ' open' : '')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
                 <path d="M3.5 2l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               Ended ({endedLine.length})
             </button>
-            {endedOpen && (
+            {endedShown && (
               <div className="ended-items">
+                {/* A click opens its chat to read; only Start it again there resumes it. */}
                 {endedLine.map((b) => (
-                  <div key={b.id} className="ended-item">
-                    <span className="name">{b.name}</span>
-                    {b.ended?.start && (
-                      <button className="text-btn" onClick={() => resumeEnded(b.name)}>
-                        Resume
-                      </button>
-                    )}
+                  <div key={b.id} className={'ended-item' + (box?.name === b.name ? ' on' : '')}>
+                    <button
+                      className="ended-open"
+                      title={b.name}
+                      onClick={() => {
+                        setSelected(b.name);
+                        setView('chat');
+                      }}
+                    >
+                      {b.name}
+                    </button>
                     <button className="text-btn" onClick={() => clearEnded([b.name])}>
                       Clear
                     </button>

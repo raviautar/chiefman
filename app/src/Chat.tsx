@@ -160,6 +160,7 @@ export function ChatView({
   onRemove,
   note,
   waiting,
+  why,
   onOpen,
   onSend,
   onError,
@@ -177,6 +178,7 @@ export function ChatView({
   onRemove: () => Promise<Result>;
   note?: string;
   waiting?: string;
+  why?: string;
   onOpen: (url: string) => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
@@ -572,6 +574,12 @@ export function ChatView({
         {resuming && !menu && <Live text="Coming back…" />}
         {ended && (
           <div className="ended rise" role="status">
+            {/* The reason has its own line, above the actions it explains. */}
+            {(endWhy || why) && (
+              <div className="ended-why" role="alert">
+                {endWhy || why}
+              </div>
+            )}
             <div className="ended-line">
               <span>{box.name} ended</span>
               {box.ended?.start && (
@@ -583,11 +591,6 @@ export function ChatView({
                 Remove from list
               </button>
             </div>
-            {endWhy && (
-              <div className="ended-why" role="alert">
-                {endWhy}
-              </div>
-            )}
             {box.ended?.later ? (
               <div className="ended-note">
                 {typed
