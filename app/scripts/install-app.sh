@@ -62,4 +62,6 @@ mdimport "$DEST"
 
 rm -rf out
 echo "Installed $DEST"
-if [ -n "$RUNNING" ]; then open "$DEST"; fi
+# -n: a test copy from the same bundle may be running, and a plain open would
+# only bring that one to the front.
+if [ -n "$RUNNING" ]; then open -n "$DEST"; fi
