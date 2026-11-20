@@ -6,11 +6,11 @@ Resume a box from its directory, by its full session id, after checking that not
 
 ```sh
 pgrep -fl "claude.*<session-id>"
-cd ~/workspace && claude --resume <session-id>
+cd <working folder> && claude --resume <session-id>
 ```
 
 | window | box | claude session (name · id) | directory | status |
 | --- | --- | --- | --- | --- |
-| 0 | chief | chief · 00000000-0000-0000-0000-000000000000 | ~/workspace | active: routes work, reads the ledger |
-| 1 | adhoc | adhoc · 00000000-0000-0000-0000-000000000001 | ~/workspace | active: whatever has no box of its own yet |
-| 2 | search | search · 00000000-0000-0000-0000-000000000002 | ~/workspace | active: the search index and its API |
+| 0 | chief | chief · 00000000-0000-0000-0000-000000000000 | <working folder> | active: routes work, reads the ledger |
+| 1 | adhoc | adhoc · 00000000-0000-0000-0000-000000000001 | <working folder> | active: whatever has no box of its own yet |
+| 2 | search | search · 00000000-0000-0000-0000-000000000002 | <working folder> | active: the search index and its API |
