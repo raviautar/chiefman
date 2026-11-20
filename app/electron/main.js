@@ -48,7 +48,9 @@ function notice(boxes) {
     const asks = !prev.menu && now.menu;
     if (!done && !asks) continue;
     const front = win && win.isFocused() && hub && hub.watch && hub.watch.paneId === b.paneId;
-    if (front) continue;
+    // A question right after a click of his in the app is one he caused.
+    const caused = asks && hub && hub.touchedWithin(b.paneId, 15000) && win && win.isVisible() && !win.isMinimized();
+    if (front || caused) continue;
     unseen.add(b.paneId);
     if (app.dock) app.dock.setBadge(String(unseen.size));
     log('notify', { box: b.name, why: asks ? 'asks' : 'done', badge: unseen.size });
@@ -118,6 +120,13 @@ function wireIpc() {
   handle('cm:switch', (p, kind, v) =>
     PANE.test(p) && (kind === 'model' || kind === 'effort') && typeof v === 'string' ? hub.switchBox(p, kind, v) : { ok: false, reason: 'Bad request.' },
   );
+  handle('cm:retry', (p) => (PANE.test(p) ? hub.retryStart(p) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:rewind', (p, spec) =>
+    PANE.test(p) && spec && typeof spec.text === 'string' && spec.text.length < 100000
+      ? hub.rewind(p, { text: spec.text, id: typeof spec.id === 'string' ? spec.id : '', dupAfter: Number(spec.dupAfter) || 0 })
+      : { ok: false, reason: 'Bad request.' },
+  );
+  handle('cm:files', (p, q) => (PANE.test(p) && typeof q === 'string' && q.length < 200 ? hub.files(p, q) : []));
   handle('cm:remote', (p) => (PANE.test(p) ? hub.remote(p) : { ok: false, reason: 'Bad request.' }));
   on('cm:copy', (t) => {
     if (typeof t === 'string' && /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(t)) clipboard.writeText(t);

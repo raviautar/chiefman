@@ -20,6 +20,15 @@ const MODELS = ['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'cla
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const ALIASES = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5', fable: 'claude-fable-5-2' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const READY = (s) => /(?:⏵⏵|⏸) .+ on\b/.test(s) && /❯/.test(s) && !parseMenu(s);
+const START_LIMIT = 90000;
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
 const SHELLS = /^-?(zsh|bash|sh|fish|dash|ksh|tcsh|csh)$/;
 // Text compared without its spacing or quote style.
 const same = (s) => String(s || '').replace(/[“”„‟]/g, '"').replace(/[‘’‚‛]/g, "'").replace(/\s+/g, '');
@@ -44,7 +53,15 @@ class Hub {
     this.state = this.store.load();
     this.phase = 'starting';
     this.error = null;
-    this.restore = null;
+    this.restoreRun = null;
+    this.resuming = new Map();
+    this.touched = new Map();
+    this.rewinding = new Map();
+    this.fileCache = new Map();
+    this.editsFile = path.join(cfg.stateDir, 'chat-edits.json');
+    const edits = readJson(this.editsFile) || {};
+    this.cuts = edits.cuts || {};
+    this.marks = edits.marks || {};
     this.guard = 0;
     this.boxes = [];
     this.panes = new Set();
@@ -82,8 +99,8 @@ class Hub {
         const live = liveSessionIds(this.cfg.claudeHome);
         const resumable = this.state.boxes.filter((b) => UUID_RE.test(b.sessionId || '') && !live.has(b.sessionId));
         this.log('session missing', { saved: this.state.boxes.length, resumable: resumable.length });
-        if (resumable.length) await this.restoreAll(resumable);
-        else await this.freshChief();
+        if (resumable.length) await this.openRestore(resumable);
+        else await this.openFresh();
         this.guard = 0;
       } else {
         // A session that came back with fewer windows than saved must not
@@ -91,6 +108,7 @@ class Hub {
         this.guard = this.state.boxes.length;
       }
       await this.attach();
+      for (const name of [...this.resuming.keys()]) this.followStart(name);
     } catch (e) {
       this.error = String((e && e.message) || e);
       this.log('boot failed', this.error);
@@ -159,7 +177,7 @@ class Hub {
     return {
       phase: this.phase,
       error: this.error,
-      restore: this.restore && { total: this.restore.total, done: this.restore.done },
+      restore: this.restoreInfo(),
     };
   }
 
@@ -182,13 +200,29 @@ class Hub {
 
   // ---- boxes -------------------------------------------------------------
 
+  // The quiet sidebar line while boxes come back; gone once each is back or failed.
+  restoreInfo() {
+    const run = this.restoreRun;
+    if (!run) return null;
+    const waiting = run.names.filter((n) => {
+      const r = this.resuming.get(n);
+      return r && r.state === 'resuming';
+    }).length;
+    if (!waiting) {
+      this.restoreRun = null;
+      return null;
+    }
+    return { total: run.names.length, done: run.names.length - waiting, label: run.label };
+  }
+
   status(b) {
-    if (this.restore && this.restore.names[b.name]) return this.restore.names[b.name];
+    const r = this.resuming.get(b.name);
+    if (r && r.paneId === b.paneId && !(r.state === 'failed' && b.claude)) return r.state === 'failed' ? 'failed' : 'resuming';
     if (this.starting.has(b.name)) return 'starting';
     if (!b.claude) return 'off';
     if (this.working.has(b.paneId)) return 'working';
-    const r = this.resumedAt.get(b.name);
-    if (r && Date.now() - r < 6000) return 'resumed';
+    const back = this.resumedAt.get(b.name);
+    if (back && Date.now() - back < 6000) return 'resumed';
     return 'idle';
   }
 
@@ -328,6 +362,7 @@ class Hub {
     const keys = this.defaultKeys(box, kind);
     const sw = { kind, value, at: Date.now() };
     this.switching.set(paneId, sw);
+    this.touch(paneId);
     this.emitBoxes();
     this.keeper.guard(keys, 180000);
     const r = await this.sendText(paneId, `/${kind} ${value}`, { app: true });
@@ -402,6 +437,7 @@ class Hub {
   async cycleMode(paneId) {
     const box = this.boxes.find((b) => b.paneId === paneId);
     if (!box || !box.claude) return { ok: false, reason: 'No Claude runs there.' };
+    this.touch(paneId);
     await run(['send-keys', '-t', paneId, 'BTab']);
     this.log('mode', { box: box.name });
     this.soon('poll', 300, () => this.pollScreens());
@@ -497,7 +533,7 @@ class Hub {
   }
 
   emitBoxes() {
-    this.out({ type: 'boxes', boxes: this.publicBoxes() });
+    this.out({ type: 'boxes', boxes: this.publicBoxes(), restore: this.restoreInfo() });
   }
 
   async scan() {
@@ -581,7 +617,7 @@ class Hub {
           if (this.working.delete(b.paneId)) changed = true;
           // Before Claude registers, it may ask whether to trust the folder.
           let menu = null;
-          if (this.starting.has(b.name)) {
+          if (this.starting.has(b.name) || this.resuming.has(b.name)) {
             try {
               menu = parseMenu(await this.ctl.command(`capture-pane -p -t ${b.paneId}`));
             } catch {}
@@ -638,12 +674,14 @@ class Hub {
 
   follow(slot, handlers) {
     const box = this.boxes.find((b) => b.paneId === slot.paneId);
-    const sid = box && box.claude ? box.claude.sessionId : null;
+    const back = box && !box.claude ? this.resuming.get(box.name) : null;
+    const sid = box && box.claude ? box.claude.sessionId : back && back.paneId === box.paneId ? back.sessionId : null;
+    const cwd = box && box.claude ? box.claude.cwd : back ? back.cwd : null;
     if (slot.tr && sid === slot.sessionId) return;
     if (slot.tr) slot.tr.stop();
     slot.tr = null;
     slot.sessionId = null;
-    const file = sid && transcriptPath(this.cfg.claudeHome, box.claude.cwd, sid);
+    const file = sid && transcriptPath(this.cfg.claudeHome, cwd, sid);
     if (!file) {
       if (!slot.empty) handlers.reset({ items: [], steps: 0 });
       slot.empty = true;
@@ -651,7 +689,7 @@ class Hub {
     }
     slot.empty = false;
     slot.sessionId = sid;
-    const tr = new Transcript(file);
+    const tr = new Transcript(file, { marks: this.marks[sid] || [], cuts: this.cuts[sid] || [] });
     slot.tr = tr;
     tr.on('reset', handlers.reset);
     tr.on('add', handlers.add);
@@ -776,7 +814,7 @@ class Hub {
   // paste would reach Claude marked as pasted text, which it treats as words
   // he may not have written.
   async deliver(paneId, text) {
-    const enters = text.startsWith('/') ? 1 : 2;
+    const enters = /^[/!]/.test(text) ? 1 : 2;
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i++) {
       let t = lines[i];
@@ -868,7 +906,9 @@ class Hub {
       this.keeper.guard(['modelSettings'], 120000);
     }
     const queued = this.working.has(paneId);
-    await this.deliver(paneId, text);
+    this.touch(paneId);
+    if (text.startsWith('!')) await this.deliverChecked(paneId, text);
+    else await this.deliver(paneId, text);
     const mine = (this.typedByApp.get(paneId) || []).concat(text).slice(-20);
     this.typedByApp.set(paneId, mine);
     this.log('sent', { box: box.name, chars: text.length, slash: text.startsWith('/'), queued, app: !!opts.app });
@@ -911,7 +951,17 @@ class Hub {
   async interrupt(paneId) {
     if (!this.panes.has(paneId) || !this.working.has(paneId)) return { ok: false };
     await run(['send-keys', '-t', paneId, 'Escape']);
+    this.touch(paneId);
     this.log('interrupt', { pane: paneId });
+    const box = this.boxes.find((b) => b.paneId === paneId);
+    const sid = box && box.claude && box.claude.sessionId;
+    if (sid) {
+      const ts = new Date().toISOString();
+      this.marks[sid] = (this.marks[sid] || []).concat(ts).slice(-50);
+      this.saveEdits();
+      const w = this.watch;
+      if (w && w.paneId === paneId && w.tr && w.sessionId === sid) w.tr.markNow(ts);
+    }
     return { ok: true };
   }
 
@@ -926,8 +976,11 @@ class Hub {
     }
     const d = n - menu.selected;
     const keys = Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up');
+    this.touch(paneId);
     await run(['send-keys', '-t', paneId, ...keys, 'Enter']);
     this.log('choose', { pane: paneId, n });
+    const rw = this.rewinding.get(paneId);
+    if (rw && Date.now() - rw.at < 120000) this.afterRewind(paneId, rw, (menu.options.find((o) => o.n === n) || {}).label || '');
     this.soon('poll', 400, () => this.pollScreens());
     return { ok: true };
   }
@@ -1040,51 +1093,306 @@ class Hub {
     return { ok: true, paneId };
   }
 
-  async restoreAll(list) {
-    this.restore = { total: list.length, done: 0, names: {} };
-    for (const b of list) this.restore.names[b.name] = 'resuming';
-    this.boxes = list.map((b) => ({ windowId: 'saved:' + b.name, name: b.name, paneId: null, claude: null, ...look(b.name, b) }));
-    this.panes = new Set();
-    this.setPhase('restoring');
-    this.emitBoxes();
+  // ---- bringing boxes back ------------------------------------------------
+
+  // Opens a window per saved box and starts its Claude. Nothing waits on
+  // them: each box is followed on its own and usable as soon as it is back.
+  async openRestore(list) {
     const started = [];
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
-      const w = await this.newWindow(b.name, i === 0, b.cwd);
-      started.push({ b, ...w });
+      started.push({ b, ...(await this.newWindow(b.name, i === 0, b.cwd)) });
     }
     await sleep(900);
     for (const s of started) {
-      await run(['send-keys', '-t', s.paneId, '-l', '--', this.claudeCmd(s.b.sessionId, s.b.model, s.b.effort)]);
+      const cmd = this.claudeCmd(s.b.sessionId, s.b.model, s.b.effort);
+      await run(['send-keys', '-t', s.paneId, '-l', '--', cmd]);
       await run(['send-keys', '-t', s.paneId, 'Enter']);
+      this.resuming.set(s.b.name, { paneId: s.paneId, cmd, cwd: s.b.cwd || this.cfg.workdir, sessionId: s.b.sessionId, state: 'resuming' });
     }
-    await Promise.all(
-      started.map(async (s) => {
-        const ok = (await this.waitReady(s.paneId, 120000)) === true;
-        this.restore.names[s.b.name] = ok ? 'resumed' : 'off';
-        this.restore.done++;
-        if (ok) this.resumedAt.set(s.b.name, Date.now());
-        this.log('restored', { name: s.b.name, ok });
-        this.setPhase('restoring');
-        this.emitBoxes();
-      }),
-    );
-    await sleep(1200);
-    this.restore = null;
+    this.restoreRun = { names: started.map((s) => s.b.name), label: 'Bringing your boxes back' };
   }
 
-  async freshChief() {
-    this.restore = { total: 1, done: 0, names: { chief: 'resuming' } };
-    this.boxes = [{ windowId: 'saved:chief', name: 'chief', paneId: null, claude: null, ...look('chief') }];
-    this.setPhase('fresh');
-    this.emitBoxes();
+  async openFresh() {
     const { paneId } = await this.newWindow('chief', true);
     await sleep(900);
-    await run(['send-keys', '-t', paneId, '-l', '--', this.claudeCmd(null)]);
+    const cmd = this.claudeCmd(null);
+    await run(['send-keys', '-t', paneId, '-l', '--', cmd]);
     await run(['send-keys', '-t', paneId, 'Enter']);
-    if ((await this.waitReady(paneId, 90000)) === true) await this.deliver(paneId, '/rename chief');
-    this.restore = null;
+    this.resuming.set('chief', {
+      paneId,
+      cmd,
+      cwd: this.cfg.workdir,
+      sessionId: null,
+      state: 'resuming',
+      after: (p) => this.deliver(p, '/rename chief'),
+    });
+    this.restoreRun = { names: ['chief'], label: 'Starting your chief' };
   }
+
+  // Follows one box as it starts. A question it asks shows as buttons in its
+  // chat and stops the clock; without one, 90 seconds is the limit.
+  async followStart(name) {
+    const r = this.resuming.get(name);
+    if (!r || r.following) return;
+    r.following = true;
+    const t0 = Date.now();
+    let end = t0 + START_LIMIT;
+    while (this.resuming.get(name) === r && !this.quitting) {
+      await sleep(800);
+      let s;
+      try {
+        s = await run(['capture-pane', '-p', '-t', r.paneId]);
+      } catch {
+        r.state = 'failed';
+        r.why = 'gone';
+        break;
+      }
+      if (parseMenu(s)) {
+        if (!r.asking) {
+          this.log('start asks', { name });
+          this.soon('poll', 100, () => this.pollScreens());
+        }
+        r.asking = true;
+        end = Date.now() + START_LIMIT;
+        continue;
+      }
+      r.asking = false;
+      if (READY(s)) {
+        r.state = 'resumed';
+        break;
+      }
+      if (Date.now() - t0 > 5000) {
+        const cmd = (await run(['display', '-p', '-t', r.paneId, '#{pane_current_command}']).catch(() => '')).trim();
+        if (SHELLS.test(cmd)) {
+          r.state = 'failed';
+          r.why = 'exited';
+          break;
+        }
+      }
+      if (Date.now() > end) {
+        r.state = 'failed';
+        r.why = 'timeout';
+        break;
+      }
+    }
+    if (this.resuming.get(name) !== r) return;
+    r.following = false;
+    this.log('restored', { name, ok: r.state === 'resumed', why: r.why || null });
+    if (r.state === 'resumed') {
+      this.resumedAt.set(name, Date.now());
+      this.resuming.delete(name);
+      if (r.after) await r.after(r.paneId).catch(() => {});
+      setTimeout(() => this.emitBoxes(), 6500);
+    }
+    await this.scan().catch(() => {});
+    this.emitBoxes();
+  }
+
+  // A box that did not start gets a fresh shell in its window and its
+  // Claude command again.
+  async retryStart(paneId) {
+    const box = this.boxes.find((b) => b.paneId === paneId);
+    const r = box && this.resuming.get(box.name);
+    if (!r || r.state !== 'failed') return { ok: false, reason: 'Nothing to retry.' };
+    const dir = r.cwd && fs.existsSync(r.cwd) ? r.cwd : this.cfg.workdir;
+    await run(['respawn-pane', '-k', '-t', paneId, '-c', dir]);
+    await sleep(900);
+    await run(['send-keys', '-t', paneId, '-l', '--', r.cmd]);
+    await run(['send-keys', '-t', paneId, 'Enter']);
+    this.resuming.set(box.name, { paneId, cmd: r.cmd, cwd: r.cwd, sessionId: r.sessionId, state: 'resuming', after: r.after });
+    this.log('retry start', { name: box.name });
+    this.emitBoxes();
+    this.followStart(box.name);
+    return { ok: true };
+  }
+
+  // ---- what the app did lately, per box -------------------------------------
+
+  touch(paneId) {
+    this.touched.set(paneId, Date.now());
+  }
+
+  // True when the app acted on this box within `ms`: a question that follows
+  // is one he just caused.
+  touchedWithin(paneId, ms) {
+    const t = this.touched.get(paneId);
+    return !!t && Date.now() - t < ms;
+  }
+
+  saveEdits() {
+    try {
+      fs.writeFileSync(this.editsFile, JSON.stringify({ cuts: this.cuts, marks: this.marks }), { mode: 0o600 });
+    } catch {}
+  }
+
+  // ---- editing an earlier message --------------------------------------------
+
+  // Opens Claude's own rewind menu and moves to the message he picked,
+  // reading each highlighted line, so nothing is picked blind. Claude's next
+  // question then shows as buttons in the chat.
+  async rewind(paneId, spec) {
+    const box = this.boxes.find((b) => b.paneId === paneId);
+    if (!box || !box.claude) return { ok: false, reason: 'No Claude runs there.' };
+    if (this.working.has(paneId)) return { ok: false, reason: `${box.name} is working. Stop it first.` };
+    const text = String((spec && spec.text) || '');
+    const dupAfter = Math.max(0, Number(spec && spec.dupAfter) || 0);
+    if (!text) return { ok: false, reason: 'Pick a message.' };
+    let screen = await run(['capture-pane', '-p', '-e', '-t', paneId]);
+    const st = promptState(screen);
+    if (st === 'no-prompt') return { ok: false, reason: `${box.name} is waiting on a choice. Answer it first.` };
+    if (st === 'typed') return { ok: false, reason: `Something is typed in ${box.name}. Send or clear it first.` };
+    this.touch(paneId);
+    await run(['send-keys', '-t', paneId, 'Escape']);
+    await sleep(150);
+    await run(['send-keys', '-t', paneId, 'Escape']);
+    let open = false;
+    for (let i = 0; i < 10 && !open; i++) {
+      await sleep(200);
+      screen = await run(['capture-pane', '-p', '-t', paneId]);
+      open = /^\s*Rewind\s*$/m.test(screen) && /\(current\)/.test(screen);
+    }
+    if (!open) return { ok: false, reason: `${box.name} did not open its rewind menu.` };
+    const want = same(text);
+    let seen = 0;
+    let prev = null;
+    for (let step = 0; step < 150; step++) {
+      await run(['send-keys', '-t', paneId, 'Up']);
+      await sleep(120);
+      screen = await run(['capture-pane', '-p', '-t', paneId]);
+      const sel = screen.split('\n').filter((l) => /❯/.test(l)).pop() || '';
+      const line = sel.replace(/^\s*❯\s*/, '').trim();
+      const head = same(line.replace(/…$/, ''));
+      if (head && want.startsWith(head) && head.length >= Math.min(want.length, 12)) {
+        if (seen === dupAfter) {
+          await run(['send-keys', '-t', paneId, 'Enter']);
+          this.rewinding.set(paneId, { text, from: this.tsOf(paneId, spec && spec.id), sid: box.claude.sessionId, at: Date.now() });
+          this.log('rewind', { box: box.name, steps: step + 1 });
+          this.soon('poll', 300, () => this.pollScreens());
+          return { ok: true };
+        }
+        seen++;
+      }
+      // At the top the list stops moving, or wraps round to "(current)".
+      if (step > 0 && (screen === prev || /\(current\)/.test(line))) break;
+      prev = screen;
+    }
+    await run(['send-keys', '-t', paneId, 'Escape']);
+    return { ok: false, reason: `Could not find that message in ${box.name}'s rewind menu.` };
+  }
+
+  // When his picked message was logged.
+  tsOf(paneId, id) {
+    const w = this.watch;
+    if (!w || w.paneId !== paneId || !w.tr) return null;
+    const it = w.tr.items.find((i) => i.id === id);
+    return (it && it.ts) || null;
+  }
+
+  // After his answer to Claude's rewind question: a restored conversation
+  // hides his message and all logged after it until now, and his message goes
+  // back in the field.
+  async afterRewind(paneId, rw, label) {
+    this.rewinding.delete(paneId);
+    const restore = /restore/i.test(label) && /conversation/i.test(label);
+    for (let i = 0; i < 20; i++) {
+      await sleep(400);
+      let screen;
+      try {
+        screen = await run(['capture-pane', '-p', '-e', '-t', paneId]);
+      } catch {
+        return;
+      }
+      if (parseMenu(screen)) continue;
+      if (promptState(screen) === 'typed' && same(promptText(screen)) === same(rw.text)) {
+        this.typedByApp.set(paneId, (this.typedByApp.get(paneId) || []).concat(rw.text).slice(-20));
+        if (restore && rw.sid && rw.from) {
+          const range = [rw.from, new Date().toISOString()];
+          this.cuts[rw.sid] = (this.cuts[rw.sid] || []).concat([range]).slice(-200);
+          this.saveEdits();
+          const w = this.watch;
+          const c = this.chief;
+          if (c && c.tr && c.sessionId === rw.sid) {
+            c.tr.cut(range);
+            this.setDrill(newestDrill(c.tr.items));
+          }
+          if (w && w.paneId === paneId && w.tr) {
+            w.tr.cut(range);
+            this.out({ type: 'chat-reset', paneId, items: w.tr.items, steps: w.tr.steps });
+          }
+        }
+        this.out({ type: 'draft', paneId, text: rw.text });
+        this.log('rewound', { pane: paneId, restore });
+        return;
+      }
+      if (i > 4) return;
+    }
+  }
+
+  // ---- files for @ -----------------------------------------------------------
+
+  // Files in the box's folder: what git tracks or would, else a short walk.
+  // At most 30 matches come back.
+  async files(paneId, query) {
+    const box = this.boxes.find((b) => b.paneId === paneId);
+    if (!box) return [];
+    const saved = this.state.boxes.find((x) => x.name === box.name) || {};
+    const cwd = (box.claude && box.claude.cwd) || saved.cwd || this.cfg.workdir;
+    let entry = this.fileCache.get(cwd);
+    if (!entry || Date.now() - entry.at > 30000) {
+      entry = { at: Date.now(), list: await listFiles(cwd) };
+      this.fileCache.set(cwd, entry);
+    }
+    const q = String(query || '').toLowerCase();
+    if (!q) return entry.list.slice(0, 30);
+    const scored = [];
+    for (const f of entry.list) {
+      const l = f.toLowerCase();
+      const base = l.slice(l.lastIndexOf('/') + 1);
+      let score = -1;
+      if (base.startsWith(q)) score = 0;
+      else if (base.includes(q)) score = 1;
+      else if (l.includes(q)) score = 2;
+      else if (subsequence(q, l)) score = 3;
+      if (score >= 0) scored.push([score, f.length, f]);
+      if (scored.length > 4000) break;
+    }
+    scored.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return scored.slice(0, 30).map((x) => x[2]);
+  }
+}
+
+function subsequence(q, s) {
+  let i = 0;
+  for (const c of s) if (c === q[i] && ++i === q.length) return true;
+  return false;
+}
+
+function listFiles(cwd) {
+  return new Promise((resolve) => {
+    execFile('git', ['-C', cwd, 'ls-files', '-co', '--exclude-standard'], { timeout: 4000, maxBuffer: 32 * 1024 * 1024 }, (e, out) => {
+      if (!e && out) return resolve(String(out).split('\n').filter(Boolean).slice(0, 20000));
+      const list = [];
+      const walk = (dir, rel, depth) => {
+        if (depth > 6 || list.length >= 5000) return;
+        let ents = [];
+        try {
+          ents = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const d of ents) {
+          if (list.length >= 5000) return;
+          if (d.name.startsWith('.') || d.name === 'node_modules') continue;
+          const r = rel ? `${rel}/${d.name}` : d.name;
+          if (d.isDirectory()) walk(path.join(dir, d.name), r, depth + 1);
+          else if (d.isFile()) list.push(r);
+        }
+      };
+      walk(cwd, '', 0);
+      resolve(list);
+    });
+  });
 }
 
 module.exports = { Hub };

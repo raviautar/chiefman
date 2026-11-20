@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import { api, Box, Item } from './api';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { api, Box, Item, Menu } from './api';
 import { Arrow } from './icons';
 import { Markdown } from './Markdown';
 
@@ -18,6 +18,17 @@ export interface Pending {
   queued: boolean;
 }
 
+interface Attachment {
+  path: string;
+  name: string;
+  thumb: string | null;
+}
+
+type Pop =
+  | { kind: 'edit'; at: number }
+  | { kind: 'search'; at: number; q: string }
+  | { kind: 'files'; at: number; q: string; list: string[] };
+
 // A message as compared with its copy in the log: line endings, trailing
 // spaces, empty lines, quote style and spacing do not count.
 export const norm = (s: string) =>
@@ -32,7 +43,19 @@ export const norm = (s: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+// An option that ends, exits, denies or deletes something.
+const ENDING = /^\s*(no\b|never ?mind|cancel|exit|quit|deny|decline|reject|delete|remove|discard|abort|stop|don'?t|do not|go back)/i;
+
+// The safe or continuing option is the dark one; an ending option is a plain
+// button placed last. Each keeps its number for the pick.
+export function arrange(options: Menu['options']) {
+  const keep = options.filter((o) => !ENDING.test(o.label));
+  const end = options.filter((o) => ENDING.test(o.label));
+  return [...keep.map((o, i) => ({ ...o, primary: i === 0 })), ...end.map((o) => ({ ...o, primary: false }))];
+}
+
 const PAGE = 150;
+const AT = /(^|\s)@([^\s@]*)$/;
 
 function Live({ text }: { text: string }) {
   return (
@@ -56,11 +79,38 @@ function Chevron() {
   );
 }
 
+// A small picture of a pasted image, kept as a data URL.
+function thumbOf(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const r = new FileReader();
+    r.onerror = () => resolve(null);
+    r.onload = () => {
+      const img = new Image();
+      img.onerror = () => resolve(null);
+      img.onload = () => {
+        const s = 64 / Math.max(img.width, img.height, 1);
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * Math.min(1, s)));
+        c.height = Math.max(1, Math.round(img.height * Math.min(1, s)));
+        const g = c.getContext('2d');
+        if (!g) return resolve(null);
+        g.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/png'));
+      };
+      img.src = String(r.result);
+    };
+    r.readAsDataURL(file);
+  });
+}
+
 export function ChatView({
   box,
   chat,
   pending,
   quiet,
+  fold,
+  incoming,
+  onTaken,
   onSend,
   onError,
 }: {
@@ -68,6 +118,9 @@ export function ChatView({
   chat: ChatState | undefined;
   pending: Pending[];
   quiet: Set<string>;
+  fold: { id: string; count: number } | null;
+  incoming: { text: string; seq: number } | undefined;
+  onTaken: () => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
 }) {
@@ -75,17 +128,28 @@ export function ChatView({
   const [sending, setSending] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const [hist, setHist] = useState<number | null>(null);
+  const [pop, setPop] = useState<Pop | null>(null);
+  const [atts, setAtts] = useState<Attachment[]>([]);
+  const [unfold, setUnfold] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
   const keep = useRef<{ h: number; top: number } | null>(null);
+  const lastEsc = useRef(0);
+  const shut = useRef<string | null>(null);
   const items = chat?.items ?? [];
   const shown = items.length > limit ? items.slice(-limit) : items;
   const menu = box.menu;
   const starting = box.status === 'starting';
+  const resuming = box.status === 'resuming';
+  const failed = box.status === 'failed';
   const working = box.status === 'working' && !menu;
   const off = box.status === 'off';
+  const closed = off || starting || resuming || failed;
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.map((p) => p.t)];
+  // His messages that Claude's rewind menu lists: no commands, no shell lines.
+  const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -103,8 +167,40 @@ export function ChatView({
     el.style.height = Math.min(160, el.scrollHeight) + 'px';
   }, [draft]);
 
+  // His message, back from an edit, goes in the field.
+  useEffect(() => {
+    if (!incoming) return;
+    setDraft(incoming.text);
+    setHist(null);
+    onTaken();
+    setTimeout(() => input.current?.focus(), 0);
+  }, [incoming?.seq]);
+
+  // The @ file list follows what he types after the @.
+  useEffect(() => {
+    const el = input.current;
+    const before = el ? draft.slice(0, el.selectionStart ?? draft.length) : draft;
+    const m = AT.exec(before);
+    if (!m || !box.paneId) {
+      shut.current = null;
+      if (pop?.kind === 'files') setPop(null);
+      return;
+    }
+    const q = m[2];
+    if (shut.current === q) return;
+    shut.current = null;
+    const paneId = box.paneId;
+    const t = setTimeout(async () => {
+      const list = await api().files(paneId, q);
+      setPop((p) => (p && p.kind !== 'files' ? p : { kind: 'files', at: 0, q, list }));
+    }, 120);
+    return () => clearTimeout(t);
+  }, [draft]);
+
   async function submit(textIn?: string) {
-    const text = (textIn ?? draft).trim();
+    const typed = (textIn ?? draft).trim();
+    const paths = atts.map((a) => a.path);
+    const text = [typed, ...paths].filter(Boolean).join(' ');
     if (!text || sending) return;
     setSending(true);
     stick.current = true;
@@ -112,6 +208,7 @@ export function ChatView({
     setSending(false);
     if (ok) {
       setDraft('');
+      setAtts([]);
       setHist(null);
     }
   }
@@ -138,16 +235,29 @@ export function ChatView({
     if (!r.ok) onError(r.reason || 'Not sent.');
   }
 
-  // A dropped or pasted file is saved by the app; its path goes in the message.
+  async function retry() {
+    if (!box.paneId || retrying) return;
+    setRetrying(true);
+    const r = await api().retry(box.paneId);
+    setRetrying(false);
+    if (!r.ok) onError(r.reason || 'Could not start it again.');
+  }
+
+  // A dropped or pasted file is saved by the app and shows as a chip; its
+  // path goes in the message when he sends.
   async function attach(files: FileList | File[]) {
-    const paths: string[] = [];
     for (const f of Array.from(files)) {
-      const r = await api().attach(f.name || 'pasted.png', await f.arrayBuffer());
-      if (r.ok && r.path) paths.push(r.path);
-      else onError(r.reason || 'Could not add the file.');
+      const image = f.type.startsWith('image/');
+      const name = f.name && f.name !== 'image.png' ? f.name : image ? 'pasted.png' : 'file';
+      const r = await api().attach(name, await f.arrayBuffer());
+      if (!r.ok || !r.path) {
+        onError(r.reason || 'Could not add the file.');
+        continue;
+      }
+      const path = r.path;
+      const thumb = image ? await thumbOf(f) : null;
+      setAtts((a) => [...a, { path, name, thumb }]);
     }
-    if (!paths.length) return;
-    setDraft((d) => (d && !/\s$/.test(d) ? d + ' ' : d) + paths.join(' ') + ' ');
     input.current?.focus();
   }
 
@@ -157,6 +267,82 @@ export function ChatView({
     if (!r.ok) onError(r.reason || 'Not changed.');
   }
 
+  // Picks an earlier message: Claude's own rewind menu opens on it, and its
+  // question shows as buttons here.
+  async function editEarlier(i: number) {
+    setPop(null);
+    const list = [...earlier].reverse();
+    const m = list[i];
+    if (!m || !box.paneId) return;
+    const at = earlier.indexOf(m);
+    // Claude's menu shows a message's first line, so later ones that start
+    // the same way are skipped on the way up.
+    const head = (s: string) => norm(s.split('\n')[0]).slice(0, 60);
+    const dupAfter = earlier.slice(at + 1).filter((x) => head(x.t) === head(m.t)).length;
+    const r = await api().rewind(box.paneId, { text: m.t, id: m.id, dupAfter });
+    if (!r.ok) onError(r.reason || 'Could not open that message.');
+  }
+
+  function searchHits(q: string) {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of [...history].reverse()) {
+      if (seen.has(t)) continue;
+      seen.add(t);
+      if (!q || t.toLowerCase().includes(q.toLowerCase())) out.push(t);
+      if (out.length >= 30) break;
+    }
+    return out;
+  }
+
+  function insertFile(f: string) {
+    const el = input.current;
+    const caret = el ? el.selectionStart ?? draft.length : draft.length;
+    const before = draft.slice(0, caret).replace(AT, (_m, sp) => `${sp}@${f} `);
+    setDraft(before + draft.slice(caret));
+    setPop(null);
+    shut.current = null;
+    setTimeout(() => {
+      el?.focus();
+      el?.setSelectionRange(before.length, before.length);
+    }, 0);
+  }
+
+  const popList: string[] =
+    pop?.kind === 'edit' ? [...earlier].reverse().map((i) => i.t) : pop?.kind === 'search' ? searchHits(pop.q) : pop?.kind === 'files' ? pop.list : [];
+
+  function pick(i: number) {
+    if (!pop) return;
+    const t = popList[i];
+    if (t == null) return;
+    if (pop.kind === 'edit') return editEarlier(i);
+    if (pop.kind === 'files') return insertFile(t);
+    setDraft(t);
+    setPop(null);
+    setTimeout(() => input.current?.focus(), 0);
+  }
+
+  // Up, Down, Enter and Esc inside an open list. True when the key was used.
+  function popKey(e: KeyboardEvent) {
+    if (!pop) return false;
+    const n = popList.length;
+    if (e.key === 'Escape') {
+      if (pop.kind === 'files') shut.current = pop.q;
+      setPop(null);
+      input.current?.focus();
+    } else if (e.key === 'ArrowDown' || (e.key === 'r' && e.ctrlKey && pop.kind === 'search')) {
+      if (n) setPop({ ...pop, at: (pop.at + 1) % n });
+    } else if (e.key === 'ArrowUp') {
+      if (n) setPop({ ...pop, at: (pop.at - 1 + n) % n });
+    } else if (e.key === 'Enter' || (e.key === 'Tab' && pop.kind === 'files')) {
+      if (!n && pop.kind === 'files') return false;
+      pick(pop.at);
+    } else return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
+
   let middle;
   if (starting && !menu)
     middle = (
@@ -164,13 +350,20 @@ export function ChatView({
         <Live text="Starting…" />
       </div>
     );
-  else if (chat?.loaded && !items.length && !pending.length && !working && !menu)
+  else if (chat?.loaded && !items.length && !pending.length && !working && !menu && !resuming && !failed)
     middle = <div className="empty">{off ? 'Nothing runs in this window.' : 'No messages yet.'}</div>;
   else
     middle = (
       <div className="chat-col">
         {shown.map((m) => {
           const isFresh = chat!.fresh.has(m.id);
+          if (fold && m.id === fold.id && !unfold)
+            return (
+              <button key={m.id} className="work fold" onClick={() => setUnfold(true)} title="Show the whole message">
+                <Chevron />
+                Drill-down · {fold.count} need{fold.count === 1 ? 's' : ''} you
+              </button>
+            );
           if (m.k === 'you')
             return (
               <div key={m.id} className={'you' + (isFresh && !quiet.has(m.id) ? ' sent' : '')}>
@@ -183,6 +376,12 @@ export function ChatView({
                 <Chevron />
                 {m.t}
               </div>
+            );
+          if (m.mono)
+            return (
+              <pre key={m.id} className={'say shell-out' + (isFresh ? ' rise' : '')}>
+                {m.t}
+              </pre>
             );
           return (
             <div key={m.id} className={'say' + (isFresh ? ' rise' : '')}>
@@ -200,17 +399,30 @@ export function ChatView({
           <div className="ask rise" key={menu.question + menu.options.length}>
             {menu.question && <div className="say">{menu.question}</div>}
             <div className="choices">
-              {menu.options.map((o) => (
-                <button key={o.n} className={'chip' + (o.n === menu.selected ? ' primary' : '')} onClick={() => choose(o.n)}>
+              {arrange(menu.options).map((o) => (
+                <button key={o.n} className={'chip' + (o.primary ? ' primary' : '')} onClick={() => choose(o.n)}>
                   {o.label}
                 </button>
               ))}
             </div>
           </div>
         )}
+        {resuming && !menu && <Live text="Coming back…" />}
+        {failed && (
+          <div className="ask rise">
+            <div className="say">Didn't start. Claude did not come up in this window.</div>
+            <div className="choices">
+              <button className="chip primary" onClick={retry} disabled={retrying}>
+                {retrying ? 'Starting…' : 'Retry'}
+              </button>
+            </div>
+          </div>
+        )}
         {working && <Live text={box.activity || 'Working'} />}
       </div>
     );
+
+  const popTitle = pop?.kind === 'edit' ? 'Edit an earlier message' : pop?.kind === 'search' ? 'Search what you sent' : 'Files';
 
   return (
     <>
@@ -236,7 +448,53 @@ export function ChatView({
           if (e.dataTransfer.files.length) attach(e.dataTransfer.files);
         }}
       >
-        <div className={'composer' + (draft.includes('\n') || draft.length > 70 ? ' tall' : '')}>
+        {pop && (
+          <div className="pop-list" role="listbox" aria-label={popTitle}>
+            <div className="pop-title">{popTitle}</div>
+            {pop.kind === 'search' && (
+              <input
+                className="pop-search"
+                autoFocus
+                aria-expanded="true"
+                placeholder="Type to filter"
+                value={pop.q}
+                onChange={(e) => setPop({ kind: 'search', q: e.target.value, at: 0 })}
+                onKeyDown={(e) => popKey(e)}
+              />
+            )}
+            <div className="pop-items">
+              {popList.length ? (
+                popList.map((t, i) => (
+                  <button
+                    key={i + t}
+                    role="option"
+                    aria-selected={pop.at === i}
+                    className={'pop-item' + (pop.at === i ? ' on' : '') + (pop.kind === 'files' ? ' mono' : '')}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(i)}
+                  >
+                    {t}
+                  </button>
+                ))
+              ) : (
+                <div className="pop-none">{pop.kind === 'edit' ? 'No earlier messages here.' : 'Nothing matches.'}</div>
+              )}
+            </div>
+          </div>
+        )}
+        {atts.length > 0 && (
+          <div className="att-row">
+            {atts.map((a) => (
+              <span key={a.path} className="att-chip" title={a.path}>
+                {a.thumb ? <img src={a.thumb} alt="" /> : <span className="att-doc">{a.name}</span>}
+                <button aria-label={'Remove ' + a.name} onClick={() => setAtts((l) => l.filter((x) => x.path !== a.path))}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className={'composer' + (draft.includes('\n') || draft.length > 70 ? ' tall' : '') + (draft.startsWith('!') ? ' shell' : '')}>
           <label htmlFor="composer" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
             Message {box.name}
           </label>
@@ -247,8 +505,9 @@ export function ChatView({
             autoComplete="off"
             spellCheck={false}
             value={draft}
-            disabled={off || starting}
-            placeholder={off || starting ? '' : 'Message'}
+            disabled={closed}
+            aria-expanded={pop ? 'true' : 'false'}
+            placeholder={closed ? '' : 'Message'}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);
@@ -260,7 +519,23 @@ export function ChatView({
               }
             }}
             onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing) return;
+              if (e.nativeEvent.isComposing || e.defaultPrevented) return;
+              if (popKey(e)) return;
+              if (e.key === 'Escape') {
+                // Esc twice in an empty field: edit an earlier message.
+                if (draft || working || menu || box.status === 'working') return;
+                const now = Date.now();
+                if (now - lastEsc.current < 600) {
+                  lastEsc.current = 0;
+                  setPop({ kind: 'edit', at: 0 });
+                } else lastEsc.current = now;
+                return;
+              }
+              if (e.key === 'r' && e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                setPop({ kind: 'search', q: draft, at: 0 });
+                return;
+              }
               if (e.key === 'Tab' && e.shiftKey && box.mode) {
                 e.preventDefault();
                 cycleMode();
@@ -276,15 +551,19 @@ export function ChatView({
               }
             }}
           />
-          <button aria-label="Send" className={'send' + (draft.trim() ? ' ready' : '')} onClick={() => submit()} disabled={off || starting}>
+          <button aria-label="Send" className={'send' + (draft.trim() || atts.length ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
             <Arrow />
           </button>
         </div>
-        {box.mode && !starting && (
+        {!closed && (box.mode || draft.startsWith('!')) && (
           <div className="composer-foot">
-            <button className="mode-chip" onClick={cycleMode} title="Change mode (Shift+Tab)">
-              {box.mode}
-            </button>
+            {draft.startsWith('!') ? (
+              <span className="shell-hint">Runs in {box.name}'s shell</span>
+            ) : (
+              <button className={'mode-chip' + (/plan/i.test(box.mode || '') ? ' plan' : '')} onClick={cycleMode} title="Change mode (Shift+Tab)">
+                {box.mode}
+              </button>
+            )}
           </div>
         )}
       </div>

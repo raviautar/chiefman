@@ -122,7 +122,9 @@ function trustQuestion(lines) {
       break;
     }
   }
-  return `Trust ${folder ? folder.replace(/^\/Users\/[^/]+/, '~') : 'this folder'}? Claude can read, change and run files there.`;
+  const f = folder.replace(/^\/Users\/[^/]+/, '~').replace(/\/+$/, '');
+  const name = !f ? 'this folder' : f === '~' ? 'your home folder' : `the ${f.slice(f.lastIndexOf('/') + 1)} folder`;
+  return `Trust ${name}? Claude can read, change and run files there.`;
 }
 
 // A choice menu with a ❯ on the current option, as Claude Code draws for
@@ -135,6 +137,7 @@ function parseMenu(screen) {
   const menu = numbered || parsePlain(lines, start);
   if (!menu) return null;
   if (menu.options.some((o) => /trust this folder/i.test(o.label))) menu.question = trustQuestion(lines);
+  if (/^Rewind\b/.test(menu.question || '')) menu.question = menu.question.replace(/^Rewind\s+/, '').replace(/\s*\(\d+\s*\w+ ago\)/, '');
   menu.options = menu.options.map((o) => ({
     n: o.n,
     label: o.label.replace(ART, '').replace(/\s*\(esc\)\s*$/i, '').trim().replace(/\s{2,}/g, ' · '),
@@ -163,7 +166,10 @@ function parseNumbered(lines, start) {
   const first = best[0].i;
   const last = best[best.length - 1].i;
   const near = lines.slice(Math.max(0, first - 1), Math.min(lines.length, last + 8)).join('\n');
-  if (!HINT.test(near)) return null;
+  // Some of Claude's own menus (the rewind question) have no key hint: they
+  // sit under a ▔ bar with nothing below them.
+  const bare = lines.slice(last + 1).every((l) => !l.trim()) && lines.slice(Math.max(0, first - 14), first).some((l) => /^\s*▔{10,}/.test(l));
+  if (!HINT.test(near) && !bare) return null;
   return {
     question: questionAbove(lines, first),
     selected: (best.find((o) => o.on) || best[0]).n,

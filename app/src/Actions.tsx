@@ -50,21 +50,12 @@ export function MoreMenu({ actions, onClose }: { actions: Action[]; onClose: () 
 
 const kTokens = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
-export function ContextPop({
-  tokens,
-  cost,
-  onClose,
-}: {
-  tokens: { used: number; max: number } | null;
-  cost: number | null;
-  onClose: () => void;
-}) {
+export function ContextPop({ tokens, onClose }: { tokens: { used: number; max: number } | null; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useAway(ref, onClose);
-  const money = cost != null && cost > 0 ? ` · $${cost < 10 ? cost.toFixed(2) : Math.round(cost)}` : '';
   return (
     <div className="context-pop" ref={ref} role="dialog" aria-label="Context">
-      {tokens ? `${kTokens(tokens.used)} of ${kTokens(tokens.max)} tokens used${money}` : 'Nothing counted yet: the box has not answered.'}
+      {tokens ? `${kTokens(tokens.used)} of ${kTokens(tokens.max)} tokens used` : 'Nothing counted yet: the box has not answered.'}
     </div>
   );
 }
@@ -75,6 +66,7 @@ export function Confirm({
   body,
   quote,
   yes,
+  ending,
   onYes,
   onClose,
 }: {
@@ -82,9 +74,12 @@ export function Confirm({
   body: string;
   quote?: string;
   yes: string;
+  ending?: boolean;
   onYes: () => void;
   onClose: () => void;
 }) {
+  // When yes ends or deletes something, Cancel is the dark button and yes a
+  // plain one, last.
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -94,12 +89,12 @@ export function Confirm({
         <p className="sheet-body">{body}</p>
         <div className="sheet-foot">
           <span className="err" />
-          <button className="btn" onClick={onClose}>
+          <button className={'btn' + (ending ? ' dark' : '')} autoFocus={ending} onClick={onClose}>
             Cancel
           </button>
           <button
-            className="btn dark"
-            autoFocus
+            className={ending ? 'btn ending' : 'btn dark'}
+            autoFocus={!ending}
             onClick={() => {
               onYes();
               onClose();

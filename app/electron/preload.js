@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('chiefman', {
   remote: (paneId) => ipcRenderer.invoke('cm:remote', paneId),
   copy: (text) => ipcRenderer.send('cm:copy', text),
   attach: (name, data) => ipcRenderer.invoke('cm:attach', name, data),
+  retry: (paneId) => ipcRenderer.invoke('cm:retry', paneId),
+  rewind: (paneId, spec) => ipcRenderer.invoke('cm:rewind', paneId, spec),
+  files: (paneId, query) => ipcRenderer.invoke('cm:files', paneId, query),
   openUrl: (url) => ipcRenderer.send('cm:open-url', url),
   onEvent: (cb) => {
     const h = (_e, ev) => cb(ev);

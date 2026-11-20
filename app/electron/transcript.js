@@ -40,6 +40,16 @@ function localOutput(s) {
   return t || null;
 }
 
+// What a "!" command printed, from the log line Claude writes for it.
+function shellOutput(s) {
+  const out = /<bash-stdout>([\s\S]*?)<\/bash-stdout>/.exec(s);
+  const err = /<bash-stderr>([\s\S]*?)<\/bash-stderr>/.exec(s);
+  const t = [out && out[1], err && err[1]].filter((x) => x && x.trim()).join('\n');
+  return t.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\s+$/, '');
+}
+
+const near = (a, b, ms) => Math.abs(Date.parse(a) - Date.parse(b)) < ms;
+
 function duration(ms) {
   const s = Math.max(1, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
@@ -59,9 +69,13 @@ function worthParsing(line) {
 // his messages, each text block the box writes, and one line per turn of work.
 // Emits 'reset' once loaded, then 'add' with each new item and where it goes.
 class Transcript extends EventEmitter {
-  constructor(file) {
+  // marks: times the app's own Esc stopped this box. cuts: [from, to] times
+  // a rewind took back; what was logged between them is hidden.
+  constructor(file, opts = {}) {
     super();
     this.file = file;
+    this.marks = opts.marks || [];
+    this.cuts = (opts.cuts || []).filter((c) => Array.isArray(c) && c.length === 2).map(([a, b]) => [Date.parse(a), Date.parse(b)]);
     this.items = [];
     this.seen = new Set();
     this.turn = null;
@@ -76,6 +90,7 @@ class Transcript extends EventEmitter {
   async start() {
     await this.load();
     if (this.stopped) return;
+    this.placeMarks();
     this.loaded = true;
     this.added = [];
     this.emit('reset', { items: this.items, steps: this.steps });
@@ -172,6 +187,44 @@ class Transcript extends EventEmitter {
     }
   }
 
+  // An "Interrupted" line where the app stopped the box, unless Claude wrote
+  // its own there.
+  placeMarks() {
+    for (const ts of this.marks) {
+      const id = 'm:' + ts;
+      if (this.seen.has(id) || this.hidden({ ts })) continue;
+      if (this.items.some((i) => i.t === 'Interrupted' && i.ts && near(i.ts, ts, 20000))) continue;
+      this.seen.add(id);
+      let at = this.items.length;
+      while (at > 0 && this.items[at - 1].ts && Date.parse(this.items[at - 1].ts) > Date.parse(ts)) at--;
+      // The cut-off answer is logged just after the Esc; the line goes below it.
+      while (at < this.items.length && this.items[at].k === 'box' && this.items[at].ts && Date.parse(this.items[at].ts) - Date.parse(ts) < 5000) at++;
+      this.items.splice(at, 0, { id, k: 'work', t: 'Interrupted', ts });
+    }
+  }
+
+  markNow(ts) {
+    const item = { id: 'm:' + ts, k: 'work', t: 'Interrupted', ts };
+    if (this.seen.has(item.id)) return;
+    this.seen.add(item.id);
+    this.insert(item, this.items.length);
+    if (this.loaded) {
+      const added = this.added;
+      this.added = [];
+      this.emit('add', { added, steps: this.steps });
+    }
+  }
+
+  hidden(item) {
+    const t = item.ts ? Date.parse(item.ts) : NaN;
+    return !Number.isNaN(t) && this.cuts.some(([a, b]) => t >= a && t < b);
+  }
+
+  cut([from, to]) {
+    this.cuts.push([Date.parse(from), Date.parse(to)]);
+    this.items = this.items.filter((i) => !this.hidden(i));
+  }
+
   insert(item, at) {
     const after = at > 0 ? this.items[at - 1].id : null;
     this.items.splice(at, 0, item);
@@ -181,6 +234,13 @@ class Transcript extends EventEmitter {
   push(item) {
     if (this.seen.has(item.id)) return;
     this.seen.add(item.id);
+    if (this.hidden(item)) return;
+    if (item.t === 'Interrupted' && item.ts && this.items.slice(-6).some((i) => i.id.startsWith('m:') && near(i.ts, item.ts, 20000))) return;
+    const last = this.items[this.items.length - 1];
+    if (item.k === 'box' && last && last.id.startsWith('m:') && item.ts && Date.parse(item.ts) - Date.parse(last.ts) < 5000) {
+      this.insert(item, this.items.length - 1);
+      return;
+    }
     this.insert(item, this.items.length);
   }
 
@@ -194,7 +254,7 @@ class Transcript extends EventEmitter {
     let text = `Worked for ${duration(ms || 0)} · ${t.steps} ${t.steps === 1 ? 'step' : 'steps'}`;
     if (t.files.size) text += ` · ${t.files.size} ${t.files.size === 1 ? 'file' : 'files'} changed`;
     const item = { id: 'work:' + (t.anchor || t.startTs), k: 'work', t: text, ts: lastTs || t.lastTs };
-    if (this.seen.has(item.id)) return;
+    if (this.seen.has(item.id) || this.hidden(item)) return;
     this.seen.add(item.id);
     const a = t.anchor ? this.items.findIndex((i) => i.id === t.anchor) : -1;
     this.insert(item, a < 0 ? this.items.length : a + 1);
@@ -210,6 +270,17 @@ class Transcript extends EventEmitter {
       if (typeof raw === 'string' && /^\s*\[Request interrupted/.test(raw)) {
         this.endTurn(ts);
         this.push({ id: 'i:' + d.uuid, k: 'work', t: 'Interrupted', ts });
+        return;
+      }
+      if (typeof raw === 'string' && /^\s*<bash-input>/.test(raw)) {
+        const c = /<bash-input>([\s\S]*?)<\/bash-input>/.exec(raw);
+        this.endTurn(ts);
+        if (c) this.push({ id: 'u:' + d.uuid, k: 'you', t: mask('!' + c[1]), ts });
+        return;
+      }
+      if (typeof raw === 'string' && /^\s*<bash-std(out|err)>/.test(raw)) {
+        const out = shellOutput(raw);
+        this.push({ id: 'o:' + d.uuid, k: 'box', t: mask(out || '(no output)'), ts, mono: true });
         return;
       }
       const cmd = typeof raw === 'string' && raw.includes('<command-name>') ? slashCommand(raw) : null;

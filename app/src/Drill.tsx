@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Drill, DrillItem } from './api';
 import { Arrow, Check } from './icons';
+import { arrange } from './Chat';
 
 function ReplyField({ n, onSend }: { n: number; onSend: (text: string) => Promise<boolean> }) {
   const [text, setText] = useState('');
@@ -29,6 +30,7 @@ function ReplyField({ n, onSend }: { n: number; onSend: (text: string) => Promis
 
 // One click answers once. A new card ignores clicks for its first 600 ms,
 // so the second half of a double click on the last card cannot answer it.
+// The big number is the chief's own, the one he answers by.
 function Card({ item, onSend }: { item: DrillItem; onSend: (text: string) => Promise<boolean> }) {
   const [replying, setReplying] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,22 +47,28 @@ function Card({ item, onSend }: { item: DrillItem; onSend: (text: string) => Pro
     }
     return ok;
   };
+  const words = arrange(item.words.map((w, i) => ({ n: i, label: w })));
   return (
     <div className="card rise" key={item.n}>
-      <div className="card-text" title={item.full}>
-        {item.text}
+      <div className="card-top">
+        <span className="card-n" aria-label={'Item ' + item.n}>
+          {item.n}
+        </span>
+        <div className="card-text" title={item.full}>
+          {item.text}
+        </div>
       </div>
       {replying ? (
         <ReplyField n={item.n} onSend={answer} />
       ) : (
         <div className="chips">
-          {item.words.map((w, i) => (
-            <button key={w} className={'chip' + (i === 0 ? ' primary' : '')} disabled={busy} onClick={() => answer(w)}>
-              {w}
+          {words.map((w) => (
+            <button key={w.label} className="chip" disabled={busy} onClick={() => answer(w.label)}>
+              {w.label}
             </button>
           ))}
-          <button className="chip" disabled={busy} onClick={() => Date.now() - born.current >= 600 && setReplying(true)}>
-            Reply
+          <button className="reply-link" disabled={busy} onClick={() => Date.now() - born.current >= 600 && setReplying(true)}>
+            Reply in your words
           </button>
         </div>
       )}
@@ -68,8 +76,8 @@ function Card({ item, onSend }: { item: DrillItem; onSend: (text: string) => Pro
   );
 }
 
-// Only what needs him now, one card at a time. A sent answer takes its card
-// away at once; the chief's own log then keeps it away.
+// Only what needs him now, one card at a time. A sent answer folds its card
+// to one line that says what was sent; the chief's own log then keeps it away.
 export function DrillPanel({
   drill,
   sent,
@@ -81,17 +89,25 @@ export function DrillPanel({
 }) {
   const open = drill ? drill.items.filter((i) => !sent[`${drill.id}:${i.n}`]) : [];
   const [at, setAt] = useState(0);
-  const [last, setLast] = useState<string | null>(null);
+  const [done, setDone] = useState<{ n: number; t: string; id: number } | null>(null);
   useEffect(() => {
     if (at >= open.length) setAt(Math.max(0, open.length - 1));
   }, [open.length, at]);
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(() => setDone(null), 10000);
+    return () => clearTimeout(t);
+  }, [done?.id]);
   const item = open[at];
   return (
-    <aside className="drill" aria-label="Needs you">
+    <aside className="drill" aria-label="From the chief">
       <div className="drill-head">
-        <span className="sub">{open.length ? `${at + 1} of ${open.length}` : ''}</span>
+        <h2 className="drill-title">From the chief</h2>
         {open.length > 1 && (
           <span className="pager">
+            <span className="sub">
+              {at + 1} of {open.length}
+            </span>
             <button className="round" aria-label="Previous" onClick={() => setAt((at - 1 + open.length) % open.length)}>
               <Arrow size={12} dir="left" />
             </button>
@@ -107,20 +123,23 @@ export function DrillPanel({
           item={item}
           onSend={async (t) => {
             const ok = await onSend(item.n, t);
-            if (ok) setLast(`${item.n}. ${t}`);
+            if (ok) setDone({ n: item.n, t, id: Date.now() });
             return ok;
           }}
         />
       ) : (
         <div className="drill-empty">Nothing needs you.</div>
       )}
-      {drill?.also && <div className="drill-also">Also: {drill.also}</div>}
-      {last && (
-        <span className="sent-line" key={last}>
-          <Check />
-          Sent “{last}”
-        </span>
+      {done && (
+        <div className="card done-line rise" key={`done:${done.id}`}>
+          <span className="card-n small">{done.n}</span>
+          <span className="sent-line">
+            <Check />
+            Sent “{done.t}”
+          </span>
+        </div>
       )}
+      {drill?.also && <div className="drill-also">Also: {drill.also}</div>}
     </aside>
   );
 }

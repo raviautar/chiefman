@@ -1,4 +1,4 @@
-export type Status = 'working' | 'idle' | 'off' | 'resuming' | 'resumed' | 'starting';
+export type Status = 'working' | 'idle' | 'off' | 'resuming' | 'resumed' | 'starting' | 'failed';
 
 export interface Box {
   id: string;
@@ -39,6 +39,7 @@ export interface Item {
   k: 'you' | 'box' | 'work';
   t: string;
   ts?: string;
+  mono?: boolean;
 }
 
 export interface DrillItem {
@@ -61,7 +62,7 @@ export type Phase = 'starting' | 'ready' | 'restoring' | 'fresh' | 'error';
 export interface PhaseInfo {
   phase: Phase;
   error: string | null;
-  restore: { total: number; done: number } | null;
+  restore: { total: number; done: number; label: string } | null;
 }
 
 export interface Snapshot extends PhaseInfo {
@@ -72,7 +73,8 @@ export interface Snapshot extends PhaseInfo {
 
 export type HubEvent =
   | ({ type: 'phase' } & PhaseInfo)
-  | { type: 'boxes'; boxes: Box[] }
+  | { type: 'boxes'; boxes: Box[]; restore?: PhaseInfo['restore'] }
+  | { type: 'draft'; paneId: string; text: string }
   | { type: 'select'; paneId: string }
   | { type: 'context'; paneId: string; text: string }
   | { type: 'notice'; text: string; bad?: boolean }
@@ -115,6 +117,9 @@ interface Bridge {
   copy(text: string): void;
   attach(name: string, data: ArrayBuffer): Promise<Result>;
   choose(paneId: string, n: number): Promise<Result>;
+  retry(paneId: string): Promise<Result>;
+  rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
+  files(paneId: string, query: string): Promise<string[]>;
   openUrl(url: string): void;
   onEvent(cb: (ev: HubEvent) => void): () => void;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, Box, BoxSpec, Drill, HubEvent, PhaseInfo, Snapshot } from './api';
-import { AppMark, BoxIcon, Check, Spinner } from './icons';
+import { BoxIcon, Check, Spinner } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
 import { ChatState, ChatView, Pending, norm } from './Chat';
@@ -56,6 +56,7 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const [, setTick] = useState(0);
   const [linkFor, setLinkFor] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, { text: string; seq: number }>>({});
   const pending = useRef<Record<string, Pending[]>>({});
   const quiet = useRef(new Set<string>());
   const wantSelect = useRef<string | null>(null);
@@ -73,6 +74,10 @@ export function App() {
           break;
         case 'boxes':
           setBoxes(ev.boxes);
+          if ('restore' in ev) setInfo((i) => ({ ...i, restore: ev.restore ?? null }));
+          break;
+        case 'draft':
+          setDrafts((d) => ({ ...d, [ev.paneId]: { text: ev.text, seq: Date.now() } }));
           break;
         case 'drill':
           setDrill(ev.drill);
@@ -149,9 +154,8 @@ export function App() {
     }
   }, [boxes]);
 
-  const restoring = info.phase === 'restoring' || info.phase === 'fresh';
   const box = useMemo(() => boxes.find((b) => b.name === selected) || boxes[0] || null, [boxes, selected]);
-  const paneId = !restoring && box ? box.paneId : null;
+  const paneId = box ? box.paneId : null;
 
   useEffect(() => {
     if (box) store.set('chiefman.selected', box.name);
@@ -167,7 +171,6 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (restoring) return;
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
         if (el && (el.closest('.drill') || el.getAttribute('aria-expanded') === 'true')) return;
@@ -203,7 +206,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [boxes, box, overlay, view, restoring, picking, more, ctx, ask]);
+  }, [boxes, box, overlay, view, picking, more, ctx, ask]);
 
   // Asks once, in the app, before typed text of his is replaced.
   function askReplace(name: string, typed: string) {
@@ -334,7 +337,7 @@ export function App() {
   }
 
   const boxActions: Action[] =
-    box && box.paneId && box.status !== 'off' && box.status !== 'starting' && !restoring
+    box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed'
       ? [
           { label: 'Compact', run: () => setOverlay('compact') },
           { label: 'Clear', run: () => setOverlay('clear') },
@@ -350,33 +353,13 @@ export function App() {
   ];
 
   const asks = drill ? drill.items.filter((i) => !sent[`${drill.id}:${i.n}`]).length : 0;
-  const title = restoring ? 'chiefman' : box ? box.name : 'chiefman';
-  const meter = !restoring && box ? meterLine(box) : '';
-  const live = !restoring && box && box.paneId && box.status !== 'off' && box.status !== 'starting';
+  const title = box ? box.name : 'chiefman';
+  const meter = box ? meterLine(box) : '';
+  const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
+  const fold = panel && box && box.name === 'chief' && drill ? { id: drill.id, count: asks } : null;
 
   let body;
-  if (restoring) {
-    const r = info.restore || { total: 1, done: 0 };
-    body = (
-      <div className="restore">
-        <AppMark />
-        <h2>{info.phase === 'fresh' ? 'Starting your chief' : 'Bringing your boxes back'}</h2>
-        <p>
-          No tmux session was running.
-          <br />
-          {info.phase === 'fresh'
-            ? `No saved boxes, so a fresh chief starts in ${config?.workdir ?? 'your home folder'}.`
-            : `Restoring ${r.total} ${r.total === 1 ? 'box' : 'boxes'} from ${config?.stateFile ?? '~/.chiefman/state.json'}.`}
-        </p>
-        <div className="progress">
-          <div style={{ width: `${r.total ? Math.max(4, (r.done / r.total) * 100) : 4}%` }} />
-        </div>
-        <span className="count">
-          {r.done} of {r.total}
-        </span>
-      </div>
-    );
-  } else if (!box || !box.paneId) {
+  if (!box || !box.paneId) {
     body = (
       <div className="chat">
         <div className="empty">
@@ -404,6 +387,16 @@ export function App() {
         chat={chats[box.paneId]}
         pending={pendingFor(box.paneId)}
         quiet={quiet.current}
+        fold={fold}
+        incoming={drafts[box.paneId]}
+        onTaken={() => {
+          const p = box.paneId!;
+          setDrafts((d) => {
+            const next = { ...d };
+            delete next[p];
+            return next;
+          });
+        }}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
       />
@@ -416,26 +409,35 @@ export function App() {
         <div className="nav-lights" />
         <div className="nav-list">
           {boxes.map((b, i) => {
-            const on = !restoring && box?.name === b.name;
+            const on = box?.name === b.name;
             return (
               <button
                 key={b.id}
-                className={'row' + (on ? ' on' : '') + (b.status === 'off' ? ' off' : '')}
+                className={'row' + (on ? ' on' : '') + (b.status === 'off' || b.status === 'failed' ? ' off' : '')}
                 onClick={() => setSelected(b.name)}
                 title={i < 9 ? `${b.name}  ⌘${i + 1}` : b.name}
               >
                 <BoxIcon icon={b.icon} color={b.status === 'off' ? '#B3B2AD' : b.color} />
                 <span className="name">{b.name}</span>
                 {b.cost != null && b.cost > 0 && <span className="row-cost">{money(b.cost)}</span>}
-                {b.status === 'working' && <span className="dot-working" aria-label="working" />}
-                {b.status === 'resuming' && <Spinner />}
+                {b.menu ? (
+                  <span className="dot-asks" aria-label="asks you" title="Asks you" />
+                ) : (
+                  b.status === 'working' && <span className="dot-working" aria-label="working" />
+                )}
+                {b.status === 'resuming' && !b.menu && <Spinner />}
                 {b.status === 'resumed' && <Check color="#034F46" />}
               </button>
             );
           })}
         </div>
+        {info.restore && (
+          <div className="nav-quiet" role="status">
+            {info.restore.label} · {info.restore.done} of {info.restore.total}
+          </div>
+        )}
         <div style={{ flex: 1 }} />
-        <button className="row" onClick={() => setOverlay('newbox')} disabled={restoring}>
+        <button className="row" onClick={() => setOverlay('newbox')}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5B5B59" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
             <path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 8v8 M8 12h8" />
           </svg>
@@ -449,12 +451,14 @@ export function App() {
             <h1>{title}</h1>
             {live && (
               <div className="bar-meta">
-                <span style={{ position: 'relative' }}>
-                  <button className="pill meter" onClick={openContext} title="What fills the context">
-                    {meter || 'context'}
-                  </button>
-                  {ctx === box!.paneId && <ContextPop tokens={box!.tokens} cost={box!.cost} onClose={() => setCtx(null)} />}
-                </span>
+                {meter && (
+                  <span style={{ position: 'relative' }}>
+                    <button className="pill meter" onClick={openContext} title="What fills the context">
+                      {meter}
+                    </button>
+                    {ctx === box!.paneId && <ContextPop tokens={box!.tokens} onClose={() => setCtx(null)} />}
+                  </span>
+                )}
                 {box!.modelName && (
                   <span style={{ position: 'relative' }}>
                     <button className="pill" onClick={() => setPicking(!picking)} title="Model and effort" disabled={!!box!.switching}>
@@ -498,7 +502,7 @@ export function App() {
               </div>
             )}
           </div>
-          {!restoring && box && (
+          {box && (
             <div className="seg" role="group" aria-label="View">
               <button className={view === 'chat' ? 'on' : ''} onClick={() => setView('chat')}>
                 Chat
@@ -508,20 +512,18 @@ export function App() {
               </button>
             </div>
           )}
-          {!restoring && (
-            <button
-              className={'drill-btn' + (panel ? ' on' : '')}
-              aria-label="Drill-down"
-              title="Drill-down: what needs you"
-              aria-pressed={panel}
-              onClick={() => setPanel(!panel)}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M15 4v16" />
-              </svg>
-              {asks > 0 && <span className="badge">{asks}</span>}
-            </button>
-          )}
+          <button
+            className={'drill-btn' + (panel ? ' on' : '')}
+            aria-label="Drill-down"
+            title="Drill-down: what needs you"
+            aria-pressed={panel}
+            onClick={() => setPanel(!panel)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M15 4v16" />
+            </svg>
+            {asks > 0 && <span className="badge">{asks}</span>}
+          </button>
         </div>
 
         {toast && (
@@ -556,19 +558,20 @@ export function App() {
                 : 'It shrinks the conversation to a summary, so the box has room again.'
             }
             yes={overlay === 'clear' ? 'Clear' : 'Compact'}
+            ending={overlay === 'clear'}
             onYes={() => act(overlay)}
             onClose={() => setOverlay(null)}
           />
         )}
         {ask && (
-          <Confirm title={ask.title} body="Your typed text in this box goes away, and this message is sent." quote={ask.typed} yes="Replace" onYes={() => ask.answer(true)} onClose={() => ask.answer(false)} />
+          <Confirm title={ask.title} body="Your typed text in this box goes away, and this message is sent." quote={ask.typed} yes="Replace" ending onYes={() => ask.answer(true)} onClose={() => ask.answer(false)} />
         )}
         {overlay === 'rename' && box && (
           <RenameSheet box={box} taken={boxes.map((b) => b.name)} onRename={rename} onClose={() => setOverlay(null)} />
         )}
       </main>
 
-      {panel && !restoring && <DrillPanel drill={drill} sent={sent} onSend={sendDrill} />}
+      {panel && <DrillPanel drill={drill} sent={sent} onSend={sendDrill} />}
     </div>
   );
 }

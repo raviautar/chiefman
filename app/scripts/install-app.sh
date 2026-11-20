@@ -37,6 +37,8 @@ if [ -d "$DEST" ]; then
   i=0
   while pgrep -f "$DEST/Contents/MacOS/" >/dev/null 2>&1; do
     i=$((i + 1))
+    # The quit request can be refused without a word; then ask the process.
+    if [ "$i" -eq 8 ]; then pkill -TERM -f "$DEST/Contents/MacOS/chiefman" >/dev/null 2>&1 || true; fi
     if [ "$i" -gt 20 ]; then
       echo "chiefman is still running. Quit it, then run this again." >&2
       exit 1

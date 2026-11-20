@@ -67,14 +67,3 @@ export function Spinner() {
     </svg>
   );
 }
-
-export function AppMark({ size = 76 }: { size?: number }) {
-  return (
-    <div className="appmark" style={{ width: size, height: size, borderRadius: size * 0.237 }}>
-      <svg width={size * 0.66} height={size * 0.66} viewBox="0 0 100 100" aria-hidden="true">
-        <path d="M30 41 L35 21 L44 31 L50 16 L56 31 L65 21 L70 41 Z" fill="#F0D7FF" stroke="#F0D7FF" strokeWidth="3" strokeLinejoin="round" />
-        <rect x="24" y="49" width="52" height="35" rx="8" fill="#FCFCFB" />
-      </svg>
-    </div>
-  );
-}
