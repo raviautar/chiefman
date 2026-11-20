@@ -30,6 +30,8 @@ function shippedPlugin() {
 }
 
 const file = readConfig();
+// Boxes start in ~/workspace, where the projects usually live, when it exists.
+const defaultWorkdir = fs.existsSync(path.join(home, 'workspace')) ? '~/workspace' : '~';
 const envDirs = process.env.CHIEFMAN_PLUGIN_DIRS ? process.env.CHIEFMAN_PLUGIN_DIRS.split(':') : null;
 const dirs = (envDirs || (Array.isArray(file.pluginDirs) ? file.pluginDirs : shippedPlugin()))
   .map(expand)
@@ -37,7 +39,7 @@ const dirs = (envDirs || (Array.isArray(file.pluginDirs) ? file.pluginDirs : shi
 
 module.exports = {
   session: process.env.CHIEFMAN_TMUX_SESSION || file.tmuxSession || 'chief',
-  workdir: expand(process.env.CHIEFMAN_WORKDIR || file.workdir || '~'),
+  workdir: expand(process.env.CHIEFMAN_WORKDIR || file.workdir || defaultWorkdir),
   stateDir,
   model: process.env.CHIEFMAN_MODEL || file.model || 'claude-opus-5-5',
   effort: process.env.CHIEFMAN_EFFORT || file.effort || 'xhigh',
