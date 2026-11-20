@@ -1244,12 +1244,14 @@ class Hub {
       const cmd = (await run(['display', '-p', '-t', paneId, '#{pane_current_command}']).catch(() => '')).trim();
       if ((asked || seen.asked) && SHELLS.test(cmd)) return 'exited';
       const menu = CLAUDE_CMD.test(cmd) ? parseMenu(s) : null;
-      if (menu) seen.asked = true;
-      if (TRUST.test(s) && menu) {
+      // Each question, the trust one or any after it, waits for his answer
+      // (up to ten minutes); it shows as buttons in the chat.
+      if (menu) {
+        seen.asked = true;
+        end = Math.max(end, Date.now() + 600000);
         if (!asked) {
           asked = true;
-          end = Date.now() + 600000;
-          this.log('asks trust', { pane: paneId });
+          this.log('asks', { pane: paneId, trust: TRUST.test(s) });
           this.soon('poll', 100, () => this.pollScreens());
         }
         continue;
@@ -1355,14 +1357,11 @@ class Hub {
   }
 
   // His first message goes in once the prompt is ready, and must be seen
-  // sent. When a question came first, or it does not go through, it goes
-  // back to the app as the box's draft: never lost.
+  // sent. A question before it was answered so Claude goes on ("Yes"), so
+  // it goes then too. When it does not go through, it goes back to the app
+  // as the box's draft: never lost.
   async sendFirst(paneId, name, message, asked) {
     if (!message) return {};
-    if (asked) {
-      this.log('first message kept', { name, why: 'asked first' });
-      return { unsent: message };
-    }
     await sleep(600);
     if (!(await this.promptEmpty(paneId, 8000))) {
       this.log('first message kept', { name, why: 'prompt not empty' });
@@ -1383,7 +1382,7 @@ class Hub {
       this.log('first message kept', { name, why: 'stuck' });
       return { unsent: message, reason: `${name} did not take its first message. It is in the field.` };
     }
-    this.log('first message sent', { name });
+    this.log(asked ? 'sent after yes' : 'first message sent', { name });
     return { sent: true };
   }
 

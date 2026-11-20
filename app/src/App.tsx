@@ -317,15 +317,22 @@ export function App() {
 
   // Resume, or Resume and send: what he typed in an ended box goes along,
   // the way New Box's first message does, or stays in its field.
+  // The text leaves the field for a dim "Waiting to send" bubble until it is
+  // sent; if it is not, it goes back to the field.
   async function resumeBox(name: string): Promise<Result> {
     const d = saved.current[name];
     const text = d ? [d.text.trim(), ...d.atts.map((a) => a.path)].filter(Boolean).join(' ') : '';
-    const r = await api().startAgain(name, text || undefined);
-    if (r.sent) {
+    if (text) {
       setDraftFor(name, null);
-      const p = r.paneId;
-      if (p) setIncoming((x) => ({ ...x, [p]: { text: '', seq: Date.now() } }));
+      setHeld((w) => ({ ...w, [name]: text }));
     }
+    const r = await api().startAgain(name, text || undefined);
+    setHeld((w) => {
+      const next = { ...w };
+      delete next[name];
+      return next;
+    });
+    if (r.ok && r.unsent) giveBack(name, r.paneId, r.unsent);
     if (r.ok && r.unsent && r.reason) show(r.reason, true);
     return r;
   }
@@ -708,6 +715,7 @@ export function App() {
         onDraft={(d) => setDraftFor(box.name, d)}
         onRemove={() => removeEnded(box.name)}
         onResume={() => resumeBox(box.name)}
+        underEnded={endedLine.some((b) => b.name === box.name)}
         note={notes[box.name]}
         waiting={held[box.name]}
         onOpen={setFull}

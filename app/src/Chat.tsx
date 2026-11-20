@@ -161,6 +161,7 @@ export function ChatView({
   note,
   waiting,
   onResume,
+  underEnded,
   onOpen,
   onSend,
   onError,
@@ -179,6 +180,8 @@ export function ChatView({
   note?: string;
   waiting?: string;
   onResume: () => Promise<Result>;
+  // The box sits under Ended in the list, not as a row.
+  underEnded?: boolean;
   onOpen: (url: string) => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
@@ -355,9 +358,19 @@ export function ChatView({
   async function resume() {
     setEndBusy(true);
     setEndWhy(null);
-    const r = await onResume();
+    // What he typed goes with it: out of the field now, back if it did not start.
+    const text = draft;
+    const files = atts;
+    const p = onResume();
+    setDraft('');
+    setAtts([]);
+    const r = await p;
     setEndBusy(false);
-    if (!r.ok) setEndWhy(r.reason || "Couldn't resume it.");
+    if (!r.ok) {
+      setEndWhy(r.reason || "Couldn't resume it.");
+      setDraft(text);
+      setAtts(files);
+    }
   }
 
   async function closeEnded() {
@@ -482,13 +495,13 @@ export function ChatView({
   }
 
   let middle;
-  if (starting && !menu)
+  if (starting && !menu && !waiting)
     middle = (
       <div className="empty">
         <Live text="Starting…" />
       </div>
     );
-  else if (chat?.loaded && !items.length && !pending.length && !working && !menu && !resuming && !failed && !ended)
+  else if (chat?.loaded && !items.length && !pending.length && !working && !menu && !resuming && !failed && !ended && !waiting && !draft.trim())
     middle = <div className="empty">{off ? 'Nothing runs in this window.' : 'No messages yet.'}</div>;
   else
     middle = (
@@ -566,13 +579,15 @@ export function ChatView({
             </div>
           </div>
         )}
-        {/* His first message, held while a start-up question waits. */}
-        {menu && waiting && (
-          <div className="pending waiting" title="Goes to the field once the question is answered">
+        {/* His first message until it is sent: under a start-up question, and
+            while the box comes up after his answer. */}
+        {waiting && (
+          <div className="pending waiting" title="Sent once the box is ready">
             <div className="you">{waiting}</div>
             <span className="queued">Waiting to send</span>
           </div>
         )}
+        {starting && !menu && <Live text="Starting…" />}
         {resuming && !menu && <Live text="Coming back…" />}
         {ended && (
           <div className="ended rise" role="status">
@@ -594,7 +609,13 @@ export function ChatView({
               </button>
             </div>
             {box.ended?.start ? (
-              <div className="ended-note">Kept under Ended. Resume brings it back.</div>
+              <div className="ended-note">
+                {underEnded
+                  ? 'Kept under Ended. Resume brings it back.'
+                  : typed
+                    ? 'Stays in the list while it holds your text.'
+                    : 'Moves under Ended when you leave.'}
+              </div>
             ) : (
               typed && <div className="ended-note">Remove takes your typed text too.</div>
             )}
