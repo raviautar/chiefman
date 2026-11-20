@@ -158,6 +158,7 @@ export function ChatView({
   onTaken,
   onDraft,
   onRemove,
+  note,
   onOpen,
   onSend,
   onError,
@@ -173,6 +174,7 @@ export function ChatView({
   onTaken: () => void;
   onDraft: (d: Draft | null) => void;
   onRemove: () => Promise<Result>;
+  note?: string;
   onOpen: (url: string) => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
@@ -186,6 +188,7 @@ export function ChatView({
   const [unfold, setUnfold] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [endBusy, setEndBusy] = useState(false);
+  const [endWhy, setEndWhy] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -342,18 +345,21 @@ export function ChatView({
   }
 
   // A box that ended starts again on its session, or is closed with its draft.
+  // A click that does not do its job says why, on a line under the buttons.
   async function startAgain() {
     setEndBusy(true);
+    setEndWhy(null);
     const r = await api().startAgain(box.name);
     setEndBusy(false);
-    if (!r.ok) onError(r.reason || 'Could not start it again.');
+    if (!r.ok) setEndWhy(r.reason || "Couldn't start it again.");
   }
 
   async function closeEnded() {
     setEndBusy(true);
+    setEndWhy(null);
     const r = await onRemove();
     setEndBusy(false);
-    if (!r.ok) onError(r.reason || 'Not closed.');
+    if (!r.ok) setEndWhy(r.reason || "Couldn't remove it.");
   }
 
   async function dismiss() {
@@ -481,6 +487,7 @@ export function ChatView({
   else
     middle = (
       <div className="chat-col">
+        {note && <div className="ended-note">{note}</div>}
         {shown.map((m) => {
           const isFresh = chat!.fresh.has(m.id);
           if (fold && m.id === fold.id && unfold !== fold.id)
@@ -566,6 +573,11 @@ export function ChatView({
                 Remove from list
               </button>
             </div>
+            {endWhy && (
+              <div className="ended-why" role="alert">
+                {endWhy}
+              </div>
+            )}
             {box.ended?.later ? (
               <div className="ended-note">
                 {typed

@@ -62,6 +62,8 @@ export function App() {
   const saved = useRef<Record<string, Draft>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [linger, setLinger] = useState(false);
+  // Why a resumed box got "<name>-2", shown at the top of its chat.
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [nothing, setNothing] = useState(false);
   const [chats, setChats] = useState<Record<string, ChatState>>({});
   const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | null>(null);
@@ -453,13 +455,29 @@ export function App() {
     return keep;
   }
 
-  function startBox(spec: BoxSpec) {
+  function startBox(spec: BoxSpec, note?: string) {
     setOverlay(null);
+    if (note) setNotes((n) => ({ ...n, [spec.name]: note }));
     wantSelect.current = spec.name;
-    if (spec.resume) adopt.current = { name: spec.name, key: `session.${spec.resume}` };
+    // A conversation that already has a row comes back in that row.
+    const row = spec.resume ? boxes.find((b) => b.session === spec.resume) : undefined;
+    if (row) {
+      wantSelect.current = null;
+      setSelected(row.name);
+      setView('chat');
+    } else if (spec.resume) adopt.current = { name: spec.name, key: `session.${spec.resume}` };
     api()
       .newBox(spec)
-      .then((r) => !r.ok && show(r.reason || 'Could not start the box.', true));
+      .then((r) => {
+        if (r.name && r.name !== spec.name && !r.existing) {
+          if (adopt.current?.name === spec.name) adopt.current = { ...adopt.current, name: r.name };
+          wantSelect.current = r.name;
+          if (boxesRef.current.some((b) => b.name === r.name)) setSelected(r.name);
+        }
+        if (r.existing && r.name) setSelected(r.name);
+        if (r.renamed && r.name) setNotes((n) => ({ ...n, [r.name!]: `${r.renamed} is a different conversation, so this one is ${r.name}.` }));
+        if (!r.ok) show(r.reason || "Couldn't start the box.", true);
+      });
   }
 
   async function switchBox(kind: 'model' | 'effort', value: string) {
@@ -600,6 +618,7 @@ export function App() {
         }}
         onDraft={(d) => setDraftFor(box.name, d)}
         onRemove={() => removeEnded(box.name)}
+        note={notes[box.name]}
         onOpen={setFull}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
@@ -760,7 +779,7 @@ export function App() {
         {body}
 
         {overlay === 'newbox' && (
-          <NewBoxSheet taken={boxes.map((b) => b.name)} onCancel={() => setOverlay(null)} onStart={startBox} />
+          <NewBoxSheet boxes={boxes} onCancel={() => setOverlay(null)} onStart={startBox} />
         )}
         {overlay === 'switch' && (
           <Palette

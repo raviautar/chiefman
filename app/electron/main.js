@@ -158,6 +158,23 @@ function on(ch, fn) {
   });
 }
 
+// A button's request: it does its job or says why not in one line, and every
+// click is logged with its result.
+function act(ch, fn) {
+  handle(ch, async (...a) => {
+    let r;
+    try {
+      r = await fn(...a);
+    } catch (e) {
+      r = { ok: false, reason: `Couldn't do that: ${String((e && e.message) || e).slice(0, 120)}` };
+    }
+    if (!r || typeof r !== 'object') r = { ok: false };
+    if (r.ok === false && !r.reason) r = { ...r, reason: "Couldn't do that." };
+    log('click', { what: ch.slice(3), ok: r.ok !== false, ...(r.reason ? { why: r.reason } : {}) });
+    return r;
+  });
+}
+
 function wireIpc() {
   handle('cm:init', () => hub.snapshot());
   on('cm:watch', (p) => {
@@ -171,36 +188,30 @@ function wireIpc() {
     PANE.test(p) && typeof t === 'string' ? hub.sendText(p, t, { replace: replace === true }) : { ok: false, reason: 'Bad request.' },
   );
   handle('cm:chief-send', (t, replace) => (typeof t === 'string' ? hub.sendChief(t, replace === true) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:mode', (p) => (PANE.test(p) ? hub.cycleMode(p) : { ok: false, reason: 'Bad request.' }));
+  act('cm:mode', (p) => (PANE.test(p) ? hub.cycleMode(p) : { ok: false, reason: 'Bad request.' }));
   handle('cm:mask', (t) => (typeof t === 'string' ? mask(t) : ''));
-  handle('cm:new-box', async (spec) => {
-    try {
-      return await hub.newBox(spec && typeof spec === 'object' ? spec : {});
-    } catch (e) {
-      return { ok: false, reason: String((e && e.message) || e) };
-    }
-  });
-  handle('cm:interrupt', (p) => (PANE.test(p) ? hub.interrupt(p) : { ok: false }));
-  handle('cm:choose', (p, n) => (PANE.test(p) && Number.isInteger(n) ? hub.choose(p, n) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:dismiss', (p) => (PANE.test(p) ? hub.dismiss(p) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:answer', (p, t) => (PANE.test(p) && typeof t === 'string' && t.length <= 5000 ? hub.answer(p, t) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:action', (p, kind) => (PANE.test(p) && typeof kind === 'string' ? hub.action(p, kind) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:rename', (p, name) => (PANE.test(p) && typeof name === 'string' ? hub.rename(p, name) : { ok: false, reason: 'Bad request.' }));
+  act('cm:new-box', (spec) => hub.newBox(spec && typeof spec === 'object' ? spec : {}));
+  act('cm:interrupt', (p) => (PANE.test(p) ? hub.interrupt(p) : { ok: false }));
+  act('cm:choose', (p, n) => (PANE.test(p) && Number.isInteger(n) ? hub.choose(p, n) : { ok: false, reason: 'Bad request.' }));
+  act('cm:dismiss', (p) => (PANE.test(p) ? hub.dismiss(p) : { ok: false, reason: 'Bad request.' }));
+  act('cm:answer', (p, t) => (PANE.test(p) && typeof t === 'string' && t.length <= 5000 ? hub.answer(p, t) : { ok: false, reason: 'Bad request.' }));
+  act('cm:action', (p, kind) => (PANE.test(p) && typeof kind === 'string' ? hub.action(p, kind) : { ok: false, reason: 'Bad request.' }));
+  act('cm:rename', (p, name) => (PANE.test(p) && typeof name === 'string' ? hub.rename(p, name) : { ok: false, reason: 'Bad request.' }));
   handle('cm:recent', () => hub.recentSessions());
-  handle('cm:switch', (p, kind, v) =>
+  act('cm:switch', (p, kind, v) =>
     PANE.test(p) && (kind === 'model' || kind === 'effort') && typeof v === 'string' ? hub.switchBox(p, kind, v) : { ok: false, reason: 'Bad request.' },
   );
-  handle('cm:retry', (p) => (PANE.test(p) ? hub.retryStart(p) : { ok: false, reason: 'Bad request.' }));
+  act('cm:retry', (p) => (PANE.test(p) ? hub.retryStart(p) : { ok: false, reason: 'Bad request.' }));
   const BOX_NAME = /^[A-Za-z0-9._-]{1,64}$/;
-  handle('cm:start-again', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.startAgain(n) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:close-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.closeEnded(n) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:rewind', (p, spec) =>
+  act('cm:start-again', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.startAgain(n) : { ok: false, reason: 'Bad request.' }));
+  act('cm:close-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.closeEnded(n) : { ok: false, reason: 'Bad request.' }));
+  act('cm:rewind', (p, spec) =>
     PANE.test(p) && spec && typeof spec.text === 'string' && spec.text.length < 100000
       ? hub.rewind(p, { text: spec.text, id: typeof spec.id === 'string' ? spec.id : '', dupAfter: Number(spec.dupAfter) || 0 })
       : { ok: false, reason: 'Bad request.' },
   );
   handle('cm:files', (p, q) => (PANE.test(p) && typeof q === 'string' && q.length < 200 ? hub.files(p, q) : []));
-  handle('cm:remote', (p) => (PANE.test(p) ? hub.remote(p) : { ok: false, reason: 'Bad request.' }));
+  act('cm:remote', (p) => (PANE.test(p) ? hub.remote(p) : { ok: false, reason: 'Bad request.' }));
   on('cm:copy', (t) => {
     if (typeof t === 'string' && /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(t)) clipboard.writeText(t);
   });

@@ -242,7 +242,7 @@ class Hub {
     if (b.claude || this.status(b) !== 'off') return null;
     const saved = this.state.boxes.find((s) => s.name === b.name);
     if (!saved || !UUID_RE.test(saved.sessionId || '')) return null;
-    return { start: true, window: true, later: this.resumable(saved.sessionId) };
+    return { start: this.hasConversation(saved.sessionId, saved.cwd), window: true, later: this.resumable(saved.sessionId) };
   }
 
   // New Box resumes sessions from the working folder only.
@@ -256,6 +256,13 @@ class Hub {
 
   resumable(id) {
     return UUID_RE.test(id || '') && fs.existsSync(this.sessionFile(id));
+  }
+
+  // Start it again resumes in the box's own folder, or the working folder.
+  hasConversation(id, cwd) {
+    if (this.resumable(id)) return true;
+    const dir = path.join(this.cfg.claudeHome, 'projects', String(cwd || '').replace(/[^A-Za-z0-9]/g, '-'));
+    return UUID_RE.test(id || '') && !!cwd && fs.existsSync(path.join(dir, `${id}.jsonl`));
   }
 
   publicBoxes() {
@@ -281,7 +288,8 @@ class Hub {
         modelName: null,
         effort: null,
         remote: false,
-        ended: { start: UUID_RE.test(e.sessionId || ''), window: false, later: this.resumable(e.sessionId) },
+        ended: { start: this.hasConversation(e.sessionId, e.cwd), window: false, later: this.resumable(e.sessionId) },
+        session: UUID_RE.test(e.sessionId || '') ? e.sessionId : null,
       }));
     return this.livePublicBoxes().concat(gone);
   }
@@ -304,6 +312,7 @@ class Hub {
         ...this.meter(b),
         remote: !!(b.claude && b.claude.bridge),
         ended: this.endedInfo(b),
+        session: (b.claude && b.claude.sessionId) || (this.state.boxes.find((s) => s.name === b.name) || {}).sessionId || null,
       };
     });
   }
@@ -1201,17 +1210,49 @@ class Hub {
     const model = MODELS.includes(spec && spec.model) ? spec.model : this.cfg.model;
     const effort = EFFORTS.includes(spec && spec.effort) ? spec.effort : this.cfg.effort;
     const resume = spec && UUID_RE.test(spec.resume || '') ? spec.resume : null;
-    if (resume && liveSessionIds(this.cfg.claudeHome).has(resume)) return { ok: false, reason: 'That session already runs in another window.' };
+    // A session has one row. Resuming one that has a row uses that row: a
+    // live one is only shown, an ended one starts again in it.
+    if (resume) {
+      const row = this.rowForSession(resume);
+      if (row && row.live) {
+        this.log('resume uses its row', { name: row.name, live: true });
+        return { ok: true, name: row.name, existing: true };
+      }
+      if (row) {
+        this.log('resume uses its row', { name: row.name, live: false });
+        return { ...(await this.startAgain(row.name)), name: row.name, existing: true };
+      }
+      if (liveSessionIds(this.cfg.claudeHome).has(resume)) return { ok: false, reason: 'Already running in a window outside chiefman.' };
+    }
     if (!NAME_RE.test(name)) return { ok: false, reason: 'Use lowercase letters, digits and dashes for the name.' };
-    if (this.starting.has(name) || this.boxes.some((b) => b.name === name)) return { ok: false, reason: `A box named ${name} already exists.` };
+    // Another conversation with this name gets "<name>-2".
+    let final = name;
+    if (resume) for (let i = 2; this.nameTaken(final); i++) final = `${name.slice(0, 28)}-${i}`;
+    else if (this.nameTaken(name)) return { ok: false, reason: `A box named ${name} already exists.` };
     if (!this.ctl) return { ok: false, reason: 'chiefman is not connected to tmux yet.' };
-    this.starting.add(name);
+    this.starting.add(final);
     try {
-      return await this.startBox(name, icon, color, message, model, effort, resume);
+      const r = await this.startBox(final, icon, color, message, model, effort, resume);
+      return { ...r, name: final, ...(final !== name ? { renamed: name } : {}) };
     } finally {
-      this.starting.delete(name);
+      this.starting.delete(final);
       this.emitBoxes();
     }
+  }
+
+  nameTaken(name) {
+    return this.starting.has(name) || this.boxes.some((b) => b.name === name) || this.ended.has(name);
+  }
+
+  // The row that holds a session, if any: live (running, or starting) or ended.
+  rowForSession(id) {
+    const sidOf = (b) => (b.claude && b.claude.sessionId) || (this.state.boxes.find((s) => s.name === b.name) || {}).sessionId;
+    const rows = this.boxes.filter((b) => sidOf(b) === id);
+    const live = rows.find((b) => !this.endedInfo(b));
+    if (live) return { name: live.name, live: true };
+    if (rows.length) return { name: rows[0].name, live: false };
+    const gone = [...this.ended.values()].find((e) => e.sessionId === id && !this.boxes.some((b) => b.name === e.name));
+    return gone ? { name: gone.name, live: false } : null;
   }
 
   async startBox(name, icon, color, message, model, effort, resume) {
@@ -1369,33 +1410,44 @@ class Hub {
     const e = this.ended.get(name);
     const box = this.boxes.find((b) => b.name === name);
     const saved = e || this.state.boxes.find((s) => s.name === name);
-    if (!saved || !UUID_RE.test(saved.sessionId || '')) return { ok: false, reason: `${name} has no session to start again.` };
-    if (liveSessionIds(this.cfg.claudeHome).has(saved.sessionId)) return { ok: false, reason: 'That session already runs in another window.' };
-    if (!this.ctl) return { ok: false, reason: 'chiefman is not connected to tmux yet.' };
+    if (!saved || !UUID_RE.test(saved.sessionId || '')) return { ok: false, reason: `Couldn't start: ${name} has no conversation to resume.` };
+    if ((this.resuming.get(name) || {}).state === 'resuming') return { ok: false, reason: `Already starting ${name}.` };
+    if (liveSessionIds(this.cfg.claudeHome).has(saved.sessionId)) {
+      const row = this.rowForSession(saved.sessionId);
+      return { ok: false, reason: row && row.live ? `Already running as ${row.name}.` : 'Already running in a window outside chiefman.' };
+    }
+    if (!this.hasConversation(saved.sessionId, saved.cwd)) return { ok: false, reason: `Couldn't start: ${name} never got a message, so there is nothing to resume.` };
+    if (!this.ctl) return { ok: false, reason: "Couldn't start: chiefman is not connected to tmux yet." };
     const cmd = this.claudeCmd(saved.sessionId, saved.model, saved.effort);
     const cwd = saved.cwd && fs.existsSync(saved.cwd) ? saved.cwd : this.cfg.workdir;
     let paneId;
     if (box) {
-      if (!this.endedInfo(box)) return { ok: false, reason: `${name} is not ended.` };
+      if (!this.endedInfo(box)) return { ok: false, reason: `Already running as ${name}.` };
       const now = (await run(['display', '-p', '-t', box.paneId, '#{pane_current_command}']).catch(() => '')).trim();
-      if (!SHELLS.test(now)) return { ok: false, reason: `Something else runs in ${name}'s window.` };
-      await run(['respawn-pane', '-k', '-t', box.paneId, '-c', cwd]);
-      paneId = box.paneId;
-    } else {
-      if (!e) return { ok: false, reason: `${name} is gone.` };
-      // The saved record keeps its name, icon and colour for the new window.
-      this.state.boxes = this.state.boxes.filter((b) => b.name !== name).concat({
-        name, icon: e.icon, color: e.color, sessionId: e.sessionId, cwd, model: e.model, effort: e.effort,
-        createdAt: null, costCarry: e.costCarry || 0,
-      });
-      this.store.save(this.state);
-      ({ paneId } = await this.newWindow(name, false, cwd));
+      if (!SHELLS.test(now)) return { ok: false, reason: `Couldn't start: something else runs in ${name}'s window.` };
+    } else if (!e) return { ok: false, reason: `Couldn't start: ${name} is gone.` };
+    try {
+      if (box) {
+        await run(['respawn-pane', '-k', '-t', box.paneId, '-c', cwd]);
+        paneId = box.paneId;
+      } else {
+        // The saved record keeps its name, icon and colour for the new window.
+        this.state.boxes = this.state.boxes.filter((b) => b.name !== name).concat({
+          name, icon: e.icon, color: e.color, sessionId: e.sessionId, cwd, model: e.model, effort: e.effort,
+          createdAt: null, costCarry: e.costCarry || 0,
+        });
+        this.store.save(this.state);
+        ({ paneId } = await this.newWindow(name, false, cwd));
+      }
+      this.resuming.set(name, { paneId, cmd, cwd, sessionId: saved.sessionId, state: 'resuming' });
+      await this.scan();
+      await sleep(900);
+      await run(['send-keys', '-t', paneId, '-l', '--', cmd]);
+      await run(['send-keys', '-t', paneId, 'Enter']);
+    } catch (err) {
+      this.resuming.delete(name);
+      return { ok: false, reason: `Couldn't start: ${String((err && err.message) || err).slice(0, 120)}` };
     }
-    this.resuming.set(name, { paneId, cmd, cwd, sessionId: saved.sessionId, state: 'resuming' });
-    await this.scan();
-    await sleep(900);
-    await run(['send-keys', '-t', paneId, '-l', '--', cmd]);
-    await run(['send-keys', '-t', paneId, 'Enter']);
     this.log('start again', { name });
     this.followStart(name);
     return { ok: true, paneId };

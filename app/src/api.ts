@@ -22,6 +22,8 @@ export interface Box {
   // Set when the box ended: its window closed (window false), or its Claude exited.
   // later: New Box can resume its conversation after it is removed.
   ended?: { start: boolean; window: boolean; later?: boolean } | null;
+  // The conversation this row holds. One row per conversation.
+  session?: string | null;
   lastPane?: string | null;
 }
 
@@ -112,6 +114,11 @@ export interface Result {
   duplicate?: boolean;
   pending?: boolean;
   session?: string;
+  // New Box: the row it used (existing: an earlier row of that conversation),
+  // and the name it asked for when that one was taken.
+  name?: string;
+  existing?: boolean;
+  renamed?: string;
 }
 
 interface Bridge {

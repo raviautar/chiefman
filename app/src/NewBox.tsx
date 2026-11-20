@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, BoxSpec, MODELS, Recent } from './api';
+import { api, Box, BoxSpec, MODELS, Recent } from './api';
 import { BoxIcon, PALETTE, SYMBOLS } from './icons';
 import { Picker } from './Picker';
 
@@ -9,14 +9,15 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const slug = (s: string) => s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+/, '').slice(0, 32);
 
 export function NewBoxSheet({
-  taken,
+  boxes,
   onCancel,
   onStart,
 }: {
-  taken: string[];
+  boxes: Box[];
   onCancel: () => void;
-  onStart: (spec: BoxSpec) => void;
+  onStart: (spec: BoxSpec, note?: string) => void;
 }) {
+  const taken = boxes.map((b) => b.name);
   const [model, setModel] = useState('claude-opus-5-5');
   const [effort, setEffort] = useState('xhigh');
   const [picking, setPicking] = useState(false);
@@ -40,20 +41,21 @@ export function NewBoxSheet({
   const [icon, setIcon] = useState('doc');
   const [message, setMessage] = useState('');
   const clean = name.trim();
-  const err = !clean ? '' : !NAME.test(clean) ? 'Lowercase letters, digits and dashes.' : taken.includes(clean) ? 'That name is taken.' : '';
-  const ready = !!clean && !err;
 
   // A session's own name: its title, or the first words he sent it.
   const nameOf = (r: Recent) => slug(r.title || r.first.split(/\s+/).slice(0, 4).join(' ')).replace(/-+$/, '');
+  const base = (r: Recent) => (NAME.test(nameOf(r)) ? nameOf(r) : 'resumed');
   const freeName = (r: Recent) => {
-    const base = NAME.test(nameOf(r)) ? nameOf(r) : 'resumed';
-    let n = base;
-    for (let i = 2; taken.includes(n); i++) n = `${base.slice(0, 28)}-${i}`;
+    let n = base(r);
+    for (let i = 2; taken.includes(n); i++) n = `${base(r).slice(0, 28)}-${i}`;
     return n;
   };
+  // One row per conversation: a session that has a row keeps that row's name.
+  const rowOf = (id: string) => boxes.find((b) => b.session === id);
+  const nameFor = (r: Recent) => rowOf(r.id)?.name ?? freeName(r);
   const pick = (r: Recent) => {
     setResume(r.id);
-    if (!own) setName(freeName(r));
+    setName(nameFor(r));
   };
   const pickNew = () => {
     setResume(null);
@@ -61,13 +63,26 @@ export function NewBoxSheet({
   };
   const start = (id: string | null, raw: string) => {
     const n = raw.replace(/-+$/, '');
-    if (fired.current || !NAME.test(n) || taken.includes(n)) return;
+    const row = id ? rowOf(id) : undefined;
+    if (fired.current || !NAME.test(n) || (!row && taken.includes(n))) return;
     fired.current = true;
-    onStart({ name: n, icon, color, message: message.trim(), model, effort, ...(id ? { resume: id } : {}) });
+    const r = id ? recent.find((x) => x.id === id) : undefined;
+    const note = r && !row && n !== base(r) ? `${base(r)} is a different conversation, so this one is ${n}.` : undefined;
+    onStart({ name: n, icon, color, message: message.trim(), model, effort, ...(id ? { resume: id } : {}) }, note);
   };
+  const picked = recent.find((r) => r.id === resume);
+  const pickedRow = picked ? rowOf(picked.id) : undefined;
+  const why = !picked
+    ? ''
+    : pickedRow
+      ? `Already in your list as ${pickedRow.name}. Resume brings it back there.`
+      : clean !== base(picked)
+        ? `${base(picked)} is a different conversation, so this one is ${clean}.`
+        : '';
+  const err = resume || !clean ? '' : !NAME.test(clean) ? 'Lowercase letters, digits and dashes.' : taken.includes(clean) ? 'That name is taken.' : '';
+  const ready = !!clean && !err;
   const usedBefore = !resume && clean && !err ? recent.find((r) => nameOf(r) === clean.replace(/-+$/, '')) : undefined;
   const shown = recent.slice(0, 6);
-  const picked = recent.find((r) => r.id === resume);
   if (picked && !shown.includes(picked)) shown.push(picked);
   return (
     <>
@@ -96,6 +111,8 @@ export function NewBoxSheet({
             autoFocus
             autoComplete="off"
             value={name}
+            readOnly={!!resume}
+            title={resume ? 'A resumed conversation keeps its own name. Pick "New" to name a new box.' : undefined}
             placeholder="release-notes"
             onChange={(e) => {
               const v = slug(e.target.value);
@@ -103,6 +120,7 @@ export function NewBoxSheet({
               setOwn(v);
             }}
           />
+          {why && <div className="used-before">{why}</div>}
           {usedBefore && (
             <div className="used-before">
               This name was used before.{' '}
@@ -154,7 +172,7 @@ export function NewBoxSheet({
                   key={r.id}
                   className={resume === r.id ? 'on' : ''}
                   onClick={() => pick(r)}
-                  onDoubleClick={() => start(r.id, own ? clean : freeName(r))}
+                  onDoubleClick={() => start(r.id, nameFor(r))}
                   title="Double-click to resume"
                 >
                   <span className="t">{r.title || r.first}</span>
