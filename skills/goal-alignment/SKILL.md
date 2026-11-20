@@ -1,164 +1,53 @@
 ---
 name: goal-alignment
-description: Align on a plain-english brief (Problem, Implementation, Verification) for a feature or fix, drive all preparation to completion (your understanding, open decisions, live prerequisites), then hand the agent a self-correcting loop. The skill owns the thinking and the preparation; the loop owns the looping. Each run is one round with its own fresh brief file. Use when the user says "align the goal", "build a goal", "plan a goal", "build a loop", "write the brief", "write the piv", "design the proof", "next round". Inherits `plain-english` and `teach`.
+description: Co-write a plain-english brief (Problem, Implementation, Verification) for a feature or fix, settle every decision the code cannot settle at the level the operator needs to know about, prove the prerequisites live, and compile the /goal condition that Claude Code runs as a self-correcting loop. Fast checks (api, unit, logs) stay in the loop; the end-to-end check through the real UI comes after the loop, as its own step. Use when the user says "align the goal", "build a goal", "write the brief", "write the piv", "design the proof", "compile the condition", "next round", or "re-aim". Inherits `plain-english`; explains code in `explain` pacing.
 ---
 
 # goal-alignment
 
-Design-and-preparation skill, and the heart of this repo. It produces one artifact (the PIV brief, co-written with you in plain english), one handoff (a self-correcting loop), and a prepared runway. It runs no implementation loop itself.
+Design and preparation, no implementation. Output: one brief (`piv-template.md`, one file per round), one compiled `/goal` condition, and a stack proven ready. Everything decided or proven here is something the loop never stops for; the loop should open with nothing left to decide.
 
-**Core principle: every decision made and every prerequisite proven during preparation is one the loop never stops for.** Preparation is the most important phase, more important than the implementation itself; never do it sparingly. The loop opens with zero decisions left to make. Preparation is complete only when all three hold:
+## Workflow
 
-1. You say you fully understand what is going to happen, reached through teach pacing and the Mermaid diagrams that carry the problem and the plan.
-2. No open questions or decisions remain; each was walked and resolved into the brief.
-3. Every preparation task that CAN be done before the loop HAS been done now, live (mint the token, capture the real fixture, prove the environment is up, prove each verification layer is actually executable).
+1. **Frame the round.** New feature or fix-round. A fix-round names the prior brief and the one thing it left open, and scopes to that. When the task arrives without context, gather it first: the ticket, the chats, the docs, the code. Work out Problem with the operator: what is broken, how to observe it, the current flow with the break marked.
+2. **Explore, then infer.** Read the code the change touches until you can say from first principles how it works today and where the change goes. Settle every decision the code can settle (R2).
+3. **Walk the remaining decisions**, one per turn (R3). Each arrives with the smallest thing that makes it decidable, a recommendation, and the fact that decides it. Resolve it, then pick the next yourself. The Implementation diagram grows as decisions settle.
+4. **Design the fast checks** with the operator: plain-english bullets of what must be true, one per turn with a recommendation, covering the happy path and the edges that apply. Each is something the loop can check in seconds (an api call, an api test, a log line); the worker chooses how. User-visible, end-to-end behavior is not designed here; it is checked after the loop (R6).
+5. **Prove the prerequisites live.** Name the target environment once; every check runs against it. Health per touched service; fixtures captured, tokens minted, every check shown runnable. Anything red is fixed now or the round does not start.
+6. **Hand over.** Only when the operator has approved the brief's index (Problem in one line, each decision, each check) and nothing is open. Re-run the prerequisites, then give the compiled condition in a code block (template at the bottom of `piv-template.md`). Stop; do not implement. When the loop is green, the end-to-end check follows: driven through the real UI, scoped with the operator, proven with screenshots and the backend signal.
 
-**Rounds, not one growing goal.** Each loop run is one round with its own fresh brief file. A round is scoped to one functional outcome; its verification layers are numbered from 1. The next round gets a NEW file, carries forward only the still-open gap, and renumbers from 1 again. Never edit-pile onto the last round's brief: an accreting plan becomes too complicated for a human head to follow, and stale, already-passed layers drown the live work.
+## Rules
 
-Inherits `plain-english` (voice, rules, anti-patterns) and `teach` (pacing). The brief is co-written, so whenever you need the codebase explained mid-design, switch to teach pacing: one concept per message, anchored to a real snippet or a diagram you extend, checkpoint before the next. You read everything this skill produces; digestible beats complete.
+**R1. The brief is written piece by piece, each piece written down only after the operator has understood and approved it.** Problem, then each decision, then each check: discussed in chat first, written to the file once they say it holds. The one exception is an explicit ask to one-shot the brief; then write the whole thing in one pass, choosing the most straightforward, lowest-complexity approach that solves the problem, and hand it over for review.
 
-## The engine: a loop with an independent grader
+**R2. A decision reaches the operator only when the code cannot settle it and it is one they need to know about.** Everything else is inferred and not asked; it appears in Implementation only where the loop needs it to build correctly.
 
-The concrete engine here is Claude Code's `/goal`, but the methodology applies to any loop that re-grades a condition each turn.
+**R3. One decision per turn, with a recommendation; the operator decides.** The remaining backlog is never shown as a menu. Settled decisions and the directions rejected are written into Implementation so nobody argues them again.
 
-- `/goal <condition>` starts a turn immediately with the condition as the directive. After every turn a small fast model judges the condition against the conversation: "no" feeds its reason back and the agent starts another turn; "yes" clears the goal. A real loop with an independent grader, not a single pass.
-- The evaluator cannot run tools or read files. It judges only what the worker surfaced in the transcript. Every proof must therefore land in the conversation (run the suite, show the output, render the UI result). The flip side: the evaluator can be satisfied by a claim of success the worker never actually demonstrated, so the brief must force user-visible proof (see Verification).
-- Bound every loop with "or stop after {N} turns" inside the condition.
-- The command is yours to run; the agent cannot invoke it. The skill ends by handing the condition to you in a code block.
-- One condition, no phases. The loop does not orchestrate; the PIV brief does that in plain english. Split into sequential rounds at real boundaries (one functional gap closed, then the next), never to manage context.
+**R4. The operator understands each step as it happens.** Never ask them to restate or say it back; keep each step small enough that their approval or their question is a real signal. Explain unfamiliar code in `explain` pacing. If they skip a walk on purpose, the brief records the override.
 
-## The artifact: the PIV brief — Problem, Implementation, Verification
+**R5. One round, one fresh brief file**, `{TICKET}_{NAME}_round{N}.md` in the briefs folder the resources file names, carrying forward only what is still open. Save it even for a same-session goal; the file survives compaction and the worker re-reads it.
 
-Plain english, compact enough to read aloud. Fill `piv-template.md`. Mermaid diagrams (`flowchart TD`) carry the structure, and they come AFTER the prose in each section, never opening the brief: Problem gets one or more showing the current flow and exactly where it breaks; Implementation gets one or more showing what is going to happen (where the change lands, the resulting flow). The loop and you read the same pictures.
+**R6. Only fast checks live in this brief.** A check passes only by being run for real with its command and result in the transcript; a proxy (byte-identity, "structurally equivalent", a prior result) is a separate check, never a pass. User-visible, end-to-end checks come after the loop is green, never hold it up, and end in a short report built from those runs.
 
-**Problem.** What is broken or missing, in plain english, and how to observe it so "fixed" is checkable. For a fix-round, name the previous round's brief file and the specific functional gap it left open (e.g. "the second request in a session is served stale data; only the first is correct"). Scope the round to that functional gap only, nothing wider. After the prose, draw one or more Mermaid diagrams of the current flow with the exact point it breaks marked.
+**R7. Prerequisites must pass before the loop starts, and they are not proofs.** They prove the stack is ready, not that the feature works. Re-run them right before the loop starts.
 
-**Implementation.** The decisions made (every open decision walked during design with its resolution, one line each, so the loop inherits zero), then how it lands: order and why, commit strategy, what stays unchanged and what is explicitly untouched, and the code-hygiene constraint: the worker re-reads `plain-english`'s anti-pattern on code comments before writing code and adds a comment only where it states a constraint the code cannot show, at the file's existing density (usually almost none), and strips any slop comment it or a prior round left. Keep the change minimal; cut edits the round does not need. After the prose, draw one or more Mermaid diagrams of what is going to happen: where the change lands and the resulting flow.
+**R8. The critic gate is a fresh-context review**: a subagent that did not write the code reviews the diff, and posts every finding in the transcript, each fixed or rebutted. Never aim it at the failure the round already fears.
 
-**Verification.** How the implementation is proven to have landed. Three parts, in order:
+**R9. A round that opens a PR is done only when every PR's checks have finished green and its body says what changed and how it was checked.** Pending is not green; a red check is fixed or flagged, never explained away as pre-existing; a PR opened after an earlier one reported done carries the same duty.
 
-1. **Prerequisites** — the gate before the loop starts; NOT a verification layer (a prerequisite proves the stack is ready, not that the feature works). **It opens by naming the round's TARGET ENVIRONMENT, once, explicitly** (the deployed shared environment by default, with its client hostname; a local dev stack is for the fast API tier while iterating, never the completion bar). Every scenario then runs against that declared target, and any scenario that deviates carries a written reason. Without this the round drifts to whatever stack happens to be running, which is how verification lands on localhost while you are signed into the deployed client and have to redirect it mid-loop. Then the exact health command per touched service with its green signal, PLUS a client-UI reachability check ON THAT TARGET: load the actual UI a user touches there, sign in, reach the exact surface the feature lives on. Backend-green alone does not prove the user path works. Run this as a QA engineer: validate the stack AND propose any extra feature-readiness checks the feature needs. Everything provable now is proven live during design (fixtures captured, tokens minted, the workaround recorded for any step automation cannot drive). The stack decays, so prerequisites re-run right before arming and gate the loop's start; a red service is brought up or the loop does not start.
-2. **Scenarios, then layers.** Decide WHAT to prove before HOW. The scenarios are the part of test design that otherwise stays in the agent's head; surface them, co-designed one at a time with you (same rhythm as decisions, never an auto-inferred block). Two groups:
-   - **Nominal** — the feature doing its job, each stated as the observable that makes "fixed" checkable (the rendered answer, the row written, the file that appears). The happy paths a user would call "it works".
-   - **Edges** — walked from a standing checklist every round so none is forgotten:
-     - **Isolation / scope** — another user, session, tenant, or version must not see or affect it.
-     - **Boundary / malformed input** — empty, oversized, wrong type, missing field, special characters.
-     - **Failure path** — a dependency errors or is down: the feature degrades safely (no crash, no poisoned state) and the outage is visible, not silent.
-     - **Concurrency** — two operations at once in one scope (races, double-writes).
-     - **Repeat / state-across-turns** — the second occurrence, not just the first: the follow-up request, the re-run (asserting only the first is how a loop passes while still broken).
+**R10. The condition is the prerequisite check, a done-clause of proofs only, and a turn cap.** It points at the brief file for specifics. Problem and Implementation stay out; the prerequisites stay out of the done-clause; no process rules (no promise tokens, no slicing, no subagent choreography). Always "or stop after {N} turns"; cap 4,000 characters.
 
-   Keep the edges that apply and say why you cut the rest. Then place each scenario at the cheapest **layer** that catches it, renumbered from 1, cheapest-feedback-first: the API tier (unit/curl/log, seconds) then the UI tier (client-driven, minutes), the UI tier being the completion bar so API-green alone never passes. Each scenario names its seam and failure class, its exact command, and — where the feature is user-facing — asserts the rendered UI result AND the backend signal, never the backend signal alone (a replay that never loaded the client can pass while the user path is still broken). Every scenario must be proven executable during prep, one you cannot run gets faked or skipped under loop pressure (a gesture automation can't drive an OS file picker, but setting the input directly may reach the same path; find that in prep). **A scenario passes only by being run for real with its evidence in the transcript.** A static proxy or logical argument (a byte-identity diff, "structurally equivalent", a prior round's result) is a separate check, never a substitute.
+**R11. The loop's last message is a plain-english close of at most three sentences**, after the proofs: what now works, what needs the operator.
 
-   **Client-driven is the default kind, not an aspiration.** Any scenario whose behaviour a user can see is a `ui` scenario driven through the real client on the target environment; a backend-only assertion for such a scenario is allowed only with a written reason in the row (automation genuinely cannot drive that surface), and it then never counts as the completion bar. Written as an anti-pattern bullet this rule gets restated by the operator every round; as the default kind it gates the matrix instead.
+**R12. Diagrams come after the prose in each section and never into chat as mermaid.**
 
-   The set opens with a **scenario matrix** you read in one look and approve, cut, or reorder before any prose. The `env` column must read the declared target for every row (a deviation carries its reason inline):
+## Guidelines
 
-   | # | scenario | nominal / edge | layer (api\|ui) | env | assertion (UI result + backend signal) | status |
-
-   The status column is re-rendered at every checkpoint — `not-run` \| `blocked` \| `substituted` (a proxy stood in; never counts as a pass) \| `run-for-real` — so a skipped, blocked, or faked scenario cannot hide in prose.
-3. **Critic gate** (mandatory final layer) — a fresh context window that did not write the code reviews the diff and the verification that took place, judging whether the agent took shortcuts to make its work easier, whether any layer bypassed what it claimed to cover and must be redone, plus a code review and the laziness attack list: hardcoded values where config belongs, swallowed or blanket-caught errors, tests weakened/skipped/special-cased to go green, a verification layer marked passed by a proxy or argument instead of an actual run (byte-identity standing in for a runtime check, a reused prior-round result), copy-paste past an existing abstraction, leftover stubs/TODOs, AI-slop comments (scan every added comment; strip next-line narration and change-markers, keep only constraint comments), local workarounds leaking into the diff. The loop is graded by an evaluator that only reads the transcript, so it has structural pressure to cut corners; this is the counterweight. The critic must POST its finding list and each finding's disposition (the diff or line for a fix, or the rebuttal) into the conversation; "critic gate done" as a bare claim is not a proof the grader can check. Every finding fixed or explicitly rebutted.
-
-**Binary completion.** One line: all layers green with the feature demonstrated user-visibly (not merely grader-satisfied) + the two standing hygiene rows below green + critic findings dispositioned + any human follow-up.
-
-**The two standing hygiene rows.** Every round carries these as rows in the scenario matrix, not as review notes. The grader reads only the done-clause and is otherwise blind to both, which is why they otherwise become the thing you have to ask for every round:
-
-1. **Comment hygiene** — the diff adds no slop comment (next-line narration, `NEW:`/`Added`/`This ensures`, any comment restating the code); constraint comments only, at the file's existing density. A WRITE-time constraint, re-read before writing code, not a cleanup the critic performs afterwards; the critic only confirms it held. A round that writes slop and strips it later has already spent your attention.
-2. **Build green** — for any round that opens or pushes to a PR, that PR's own checks pass. Push is not done; green is done. A failing check is fixed inside the round, or the specific check is reported and the round stops; never hand over a red build for you to notice.
-
-Where it lives: each round is its own file (e.g. `briefs/{name}-round{N}.md`), never an edit pile-up on the last round's file. Save it even for a same-session loop: long loops auto-compact and the file is what survives the summary; the worker re-reads it after a compact.
-
-## The handoff: Problem and Implementation steer the worker, Verification becomes the condition
-
-Do NOT paste the whole brief into the loop condition. The condition is re-graded every turn, and Problem/Implementation prose is not yes/no checkable; the grader needs the proof checklist, nothing else.
-
-Every condition opens with the prerequisite as a one-time turn-1 entry gate, then a `done means all of` clause that is ONLY the verification layers plus the critic gate. Keeping the gate out of the done-clause is load-bearing: the grader re-judges the whole string every turn, so if "stack green" were a completion proof the loop could never clear once the worker stopped re-printing health output. So the worker confirms prerequisites once (self-healing a dead dependency, or reporting the blocked prerequisite and stopping so an unachieved status reads as a halt, not a pass), and thereafter the grader judges only the layer proofs and the critic.
-
-Match the condition's length to where the detail lives. When it references the brief file, the condition stays short and human-readable: point at the file for the layer specifics instead of restating each command + UI result + backend signal. Spell the proofs out in full only in the same-session form, where there is no file to lean on.
-
-Same session (brief co-written there, Problem and Implementation already in context, no file referenced):
-
-```
-/goal Before implementing, confirm prerequisites once: {service health commands} and the
-feature's UI entry point loads ({client surface}); if anything is red, restart it and
-re-confirm, or report the blocked prerequisite and stop. Then implement. Done means all of:
-{layers as binary proofs, each naming the command, the rendered UI result for the broken
-turn, and the backend signal}; the diff adds no slop comment (constraint comments only, at the
-file's existing density) shown by quoting every comment the diff adds; {if a PR is opened or
-pushed: that PR's checks all pass, quoted from the checks output, fixed inside this round if
-red}; a fresh-context critic review posted in-transcript confirming both of those held, with
-each finding fixed (diff shown) or rebutted; {constraint: what must not change}; or stop
-after {MAX_TURNS} turns.
-```
-
-Fresh session or headless (brief saved to a file; keep this short, the file carries the detail):
-
-```
-/goal Implement round {N} per the brief at {file path}. Confirm its prerequisites once
-before implementing; if anything is red, restart and re-confirm, or report it and stop.
-Done means the brief's verification layers all pass (each shown in-transcript with the
-rendered UI result + backend signal), the diff adds no slop comment (quote every comment it
-adds), {if a PR is opened or pushed: that PR's checks all pass, quoted from the checks output
-and fixed inside this round if red}, and its critic gate is posted confirming those held with
-every finding fixed or rebutted; or stop after {MAX_TURNS} turns.
-```
-
-The first line makes the agent read the file on turn 1, so the full PIV enters the transcript for both worker and grader.
-
-Choosing the session: same session is the default for PR-sized work; the worker keeps everything it learned exploring the codebase during planning, a filling window auto-compacts mid-loop without stopping it, and the saved file anchors the plan through compaction. Go fresh when the work spans days or planning was long and exploratory: clean window, with the brief carrying the load-bearing discoveries.
-
-Right-sizing: the gate preamble + end state + how it is proven + one constraint line + a turn cap. Outcomes only, never process: no promise tokens, no "one slice per turn", no "use a subagent for X". The model manages its own slicing and context.
-
-## Five moves
-
-```
-- [ ] 1. Frame the round. New feature or fix-round? If a fix-round, the Problem points at
-        the prior brief and the gap the between-rounds audit found. If the task arrives with
-        no context, gather it first. Co-write Problem and Implementation in plain-english voice;
-        explain unfamiliar code in teach pacing (one concept, one anchor, checkpoint). Draw
-        the Problem diagram(s) here, after the prose.
-- [ ] 2. Walk the open decisions, one at a time. Enumerate every decision the implementation
-        would otherwise hit, resolve each with you in teach pacing while building up the
-        Implementation diagram(s); each resolution folds into Implementation's "decisions made". A decision
-        settled now never ships to the loop.
-- [ ] 3. Prove the prerequisites live, as a QA engineer. Validate the stack through the exact
-        path each layer will use, including loading the client UI and reaching the feature's
-        surface, not backend probes alone, and propose any extra feature-readiness checks.
-        Execute every prerequisite that can be done now: mint the token, capture the real
-        fixture, and PROVE each planned layer is actually executable. A layer you cannot
-        execute is not a layer.
-- [ ] 4. Design the verification WITH you, never auto-infer it. One item per turn with a
-        recommendation, you approve/cut/add before it enters the brief. WHAT before HOW: first
-        the nominal cases (the feature doing its job), then walk the standing edge checklist
-        (isolation, boundary/malformed input, failure path, concurrency, repeat/state-across-
-        turns), keeping the edges that apply and saying why the rest are cut. Then place each
-        scenario at the cheapest layer that catches it and fill the scenario matrix (renumber
-        from 1, cheapest-feedback-first). The scenarios are the definition of done, the part
-        you most need to own. Then the mandatory fresh-context critic gate. V is written now,
-        with the Problem, never after implementation.
-- [ ] 5. Re-verify and hand off, only when you confirm full understanding and no open
-        decisions remain. Re-run the prerequisite checks right before arming (the design-time
-        smoke goes stale); a red service is brought up and confirmed with you, not left for
-        the loop. Then emit the compiled loop condition in a code block (ALWAYS include it).
-        Stop; do not start implementing.
-```
-
-## Between rounds
-
-- The loop's "done" means the evaluator signed off on the transcript, not that the feature works.
-- Audit with fresh context: spawn an agent that did not write the code to walk the implementation and each verification layer and find what is missing or faked. Fresh context beats self-critique.
-- The gaps become the next round's Problem. Start a NEW brief file numbered from 1, carry forward only the open gap, strike through (`~~layer~~`) anything already proven so you see remaining work at a glance. Never grow one ever-expanding goal.
-
-## Anti-patterns
-
-- ❌ One ever-growing goal/brief. Each run is a fresh round file, layers renumbered from 1; accreting makes the plan too complicated for a human head.
-- ❌ Treating a prerequisite as a verification layer (or vice versa). The stack/UI-reachability gate gates the loop's start; it is not a proof the feature works.
-- ❌ "Done" on backend-green alone. A layer asserts the rendered result in the client UI plus the backend signal; a replay "UI test" that never loaded the client hides user-facing gaps.
-- ❌ Committing a verification layer not proven executable in prep. A layer that cannot be driven gets faked or skipped under loop pressure.
-- ❌ Pasting the whole PIV brief as the condition. The grader needs binary proofs; Problem and Implementation steer from the conversation or the file.
-- ❌ Process rules in the condition (promise tokens, per-milestone slicing, subagent instructions).
-- ❌ Proofs the evaluator cannot see: a passing suite never run in-transcript, a UI result never rendered.
-- ❌ No turn cap in the condition.
-- ❌ Skipping the critic gate, or letting the worker self-review instead of a fresh context.
-- ❌ Compiling while open decisions remain or you have not confirmed understanding. The loop implements; it does not decide.
-- ❌ Deferring to the loop a prerequisite that could be proven live today. A precondition discovered at turn 40 is the failure move 3 prevents.
-- ❌ Rushing preparation to get to the loop. Preparation is the product; the loop is the cheap part.
+- **What the operator needs to know about**, usually: how two components talk to each other, a behavior a caller or user will see, a data shape other code depends on, a trade-off with a real cost, anything hard to reverse. A naming choice, an internal helper, an order of operations the code already implies: infer it.
+- **Making a decision decidable.** Show the smallest thing it turns on: a snippet, a small diagram, one line of the ticket, whichever lets them decide without reading further. Never a dump of every model or class.
+- **Sparring stance.** Research the codebase and prior art before asking anything the code could answer. Challenge their proposals; check claims, theirs and yours, against the code. Work one topic to conclusion before opening the next; when a topic closes, say the conclusion in one line.
+- **Edges worth a check**, when they apply: another tenant or user must not see it; empty, oversized, or malformed input; a dependency down; two operations at once; the second occurrence, not only the first. Say which you cut and why.
+- **Cheapest feedback first.** Order the checks so the loop learns fastest; keep the diff minimal and cut edits the round does not need.
+- **How /goal runs.** A small model judges the condition again after every turn, from the transcript alone; it cannot run tools or read files, and it will accept a claimed success that was never shown, which is why every proof must appear in the conversation. `/goal` alone shows status, `/goal clear` stops, it survives `--resume`, headless via `claude -p`. Same session for PR-sized work; fresh when the work spans days.
+- **Between rounds.** An achieved goal means the grader signed off, not that the feature works; review it with a fresh context. The second hand-fix on a shipped feature is the signal to open a new round rather than keep poking.
