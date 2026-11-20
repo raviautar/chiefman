@@ -1342,7 +1342,7 @@ class Hub {
     const seen = {};
     const ready = await this.waitReady(paneId, 90000, seen);
     const keep = message ? { unsent: message } : {};
-    if (ready === 'exited') return { ok: false, ended: true, reason: `${name} closed: its folder was not trusted.`, paneId, ...keep };
+    if (ready === 'exited') return { ok: false, ended: true, reason: `${name} ended: its folder was not trusted.`, paneId, ...keep };
     if (!ready) return { ok: false, reason: `${name} did not start in time. Open Terminal to see why.`, paneId, ...keep };
     await this.promptEmpty(paneId, 5000);
     await this.deliverChecked(paneId, `/rename ${name}`).catch(() => false);
