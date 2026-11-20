@@ -34,17 +34,21 @@ if [ "$1" = "--pack-only" ]; then
 fi
 DEST="$HOME/Applications/chiefman.app"
 mkdir -p "$HOME/Applications"
-# A running copy is quit first and opened again after, so it never keeps
-# running old code from a replaced bundle.
-RUNNING=""
-if pgrep -f "$DEST/Contents/MacOS/" >/dev/null 2>&1; then RUNNING=1; fi
+# The everyday copy is quit first and opened again after, so it never keeps
+# running old code from a replaced bundle. Copies started on their own state
+# folder (CHIEFMAN_STATE_DIR, used for tests) are left running.
+main_copy() {
+  for p in $(pgrep -f "$DEST/Contents/MacOS/chiefman\$" 2>/dev/null); do
+    ps -Eww -o command= -p "$p" | grep -q 'CHIEFMAN_STATE_DIR=' || echo "$p"
+  done
+}
+RUNNING=$(main_copy)
 if [ -d "$DEST" ]; then
-  osascript -e 'quit app "chiefman"' >/dev/null 2>&1 || true
+  # SIGTERM is a normal quit: unsent drafts are written first.
+  if [ -n "$RUNNING" ]; then kill -TERM $RUNNING 2>/dev/null || true; fi
   i=0
-  while pgrep -f "$DEST/Contents/MacOS/" >/dev/null 2>&1; do
+  while [ -n "$(main_copy)" ]; do
     i=$((i + 1))
-    # The quit request can be refused without a word; then ask the process.
-    if [ "$i" -eq 8 ]; then pkill -TERM -f "$DEST/Contents/MacOS/chiefman" >/dev/null 2>&1 || true; fi
     if [ "$i" -gt 20 ]; then
       echo "chiefman is still running. Quit it, then run this again." >&2
       exit 1
