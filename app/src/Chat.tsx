@@ -502,7 +502,7 @@ export function ChatView({
                 ),
               )}
               {canCancel(menu) && (
-                <button className="chip" onClick={dismiss}>
+                <button className="menu-cancel" onClick={dismiss}>
                   Cancel
                 </button>
               )}

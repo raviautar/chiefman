@@ -61,6 +61,8 @@ export function App() {
   const [draftsReady, setDraftsReady] = useState(false);
   const saved = useRef<Record<string, Draft>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const answeredAt = useRef(0);
+  const restsClosed = useRef(false);
   const [chats, setChats] = useState<Record<string, ChatState>>({});
   const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | null>(null);
   const [picking, setPicking] = useState(false);
@@ -149,7 +151,7 @@ export function App() {
     const mq = window.matchMedia(NARROW);
     const onWidth = () => {
       setNarrow(mq.matches);
-      setPanel(panelFor(mq.matches));
+      setPanel(!restsClosed.current && panelFor(mq.matches));
     };
     mq.addEventListener('change', onWidth);
     return () => {
@@ -238,6 +240,7 @@ export function App() {
 
   // Only his click or key opens or closes the panel, and only that is saved.
   function showPanel(open: boolean) {
+    restsClosed.current = false;
     setPanel(open);
     if (!narrow) store.set('chiefman.panel.wide', open ? '1' : '0');
   }
@@ -374,6 +377,7 @@ export function App() {
       return false;
     }
     setSent((s) => ({ ...s, [`${drill?.id}:${n}`]: text }));
+    answeredAt.current = Date.now();
     return true;
   }
 
@@ -456,6 +460,29 @@ export function App() {
   ];
 
   const asks = drill ? drill.items.filter((i) => !sent[`${drill.id}:${i.n}`]).length : 0;
+
+  // His answer to the last card: "Nothing needs you." shows for 2 s, then
+  // the panel closes. It stays closed until he opens it, or until a new item
+  // comes in a wide window (a narrow one never opens it by itself).
+  const prevAsks = useRef(asks);
+  const panelOpen = useRef(panel);
+  panelOpen.current = panel;
+  useEffect(() => {
+    const before = prevAsks.current;
+    prevAsks.current = asks;
+    if (asks === 0 && before > 0 && panel && Date.now() - answeredAt.current < 15000) {
+      const t = setTimeout(() => {
+        if (!panelOpen.current) return;
+        setPanel(false);
+        restsClosed.current = true;
+      }, 2000);
+      return () => clearTimeout(t);
+    }
+    if (asks > 0 && before === 0 && restsClosed.current && !panel && !narrow) {
+      restsClosed.current = false;
+      setPanel(true);
+    }
+  }, [asks]);
   const title = box ? box.name : 'chiefman';
   const meter = box ? meterLine(box) : '';
   const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
@@ -578,6 +605,9 @@ export function App() {
                         <>
                           {box!.modelName}
                           {box!.effort ? ` · ${box!.effort}` : ''}
+                          <svg className="pill-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
                         </>
                       )}
                     </button>
@@ -638,7 +668,7 @@ export function App() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M15 4v16" />
             </svg>
-            {asks > 0 && <span className="badge">{asks}</span>}
+            {asks > 0 && !panel && <span className="badge">{asks}</span>}
           </button>
         </div>
 
