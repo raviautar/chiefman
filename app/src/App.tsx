@@ -28,6 +28,14 @@ const store = {
   },
 };
 
+// A wide window remembers whether the panel was docked open. A narrow one
+// always starts with it closed: there it opens only on his click.
+function panelFor(narrow: boolean) {
+  if (narrow) return false;
+  const v = store.get('chiefman.panel.wide');
+  return (v ?? store.get('chiefman.panel')) === '1';
+}
+
 function money(n: number | null) {
   if (n == null) return '';
   return n < 10 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
@@ -48,7 +56,7 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(store.get('chiefman.selected'));
   const [view, setView] = useState<'chat' | 'terminal'>('chat');
   const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
-  const [panel, setPanel] = useState(store.get('chiefman.panel') === '1' && !window.matchMedia(NARROW).matches);
+  const [panel, setPanel] = useState(() => panelFor(window.matchMedia(NARROW).matches));
   const [full, setFull] = useState<string | null>(null);
   const [draftsReady, setDraftsReady] = useState(false);
   const saved = useRef<Record<string, Draft>>({});
@@ -139,7 +147,10 @@ export function App() {
       });
     const clock = setInterval(() => setNow(Date.now()), 20000);
     const mq = window.matchMedia(NARROW);
-    const onWidth = () => setNarrow(mq.matches);
+    const onWidth = () => {
+      setNarrow(mq.matches);
+      setPanel(panelFor(mq.matches));
+    };
     mq.addEventListener('change', onWidth);
     return () => {
       off();
@@ -188,7 +199,7 @@ export function App() {
     if (!narrow || !panel) return;
     const away = (e: MouseEvent) => {
       const t = e.target as Element | null;
-      if (t && !t.closest('.drill, .drill-btn, .scrim, .sheet')) setPanel(false);
+      if (t && !t.closest('.drill, .drill-btn, .scrim, .sheet')) showPanel(false);
     };
     document.addEventListener('mousedown', away, true);
     return () => document.removeEventListener('mousedown', away, true);
@@ -225,9 +236,11 @@ export function App() {
     if (box) store.set('chiefman.selected', box.name);
   }, [box?.name]);
 
-  useEffect(() => {
-    store.set('chiefman.panel', panel ? '1' : '0');
-  }, [panel]);
+  // Only his click or key opens or closes the panel, and only that is saved.
+  function showPanel(open: boolean) {
+    setPanel(open);
+    if (!narrow) store.set('chiefman.panel.wide', open ? '1' : '0');
+  }
 
   useEffect(() => {
     if (paneId) api().watch(paneId);
@@ -243,7 +256,7 @@ export function App() {
       if (e.key === 'Escape' && narrow && panel && !overlay && !ask) {
         e.preventDefault();
         e.stopPropagation();
-        setPanel(false);
+        showPanel(false);
         return;
       }
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
@@ -611,7 +624,7 @@ export function App() {
             aria-label="Drill-down"
             title={asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you` : 'Drill-down'}
             aria-pressed={panel}
-            onClick={() => setPanel(!panel)}
+            onClick={() => showPanel(!panel)}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M15 4v16" />

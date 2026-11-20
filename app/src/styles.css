@@ -604,8 +604,8 @@ button {
   color: #9d9c98;
 }
 
-.composer textarea:disabled {
-  opacity: 0.6;
+.composer textarea:read-only {
+  cursor: default;
 }
 
 .wave {
@@ -1878,7 +1878,8 @@ button {
   position: absolute;
   top: 61px;
   right: 9px;
-  bottom: 8px;
+  /* --field-h is the message field's height, set by the chat. */
+  bottom: calc(var(--field-h, 100px) + 9px);
   z-index: 30;
   padding: 18px 16px 16px;
   border-radius: 14px;

@@ -882,7 +882,9 @@ class Hub {
   async sendNow(paneId, text, opts) {
     const box = this.boxes.find((b) => b.paneId === paneId);
     if (!box || !this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
-    if (!box.claude) return { ok: false, reason: `${box.name} has no Claude running.` };
+    // Before Claude registers it can already be asking (the trust question).
+    const asking = !!(this.screens.get(paneId) || {}).menu;
+    if (!box.claude) return { ok: false, reason: asking ? 'Answer the question above first.' : `${box.name} has no Claude running.` };
     let screen;
     try {
       screen = await run(['capture-pane', '-p', '-e', '-t', paneId]);
@@ -890,7 +892,7 @@ class Hub {
       return { ok: false, reason: `Could not read ${box.name}.` };
     }
     let st = promptState(screen);
-    if (st === 'no-prompt') return { ok: false, reason: `${box.name} is waiting on a choice. Pick one above.` };
+    if (st === 'no-prompt') return { ok: false, reason: asking ? 'Answer the question above first.' : `${box.name} is waiting on a choice. Pick one above.` };
     if (st === 'typed') {
       // Text the app typed, or Claude put back after Esc, is cleared at once.
       // Anything else is his, so he is asked first.

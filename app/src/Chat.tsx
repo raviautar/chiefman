@@ -145,6 +145,7 @@ export function ChatView({
   const [unfold, setUnfold] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
   const keep = useRef<{ h: number; top: number } | null>(null);
@@ -178,6 +179,17 @@ export function ChatView({
     el.style.height = '0px';
     el.style.height = Math.min(160, el.scrollHeight) + 'px';
   }, [draft]);
+
+  // The floating drill-down stops above the message field, so the field and
+  // its send button are never under it.
+  useLayoutEffect(() => {
+    const el = dock.current;
+    const frame = el?.closest('.app') as HTMLElement | null;
+    if (!el || !frame) return;
+    const ro = new ResizeObserver(() => frame.style.setProperty('--field-h', `${el.offsetHeight}px`));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // A narrower window or a picture that loads late makes the chat taller;
   // a chat read at its bottom stays there.
@@ -243,7 +255,7 @@ export function ChatView({
     const typed = (textIn ?? draft).trim();
     const paths = atts.map((a) => a.path);
     const text = [typed, ...paths].filter(Boolean).join(' ');
-    if (!text || sending) return;
+    if (!text || sending || closed) return;
     setSending(true);
     stick.current = true;
     const ok = await onSend(text);
@@ -485,6 +497,7 @@ export function ChatView({
       </div>
       <div
         className="composer-wrap"
+        ref={dock}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
@@ -548,7 +561,7 @@ export function ChatView({
             autoComplete="off"
             spellCheck={false}
             value={draft}
-            disabled={closed}
+            readOnly={closed}
             aria-expanded={pop ? 'true' : 'false'}
             placeholder={closed ? '' : 'Message'}
             onChange={(e) => {
@@ -566,6 +579,13 @@ export function ChatView({
             }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.defaultPrevented) return;
+              if (closed) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (menu) onError('Answer the question above first.');
+                }
+                return;
+              }
               if (popKey(e)) return;
               if (e.key === 'Escape') {
                 // Esc twice in an empty field: edit an earlier message.
