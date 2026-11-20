@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, session, clipboard, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, clipboard, Notification, protocol } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -27,6 +27,72 @@ app.on('second-instance', () => {
 
 const PANE = /^%\d+$/;
 const appUrl = () => cfg.devUrl || 'file://';
+const ATTACH_DIR = path.join(cfg.stateDir, 'attachments');
+const DRAFTS_FILE = path.join(cfg.stateDir, 'drafts.json');
+const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+
+// Pictures he attached are shown from cm-att://f/<name>, and only from the
+// attachments folder: a name that resolves anywhere else is refused.
+protocol.registerSchemesAsPrivileged([{ scheme: 'cm-att', privileges: { standard: true, secure: true } }]);
+
+function serveAttachment(req) {
+  let name;
+  try {
+    name = decodeURIComponent(new URL(req.url).pathname.replace(/^\/+/, ''));
+  } catch {
+    return new Response(null, { status: 400 });
+  }
+  const type = IMAGE_TYPES[path.extname(name).toLowerCase()];
+  if (!name || name.includes('/') || name.startsWith('.') || !type) return new Response(null, { status: 404 });
+  let dir, real;
+  try {
+    dir = fs.realpathSync(ATTACH_DIR);
+    real = fs.realpathSync(path.join(ATTACH_DIR, name));
+  } catch {
+    return new Response(null, { status: 404 });
+  }
+  if (path.dirname(real) !== dir || !fs.statSync(real).isFile()) return new Response(null, { status: 403 });
+  return new Response(fs.readFileSync(real), { headers: { 'content-type': type, 'cache-control': 'no-store' } });
+}
+
+// Unsent text per box, kept on disk so a restart or a forced quit keeps it.
+let drafts = null;
+function readDrafts() {
+  if (drafts) return drafts;
+  try {
+    const d = JSON.parse(fs.readFileSync(DRAFTS_FILE, 'utf8'));
+    drafts = d && typeof d === 'object' && !Array.isArray(d) ? d : {};
+  } catch {
+    drafts = {};
+  }
+  return drafts;
+}
+function cleanDrafts(input) {
+  const out = {};
+  if (!input || typeof input !== 'object') return out;
+  for (const [name, d] of Object.entries(input).slice(0, 200)) {
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(name) || !d || typeof d.text !== 'string' || d.text.length > 200000) continue;
+    const atts = Array.isArray(d.atts)
+      ? d.atts
+          .filter((a) => a && typeof a.path === 'string' && path.dirname(a.path) === ATTACH_DIR && typeof a.name === 'string')
+          .slice(0, 20)
+          .map((a) => ({ path: a.path, name: a.name.slice(0, 120), image: !!a.image }))
+      : [];
+    if (!d.text && !atts.length) continue;
+    out[name] = { text: d.text, caret: Number.isInteger(d.caret) ? d.caret : d.text.length, atts };
+  }
+  return out;
+}
+function writeDrafts() {
+  try {
+    fs.mkdirSync(cfg.stateDir, { recursive: true, mode: 0o700 });
+    const tmp = DRAFTS_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(drafts || {}), { mode: 0o600 });
+    fs.renameSync(tmp, DRAFTS_FILE);
+  } catch (e) {
+    log('drafts not saved', String((e && e.message) || e));
+  }
+}
 
 function send(ev) {
   if (ev && ev.type === 'boxes') notice(ev.boxes);
@@ -62,6 +128,8 @@ function notice(boxes) {
         win.focus();
         send({ type: 'select', paneId: b.paneId });
       });
+      n.on('show', () => log('notify shown', { box: b.name }));
+      n.on('failed', (_e, error) => log('notify failed', { box: b.name, error: String(error) }));
       n.show();
     }
   }
@@ -144,6 +212,11 @@ function wireIpc() {
     log('attached', { bytes: bytes.length });
     return { ok: true, path: file };
   });
+  handle('cm:drafts', () => readDrafts());
+  on('cm:drafts-save', (d) => {
+    drafts = cleanDrafts(d);
+    writeDrafts();
+  });
   on('cm:open-url', (u) => {
     if (typeof u === 'string' && /^https:\/\/[^\s]+$/.test(u)) shell.openExternal(u);
   });
@@ -222,6 +295,9 @@ function hook() {
             const img = await win.webContents.capturePage();
             fs.writeFileSync(path.resolve(dir, cmd.shot), img.toPNG());
             res = { ok: true, size: img.getSize() };
+          } else if (cmd.size && allowJs) {
+            win.setSize(Number(cmd.size[0]) || 1280, Number(cmd.size[1]) || 800);
+            res = { ok: true, size: win.getSize() };
           } else if (cmd.js && allowJs) res = { value: await win.webContents.executeJavaScript(cmd.js, true) };
           else res = { error: 'only shot is allowed without CHIEFMAN_DEV_HOOK' };
         } catch (e) {
@@ -238,6 +314,7 @@ function hook() {
 
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  protocol.handle('cm-att', serveAttachment);
   log('start', { session: cfg.session, stateDir: cfg.stateDir, dev: !!cfg.devUrl, version: app.getVersion() });
   hub = new Hub(cfg, send, log);
   wireIpc();
@@ -249,6 +326,8 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   log('quit');
+  if (drafts) writeDrafts();
   if (hub) hub.shutdown();
 });
+process.on('SIGTERM', () => app.quit());
 process.on('uncaughtException', (e) => log('uncaught', String((e && e.stack) || e).slice(0, 800)));

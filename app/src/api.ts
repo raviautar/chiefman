@@ -68,7 +68,14 @@ export interface PhaseInfo {
 export interface Snapshot extends PhaseInfo {
   boxes: Box[];
   drill: Drill | null;
-  config: { session: string; workdir: string; stateFile: string; model: string; effort: string };
+  config: { session: string; workdir: string; stateFile: string; attachDir: string; model: string; effort: string };
+}
+
+// What he typed but did not send in one box, kept across switches and restarts.
+export interface Draft {
+  text: string;
+  caret: number;
+  atts: { path: string; name: string; image: boolean }[];
 }
 
 export type HubEvent =
@@ -120,6 +127,8 @@ interface Bridge {
   retry(paneId: string): Promise<Result>;
   rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
   files(paneId: string, query: string): Promise<string[]>;
+  drafts(): Promise<Record<string, Draft>>;
+  saveDrafts(d: Record<string, Draft>): void;
   openUrl(url: string): void;
   onEvent(cb: (ev: HubEvent) => void): () => void;
 }

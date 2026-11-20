@@ -81,10 +81,12 @@ function Card({ item, onSend }: { item: DrillItem; onSend: (text: string) => Pro
 export function DrillPanel({
   drill,
   sent,
+  floating,
   onSend,
 }: {
   drill: Drill | null;
   sent: Record<string, string>;
+  floating: boolean;
   onSend: (n: number, text: string) => Promise<boolean>;
 }) {
   const open = drill ? drill.items.filter((i) => !sent[`${drill.id}:${i.n}`]) : [];
@@ -100,14 +102,11 @@ export function DrillPanel({
   }, [done?.id]);
   const item = open[at];
   return (
-    <aside className="drill" aria-label="From the chief">
+    <aside className={'drill' + (floating ? ' float' : '')} aria-label="From the chief">
       <div className="drill-head">
         <h2 className="drill-title">From the chief</h2>
         {open.length > 1 && (
           <span className="pager">
-            <span className="sub">
-              {at + 1} of {open.length}
-            </span>
             <button className="round" aria-label="Previous" onClick={() => setAt((at - 1 + open.length) % open.length)}>
               <Arrow size={12} dir="left" />
             </button>

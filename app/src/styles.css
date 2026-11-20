@@ -1792,3 +1792,151 @@ button {
   color: var(--muted);
   padding: 2px 6px;
 }
+
+/* ---- round 4: header that never overlaps, floating drill-down, pictures ---- */
+
+.main {
+  container-type: inline-size;
+}
+/* The cost line gives way first, then the title; the actions never do.
+   The meta group is flattened into the title row so each piece shrinks by
+   its own rule: a big shrink factor on the cost line, a small one on the
+   title, none on the model pill and the menu. */
+.bar-title {
+  gap: 8px;
+}
+.bar h1 {
+  flex: 0 1 auto;
+  min-width: 2.5em;
+  margin-right: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar-meta {
+  display: contents;
+}
+.bar-meta > * {
+  -webkit-app-region: no-drag;
+}
+/* The cost line keeps a short stub ("$1…") so its pill never spills over
+   the model pill; past that point the title gives way. */
+.meter-wrap {
+  position: relative;
+  display: flex;
+  flex: 0 1000 auto;
+  min-width: 4.5em;
+}
+.meter-wrap .pill.meter {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar-meta .keep {
+  position: relative;
+  flex-shrink: 0;
+}
+.seg,
+.drill-btn {
+  flex-shrink: 0;
+}
+.seg button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.seg button svg {
+  display: none;
+}
+@container (max-width: 640px) {
+  .seg button {
+    padding: 0 10px;
+  }
+  .seg button svg {
+    display: block;
+  }
+  .seg .seg-label {
+    display: none;
+  }
+}
+.copied {
+  animation: fade-out 4s ease forwards;
+}
+@keyframes fade-out {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Below the header, so the switch and the panel button stay in reach. */
+.drill.float {
+  position: absolute;
+  top: 61px;
+  right: 9px;
+  bottom: 8px;
+  z-index: 30;
+  padding: 18px 16px 16px;
+  border-radius: 14px;
+  background: var(--sand);
+  box-shadow: 0 18px 48px rgba(26, 26, 26, 0.18), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
+  animation: sheet-in 160ms ease both;
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+.you-atts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.you-atts:first-child {
+  margin-top: 0;
+}
+.you-img {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 10px;
+  overflow: hidden;
+  line-height: 0;
+}
+.you-img img {
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: 10px;
+  display: block;
+}
+.you .att-doc {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--white);
+}
+.lightbox {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(26, 26, 26, 0.55);
+  cursor: zoom-out;
+  animation: fade 160ms ease both;
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+}

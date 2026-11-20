@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('chiefman', {
   retry: (paneId) => ipcRenderer.invoke('cm:retry', paneId),
   rewind: (paneId, spec) => ipcRenderer.invoke('cm:rewind', paneId, spec),
   files: (paneId, query) => ipcRenderer.invoke('cm:files', paneId, query),
+  drafts: () => ipcRenderer.invoke('cm:drafts'),
+  saveDrafts: (d) => ipcRenderer.send('cm:drafts-save', d),
   openUrl: (url) => ipcRenderer.send('cm:open-url', url),
   onEvent: (cb) => {
     const h = (_e, ev) => cb(ev);

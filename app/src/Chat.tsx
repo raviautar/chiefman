@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { api, Box, Item, Menu } from './api';
+import { api, Box, Draft, Item, Menu } from './api';
 import { Arrow } from './icons';
 import { Markdown } from './Markdown';
 
@@ -18,10 +18,38 @@ export interface Pending {
   queued: boolean;
 }
 
-interface Attachment {
-  path: string;
-  name: string;
-  thumb: string | null;
+type Attachment = Draft['atts'][number];
+
+const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
+
+// A picture he attached, served by the app from its attachments folder.
+export const attUrl = (p: string) => 'cm-att://f/' + encodeURIComponent(p.slice(p.lastIndexOf('/') + 1));
+
+// His message with any attachment path shown as its picture, or its name.
+export function YouText({ text, attachDir, onOpen }: { text: string; attachDir: string; onOpen: (url: string) => void }) {
+  if (!attachDir || !text.includes(attachDir + '/')) return <>{text}</>;
+  const esc = attachDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = text.split(new RegExp(`(${esc}/[A-Za-z0-9._-]+)`));
+  const words = parts.filter((_p, i) => i % 2 === 0).join(' ').trim();
+  const files = parts.filter((_p, i) => i % 2 === 1);
+  return (
+    <>
+      {words && <span>{words}</span>}
+      <span className="you-atts">
+        {files.map((f) =>
+          IMAGE.test(f) ? (
+            <button key={f} className="you-img" onClick={() => onOpen(attUrl(f))} aria-label="Open the picture">
+              <img src={attUrl(f)} alt="" />
+            </button>
+          ) : (
+            <span key={f} className="att-doc">
+              {f.slice(f.lastIndexOf('/') + 1).replace(/^[\dT-]+Z-/, '')}
+            </span>
+          ),
+        )}
+      </span>
+    </>
+  );
 }
 
 type Pop =
@@ -79,30 +107,6 @@ function Chevron() {
   );
 }
 
-// A small picture of a pasted image, kept as a data URL.
-function thumbOf(file: File): Promise<string | null> {
-  return new Promise((resolve) => {
-    const r = new FileReader();
-    r.onerror = () => resolve(null);
-    r.onload = () => {
-      const img = new Image();
-      img.onerror = () => resolve(null);
-      img.onload = () => {
-        const s = 64 / Math.max(img.width, img.height, 1);
-        const c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(img.width * Math.min(1, s)));
-        c.height = Math.max(1, Math.round(img.height * Math.min(1, s)));
-        const g = c.getContext('2d');
-        if (!g) return resolve(null);
-        g.drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL('image/png'));
-      };
-      img.src = String(r.result);
-    };
-    r.readAsDataURL(file);
-  });
-}
-
 export function ChatView({
   box,
   chat,
@@ -110,7 +114,11 @@ export function ChatView({
   quiet,
   fold,
   incoming,
+  initial,
+  attachDir,
   onTaken,
+  onDraft,
+  onOpen,
   onSend,
   onError,
 }: {
@@ -120,16 +128,20 @@ export function ChatView({
   quiet: Set<string>;
   fold: { id: string; count: number } | null;
   incoming: { text: string; seq: number } | undefined;
+  initial: Draft | undefined;
+  attachDir: string;
   onTaken: () => void;
+  onDraft: (d: Draft | null) => void;
+  onOpen: (url: string) => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
 }) {
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(initial?.text ?? '');
   const [sending, setSending] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const [hist, setHist] = useState<number | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
-  const [atts, setAtts] = useState<Attachment[]>([]);
+  const [atts, setAtts] = useState<Attachment[]>(initial?.atts ?? []);
   const [unfold, setUnfold] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -166,6 +178,36 @@ export function ChatView({
     el.style.height = '0px';
     el.style.height = Math.min(160, el.scrollHeight) + 'px';
   }, [draft]);
+
+  // A narrower window or a picture that loads late makes the chat taller;
+  // a chat read at its bottom stays there.
+  const hasCol = !!chat?.loaded && items.length > 0;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [hasCol, starting, resuming]);
+
+  // His saved draft comes back with the cursor where he left it.
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el || !initial) return;
+    const at = Math.min(initial.caret, el.value.length);
+    el.focus();
+    el.setSelectionRange(at, at);
+  }, []);
+
+  function report() {
+    const caret = input.current ? input.current.selectionStart ?? draft.length : draft.length;
+    onDraft(draft || atts.length ? { text: draft, caret, atts } : null);
+  }
+
+  useEffect(report, [draft, atts]);
 
   // His message, back from an edit, goes in the field.
   useEffect(() => {
@@ -255,8 +297,7 @@ export function ChatView({
         continue;
       }
       const path = r.path;
-      const thumb = image ? await thumbOf(f) : null;
-      setAtts((a) => [...a, { path, name, thumb }]);
+      setAtts((a) => [...a, { path, name, image: image && IMAGE.test(path) }]);
     }
     input.current?.focus();
   }
@@ -367,7 +408,7 @@ export function ChatView({
           if (m.k === 'you')
             return (
               <div key={m.id} className={'you' + (isFresh && !quiet.has(m.id) ? ' sent' : '')}>
-                {m.t}
+                <YouText text={m.t} attachDir={attachDir} onOpen={onOpen} />
               </div>
             );
           if (m.k === 'work')
@@ -391,7 +432,9 @@ export function ChatView({
         })}
         {pending.map((p) => (
           <div key={p.id} className="pending">
-            <div className="you sent">{p.t}</div>
+            <div className="you sent">
+              <YouText text={p.t} attachDir={attachDir} onOpen={onOpen} />
+            </div>
             {p.queued && <span className="queued">queued</span>}
           </div>
         ))}
@@ -486,7 +529,7 @@ export function ChatView({
           <div className="att-row">
             {atts.map((a) => (
               <span key={a.path} className="att-chip" title={a.path}>
-                {a.thumb ? <img src={a.thumb} alt="" /> : <span className="att-doc">{a.name}</span>}
+                {a.image ? <img src={attUrl(a.path)} alt="" /> : <span className="att-doc">{a.name}</span>}
                 <button aria-label={'Remove ' + a.name} onClick={() => setAtts((l) => l.filter((x) => x.path !== a.path))}>
                   ×
                 </button>
@@ -512,6 +555,9 @@ export function ChatView({
               setDraft(e.target.value);
               setHist(null);
             }}
+            onSelect={report}
+            onKeyUp={report}
+            onMouseUp={report}
             onPaste={(e) => {
               if (e.clipboardData.files.length) {
                 e.preventDefault();

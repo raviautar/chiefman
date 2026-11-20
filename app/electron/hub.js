@@ -21,7 +21,8 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const ALIASES = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5', fable: 'claude-fable-5-2' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const READY = (s) => /(?:⏵⏵|⏸) .+ on\b/.test(s) && /❯/.test(s) && !parseMenu(s);
-const START_LIMIT = 90000;
+// CHIEFMAN_START_LIMIT_MS shortens the limit for a test run.
+const START_LIMIT = Number(process.env.CHIEFMAN_START_LIMIT_MS) || 90000;
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -56,6 +57,7 @@ class Hub {
     this.restoreRun = null;
     this.resuming = new Map();
     this.touched = new Map();
+    this.stoppedAt = new Map();
     this.rewinding = new Map();
     this.fileCache = new Map();
     this.editsFile = path.join(cfg.stateDir, 'chat-edits.json');
@@ -192,6 +194,7 @@ class Hub {
         session: this.cfg.session,
         workdir: tilde(this.cfg.workdir),
         stateFile: tilde(this.store.file),
+        attachDir: path.join(this.cfg.stateDir, 'attachments'),
         model: this.cfg.model,
         effort: this.cfg.effort,
       },
@@ -950,6 +953,11 @@ class Hub {
   // second Esc there opens Claude's rewind menu.
   async interrupt(paneId) {
     if (!this.panes.has(paneId) || !this.working.has(paneId)) return { ok: false };
+    // A second Esc right after the first would reach Claude as Esc twice,
+    // which opens its rewind menu; one stop is enough.
+    const stopped = this.stoppedAt.get(paneId);
+    if (stopped && Date.now() - stopped < 2000) return { ok: false, again: true };
+    this.stoppedAt.set(paneId, Date.now());
     await run(['send-keys', '-t', paneId, 'Escape']);
     this.touch(paneId);
     this.log('interrupt', { pane: paneId });

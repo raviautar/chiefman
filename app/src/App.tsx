@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, Box, BoxSpec, Drill, HubEvent, PhaseInfo, Snapshot } from './api';
+import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, Snapshot } from './api';
 import { BoxIcon, Check, Spinner } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
@@ -9,6 +9,9 @@ import { DrillPanel } from './Drill';
 import { NewBoxSheet } from './NewBox';
 
 type Toast = { text: string; bad?: boolean; id: number };
+
+// Below this width the drill-down floats over the chat instead of taking room.
+const NARROW = '(max-width: 1179px)';
 
 const store = {
   get(k: string) {
@@ -44,7 +47,12 @@ export function App() {
   const [drill, setDrill] = useState<Drill | null>(null);
   const [selected, setSelected] = useState<string | null>(store.get('chiefman.selected'));
   const [view, setView] = useState<'chat' | 'terminal'>('chat');
-  const [panel, setPanel] = useState(store.get('chiefman.panel') === '1');
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
+  const [panel, setPanel] = useState(store.get('chiefman.panel') === '1' && !window.matchMedia(NARROW).matches);
+  const [full, setFull] = useState<string | null>(null);
+  const [draftsReady, setDraftsReady] = useState(false);
+  const saved = useRef<Record<string, Draft>>({});
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chats, setChats] = useState<Record<string, ChatState>>({});
   const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | null>(null);
   const [picking, setPicking] = useState(false);
@@ -56,7 +64,7 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const [, setTick] = useState(0);
   const [linkFor, setLinkFor] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, { text: string; seq: number }>>({});
+  const [incoming, setIncoming] = useState<Record<string, { text: string; seq: number }>>({});
   const pending = useRef<Record<string, Pending[]>>({});
   const quiet = useRef(new Set<string>());
   const wantSelect = useRef<string | null>(null);
@@ -77,7 +85,7 @@ export function App() {
           if ('restore' in ev) setInfo((i) => ({ ...i, restore: ev.restore ?? null }));
           break;
         case 'draft':
-          setDrafts((d) => ({ ...d, [ev.paneId]: { text: ev.text, seq: Date.now() } }));
+          setIncoming((d) => ({ ...d, [ev.paneId]: { text: ev.text, seq: Date.now() } }));
           break;
         case 'drill':
           setDrill(ev.drill);
@@ -123,12 +131,68 @@ export function App() {
         setBoxes(s.boxes);
         setDrill(s.drill);
       });
+    api()
+      .drafts()
+      .then((d) => {
+        saved.current = d || {};
+        setDraftsReady(true);
+      });
     const clock = setInterval(() => setNow(Date.now()), 20000);
+    const mq = window.matchMedia(NARROW);
+    const onWidth = () => setNarrow(mq.matches);
+    mq.addEventListener('change', onWidth);
     return () => {
       off();
       clearInterval(clock);
+      mq.removeEventListener('change', onWidth);
     };
   }, []);
+
+  // Drafts reach the disk 300 ms after the last change.
+  function keepDrafts() {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => api().saveDrafts(saved.current), 300);
+  }
+
+  function setDraftFor(name: string, d: Draft | null) {
+    const cur = saved.current[name];
+    if (!d && !cur) return;
+    if (d && cur && JSON.stringify(d) === JSON.stringify(cur)) return;
+    const next = { ...saved.current };
+    if (d) next[name] = d;
+    else delete next[name];
+    saved.current = next;
+    keepDrafts();
+  }
+
+  // A box that is gone takes its draft with it.
+  useEffect(() => {
+    if (!draftsReady || info.phase !== 'ready' || !boxes.length) return;
+    const names = new Set(boxes.map((b) => b.name));
+    const gone = Object.keys(saved.current).filter((n) => !names.has(n));
+    if (!gone.length) return;
+    const next = { ...saved.current };
+    for (const n of gone) delete next[n];
+    saved.current = next;
+    keepDrafts();
+  }, [boxes, info.phase, draftsReady]);
+
+  useEffect(() => {
+    if (!linkFor) return;
+    const t = setTimeout(() => setLinkFor(null), 4000);
+    return () => clearTimeout(t);
+  }, [linkFor]);
+
+  // Below 1180 px the panel floats over the chat; a click outside closes it.
+  useEffect(() => {
+    if (!narrow || !panel) return;
+    const away = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (t && !t.closest('.drill, .drill-btn, .scrim, .sheet')) setPanel(false);
+    };
+    document.addEventListener('mousedown', away, true);
+    return () => document.removeEventListener('mousedown', away, true);
+  }, [narrow, panel]);
 
   useEffect(() => {
     if (!toast) return;
@@ -171,6 +235,17 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && full) {
+        e.preventDefault();
+        setFull(null);
+        return;
+      }
+      if (e.key === 'Escape' && narrow && panel && !overlay && !ask) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPanel(false);
+        return;
+      }
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
         if (el && (el.closest('.drill') || el.getAttribute('aria-expanded') === 'true')) return;
@@ -206,7 +281,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [boxes, box, overlay, view, picking, more, ctx, ask]);
+  }, [boxes, box, overlay, view, picking, more, ctx, ask, full, narrow, panel]);
 
   // Asks once, in the app, before typed text of his is replaced.
   function askReplace(name: string, typed: string) {
@@ -331,9 +406,15 @@ export function App() {
 
   async function rename(name: string) {
     if (!box?.paneId) return;
+    const old = box.name;
     const r = await api().rename(box.paneId, name);
-    if (!r.ok) show(r.reason || 'Not renamed.', true);
-    else setSelected(name);
+    if (!r.ok) return show(r.reason || 'Not renamed.', true);
+    setSelected(name);
+    const d = saved.current[old];
+    if (d) {
+      setDraftFor(old, null);
+      setDraftFor(name, d);
+    }
   }
 
   const boxActions: Action[] =
@@ -357,6 +438,7 @@ export function App() {
   const meter = box ? meterLine(box) : '';
   const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
   const fold = panel && box && box.name === 'chief' && drill ? { id: drill.id, count: asks } : null;
+  const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
 
   let body;
   if (!box || !box.paneId) {
@@ -379,6 +461,8 @@ export function App() {
     );
   } else if (view === 'terminal') {
     body = <TerminalView key={box.paneId} paneId={box.paneId} />;
+  } else if (!draftsReady) {
+    body = <div className="chat" />;
   } else {
     body = (
       <ChatView
@@ -388,15 +472,19 @@ export function App() {
         pending={pendingFor(box.paneId)}
         quiet={quiet.current}
         fold={fold}
-        incoming={drafts[box.paneId]}
+        incoming={incoming[box.paneId]}
+        initial={saved.current[box.name]}
+        attachDir={config?.attachDir ?? ''}
         onTaken={() => {
           const p = box.paneId!;
-          setDrafts((d) => {
+          setIncoming((d) => {
             const next = { ...d };
             delete next[p];
             return next;
           });
         }}
+        onDraft={(d) => setDraftFor(box.name, d)}
+        onOpen={setFull}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
       />
@@ -433,7 +521,7 @@ export function App() {
         </div>
         {info.restore && (
           <div className="nav-quiet" role="status">
-            {info.restore.label} · {info.restore.done} of {info.restore.total}
+            {waiting ? `${waiting.name} needs you` : info.restore.label} · {info.restore.done} of {info.restore.total} back
           </div>
         )}
         <div style={{ flex: 1 }} />
@@ -452,15 +540,15 @@ export function App() {
             {live && (
               <div className="bar-meta">
                 {meter && (
-                  <span style={{ position: 'relative' }}>
-                    <button className="pill meter" onClick={openContext} title="What fills the context">
+                  <span className="meter-wrap">
+                    <button className="pill meter" onClick={openContext} title={meter}>
                       {meter}
                     </button>
                     {ctx === box!.paneId && <ContextPop tokens={box!.tokens} onClose={() => setCtx(null)} />}
                   </span>
                 )}
                 {box!.modelName && (
-                  <span style={{ position: 'relative' }}>
+                  <span className="keep">
                     <button className="pill" onClick={() => setPicking(!picking)} title="Model and effort" disabled={!!box!.switching}>
                       {box!.switching && !box!.switching.asking ? (
                         'Switching…'
@@ -474,7 +562,7 @@ export function App() {
                     {picking && <Picker model={box!.model} effort={box!.effort} onPick={switchBox} onClose={() => setPicking(false)} />}
                   </span>
                 )}
-                <span style={{ position: 'relative' }}>
+                <span className="keep">
                   <button className="icon-btn" onClick={() => setMore(!more)} aria-label="More" title="More">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       <circle cx="5" cy="12" r="1.8" />
@@ -485,7 +573,7 @@ export function App() {
                   {more && <MoreMenu actions={boxActions} onClose={() => setMore(false)} />}
                 </span>
                 {linkFor === box!.paneId && box!.remote && (
-                  <span className="copied">
+                  <span className="copied keep" key={linkFor}>
                     Link copied ·{' '}
                     <button
                       className="text-btn"
@@ -504,18 +592,24 @@ export function App() {
           </div>
           {box && (
             <div className="seg" role="group" aria-label="View">
-              <button className={view === 'chat' ? 'on' : ''} onClick={() => setView('chat')}>
-                Chat
+              <button className={view === 'chat' ? 'on' : ''} onClick={() => setView('chat')} aria-label="Chat" title="Chat">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+                </svg>
+                <span className="seg-label">Chat</span>
               </button>
-              <button className={view === 'terminal' ? 'on' : ''} onClick={() => setView('terminal')}>
-                Terminal
+              <button className={view === 'terminal' ? 'on' : ''} onClick={() => setView('terminal')} aria-label="Terminal" title="Terminal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M5 7l5 5-5 5 M12 18h7" />
+                </svg>
+                <span className="seg-label">Terminal</span>
               </button>
             </div>
           )}
           <button
             className={'drill-btn' + (panel ? ' on' : '')}
             aria-label="Drill-down"
-            title="Drill-down: what needs you"
+            title={asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you` : 'Drill-down'}
             aria-pressed={panel}
             onClick={() => setPanel(!panel)}
           >
@@ -569,9 +663,14 @@ export function App() {
         {overlay === 'rename' && box && (
           <RenameSheet box={box} taken={boxes.map((b) => b.name)} onRename={rename} onClose={() => setOverlay(null)} />
         )}
+        {full && (
+          <div className="lightbox" role="dialog" aria-label="Picture" onClick={() => setFull(null)}>
+            <img src={full} alt="" />
+          </div>
+        )}
       </main>
 
-      {panel && <DrillPanel drill={drill} sent={sent} onSend={sendDrill} />}
+      {panel && <DrillPanel drill={drill} sent={sent} floating={narrow} onSend={sendDrill} />}
     </div>
   );
 }

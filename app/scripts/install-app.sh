@@ -26,6 +26,12 @@ npx electron-packager . chiefman --platform=darwin --arch="$ARCH" --icon=build/i
   --ignore='^/(src|scripts|build|out|\.git|index\.html|vite\.config\.mjs|tsconfig\.json)($|/)'
 APP="out/chiefman-darwin-$ARCH/chiefman.app"
 codesign --force --deep --sign - "$APP"
+# --pack-only stops here: the build stays in out/ for test runs, and the
+# installed app (and any copy of it running) is left alone.
+if [ "$1" = "--pack-only" ]; then
+  echo "Built $APP"
+  exit 0
+fi
 DEST="$HOME/Applications/chiefman.app"
 mkdir -p "$HOME/Applications"
 # A running copy is quit first and opened again after, so it never keeps
