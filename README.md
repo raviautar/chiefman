@@ -39,7 +39,7 @@ flowchart TD
 
 ## chiefman, the Mac app
 
-chiefman is the visual front end of these skills, and it will live in this repo in the `chiefman/` folder. It is a small Mac app (Electron) over the chief's tmux session. It shows each box's conversation one message at a time, with the tool work hidden. It types your messages into a box, starts new boxes, and brings them all back after a reboot. The chief's drill-down shows as answer cards, one click per answer. The skills are shaped for it: replies read on their own without the tool work (`plain-english` R14), and the drill-down has a fixed shape the app can read (`chief`).
+chiefman is the visual front end of these skills. The app lives in this repo in the `app/` folder; `cd app && npm install && npm run app` builds it and installs it in ~/Applications. It is a small Mac app (Electron) over the chief's tmux session. It shows each box's conversation one message at a time, with the tool work hidden. It types your messages into a box, starts new boxes, and brings them all back after a reboot. The chief's drill-down shows as answer cards, one click per answer. The skills are shaped for it: replies read on their own without the tool work (`plain-english` R14), and the drill-down has a fixed shape the app can read (`chief`).
 
 ## Why "in the loop"
 
