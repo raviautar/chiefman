@@ -159,6 +159,7 @@ export function ChatView({
   onDraft,
   onRemove,
   note,
+  waiting,
   onOpen,
   onSend,
   onError,
@@ -175,6 +176,7 @@ export function ChatView({
   onDraft: (d: Draft | null) => void;
   onRemove: () => Promise<Result>;
   note?: string;
+  waiting?: string;
   onOpen: (url: string) => void;
   onSend: (text: string) => Promise<boolean>;
   onError: (text: string) => void;
@@ -558,6 +560,13 @@ export function ChatView({
                 </button>
               )}
             </div>
+          </div>
+        )}
+        {/* His first message, held while a start-up question waits. */}
+        {menu && waiting && (
+          <div className="pending waiting" title="Goes to the field once the question is answered">
+            <div className="you">{waiting}</div>
+            <span className="queued">Waiting to send</span>
           </div>
         )}
         {resuming && !menu && <Live text="Coming back…" />}

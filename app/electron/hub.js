@@ -31,6 +31,16 @@ function readJson(file) {
   }
 }
 const SHELLS = /^-?(zsh|bash|sh|fish|dash|ksh|tcsh|csh)$/;
+// tmux names a running Claude by its version number, or claude or node.
+const CLAUDE_CMD = /^(claude|node|\d+\.\d+\.\d+)$/i;
+
+// A key the app refused to send: the result the button gets instead.
+class Refused extends Error {
+  constructor(result) {
+    super(result.reason);
+    this.result = result;
+  }
+}
 // Text compared without its spacing or quote style.
 const same = (s) => String(s || '').replace(/[“”„‟]/g, '"').replace(/[‘’‚‛]/g, "'").replace(/\s+/g, '');
 const argsOf = (pid) =>
@@ -57,6 +67,11 @@ class Hub {
     this.ended = new Map((Array.isArray(this.state.ended) ? this.state.ended : []).filter((e) => e && NAME_RE.test(e.name || '')).map((e) => [e.name, e]));
     // Sessions of boxes he removed from the list: New Box offers them first.
     this.removed = (Array.isArray(this.state.removed) ? this.state.removed : []).filter((e) => e && UUID_RE.test(e.id || '') && NAME_RE.test(e.name || '')).slice(0, 6);
+    // When each ended box ended, and when he first saw it ended (null: not yet).
+    const marks = this.state.endMarks && typeof this.state.endMarks === 'object' ? this.state.endMarks : {};
+    this.endMarks = new Map(Object.entries(marks).filter(([n, m]) => NAME_RE.test(n) && m && Number.isFinite(m.at)));
+    // Panes last seen running Claude, and when: keys go only there.
+    this.claudeAt = new Map();
     this.closing = new Set();
     this.phase = 'starting';
     this.error = null;
@@ -238,11 +253,52 @@ class Hub {
   // A box ended when its window closed (status "ended", no pane), or when its
   // Claude exited and left the window on a shell. Either can start again
   // from its session.
+  // A box New Box made that never got a session (its folder was not trusted)
+  // ends the same way, with nothing to start again.
   endedInfo(b) {
     if (b.claude || this.status(b) !== 'off') return null;
     const saved = this.state.boxes.find((s) => s.name === b.name);
-    if (!saved || !UUID_RE.test(saved.sessionId || '')) return null;
+    if (!saved || (!UUID_RE.test(saved.sessionId || '') && !saved.pending)) return null;
     return { start: this.hasConversation(saved.sessionId, saved.cwd), window: true, later: this.resumable(saved.sessionId) };
+  }
+
+  // Every ended row carries when it ended and when he saw it, kept across
+  // restarts. A box that ended while the app was closed is not seen yet.
+  markEnded(rows) {
+    let changed = false;
+    const names = new Set();
+    for (const r of rows) {
+      if (!r.ended) continue;
+      names.add(r.name);
+      let m = this.endMarks.get(r.name);
+      if (!m) {
+        const e = this.ended.get(r.name);
+        m = { at: (e && e.at) || Date.now(), seen: null };
+        this.endMarks.set(r.name, m);
+        changed = true;
+      }
+      r.ended = { ...r.ended, at: m.at, seen: m.seen };
+    }
+    // Before the first full scan the list is not complete yet.
+    if (this.phase === 'ready') {
+      for (const n of [...this.endMarks.keys()]) {
+        if (names.has(n)) continue;
+        this.endMarks.delete(n);
+        changed = true;
+      }
+    }
+    if (changed) this.soon('record', 300, () => this.recordState());
+    return rows;
+  }
+
+  seenEnded(name) {
+    const m = this.endMarks.get(name);
+    if (!m || m.seen) return { ok: true };
+    m.seen = Date.now();
+    this.log('seen ended', { name });
+    this.recordState();
+    this.emitBoxes();
+    return { ok: true };
   }
 
   // New Box resumes sessions from the working folder only.
@@ -291,7 +347,7 @@ class Hub {
         ended: { start: this.hasConversation(e.sessionId, e.cwd), window: false, later: this.resumable(e.sessionId) },
         session: UUID_RE.test(e.sessionId || '') ? e.sessionId : null,
       }));
-    return this.livePublicBoxes().concat(gone);
+    return this.markEnded(this.livePublicBoxes().concat(gone));
   }
 
   livePublicBoxes() {
@@ -508,7 +564,7 @@ class Hub {
     const box = this.boxes.find((b) => b.paneId === paneId);
     if (!box || !box.claude) return { ok: false, reason: 'No Claude runs there.' };
     this.touch(paneId);
-    await run(['send-keys', '-t', paneId, 'BTab']);
+    await this.keys(paneId, ['BTab']);
     this.log('mode', { box: box.name });
     this.soon('poll', 300, () => this.pollScreens());
     return { ok: true };
@@ -698,7 +754,10 @@ class Hub {
       if (!entry.sessionId && old.pending) entry.pending = true;
       return entry;
     });
-    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()], removed: this.removed };
+    const next = {
+      version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()], removed: this.removed,
+      endMarks: Object.fromEntries(this.endMarks),
+    };
     if (JSON.stringify(next) !== JSON.stringify(this.state)) {
       this.state = next;
       try {
@@ -717,13 +776,27 @@ class Hub {
     this.polling = true;
     let changed = false;
     try {
+      // A question shows only while Claude runs: after it quits, its last
+      // screen stays in the window, buttons and all.
+      const cmds = new Map();
+      try {
+        const out = await run(['list-panes', '-s', '-t', `=${this.cfg.session}`, '-F', '#{pane_id}\t#{pane_current_command}']);
+        for (const line of out.split('\n')) {
+          const [p, c] = line.split('\t');
+          if (p) cmds.set(p, c || '');
+        }
+      } catch {
+        return;
+      }
       for (const b of this.boxes) {
         if (!b.paneId) continue;
-        if (!b.claude) {
+        const cmd = cmds.get(b.paneId) || '';
+        const runsClaude = CLAUDE_CMD.test(cmd);
+        if (!b.claude || SHELLS.test(cmd) || !cmds.has(b.paneId)) {
           if (this.working.delete(b.paneId)) changed = true;
           // Before Claude registers, it may ask whether to trust the folder.
           let menu = null;
-          if (this.starting.has(b.name) || this.resuming.has(b.name)) {
+          if (runsClaude && (this.starting.has(b.name) || this.resuming.has(b.name))) {
             try {
               menu = parseMenu(await this.ctl.command(`capture-pane -p -t ${b.paneId}`));
             } catch {}
@@ -916,13 +989,40 @@ class Hub {
 
   // ---- typing into a box -------------------------------------------------
 
+  // Every key the app sends to a box goes through here, and only to a pane
+  // that runs Claude: a stale button must never type into a bare shell. A
+  // burst of keys asks tmux once.
+  async keys(paneId, args) {
+    await this.needClaude(paneId);
+    return run(['send-keys', '-t', paneId, ...args]);
+  }
+
+  // A button for a question checks first: the question may be the last
+  // screen of a Claude that quit.
+  async needClaude(paneId) {
+    const t = this.claudeAt.get(paneId);
+    if (!t || Date.now() - t > 400) {
+      const cmd = (await run(['display', '-p', '-t', paneId, '#{pane_current_command}']).catch(() => '')).trim();
+      if (!CLAUDE_CMD.test(cmd)) {
+        this.claudeAt.delete(paneId);
+        const box = this.boxes.find((b) => b.paneId === paneId);
+        const name = box ? box.name : 'That box';
+        this.log('keys refused', { box: box ? box.name : paneId, runs: SHELLS.test(cmd) ? 'shell' : cmd ? 'other' : 'nothing' });
+        this.soon('scan', 50, () => this.scan());
+        this.soon('poll', 50, () => this.pollScreens());
+        throw new Refused({ ok: false, reason: SHELLS.test(cmd) || !cmd ? `${name} ended.` : `No Claude runs in ${name}.` });
+      }
+      this.claudeAt.set(paneId, Date.now());
+    }
+  }
+
   // Claude reads fast typing as a paste, and an Enter inside a paste becomes
   // part of the text. So the Enters wait until the text has settled.
   async enter(paneId, text, enters) {
     await sleep(Math.min(900, 250 + Math.round(text.length / 4)));
     for (let i = 0; i < enters; i++) {
       if (i) await sleep(120);
-      await run(['send-keys', '-t', paneId, 'Enter']);
+      await this.keys(paneId, ['Enter']);
     }
   }
 
@@ -935,8 +1035,8 @@ class Hub {
     for (let i = 0; i < lines.length; i++) {
       let t = lines[i];
       if (t.endsWith(';')) t = t.slice(0, -1) + '\\;';
-      if (t) await run(['send-keys', '-t', paneId, '-l', '--', t]);
-      if (i < lines.length - 1) await run(['send-keys', '-t', paneId, 'M-Enter']);
+      if (t) await this.keys(paneId, ['-l', '--', t]);
+      if (i < lines.length - 1) await this.keys(paneId, ['M-Enter']);
     }
     await this.enter(paneId, text, enters);
   }
@@ -953,7 +1053,7 @@ class Hub {
         return false;
       }
       if (st !== 'typed') return true;
-      await run(['send-keys', '-t', paneId, 'Enter']);
+      await this.keys(paneId, ['Enter']);
     }
     return false;
   }
@@ -984,7 +1084,10 @@ class Hub {
     }
     this.lastSend.set(paneId, { text, at: Date.now() });
     const prev = this.queues.get(paneId) || Promise.resolve();
-    const next = prev.then(() => this.sendNow(paneId, text, opts));
+    const next = prev.then(() => this.sendNow(paneId, text, opts)).catch((e) => {
+      if (e && e.result) return e.result;
+      throw e;
+    });
     this.queues.set(paneId, next.catch(() => {}));
     return next.then((r) => {
       if (!r.ok) this.lastSend.delete(paneId);
@@ -1041,8 +1144,8 @@ class Hub {
   async clearPrompt(paneId, typed) {
     const lines = Math.min(200, String(typed).split('\n').length + 2);
     for (let round = 0; round < 3; round++) {
-      await run(['send-keys', '-t', paneId, 'C-e']);
-      for (let k = 0; k < lines; k++) await run(['send-keys', '-t', paneId, 'C-u']);
+      await this.keys(paneId, ['C-e']);
+      for (let k = 0; k < lines; k++) await this.keys(paneId, ['C-u']);
       await sleep(300);
       try {
         if (promptState(await run(['capture-pane', '-p', '-e', '-t', paneId])) !== 'typed') return true;
@@ -1051,7 +1154,7 @@ class Hub {
       }
     }
     if (this.working.has(paneId)) return false;
-    await run(['send-keys', '-t', paneId, 'C-c']);
+    await this.keys(paneId, ['C-c']);
     await sleep(400);
     try {
       return promptState(await run(['capture-pane', '-p', '-e', '-t', paneId])) !== 'typed';
@@ -1075,7 +1178,7 @@ class Hub {
     const stopped = this.stoppedAt.get(paneId);
     if (stopped && Date.now() - stopped < 2000) return { ok: false, again: true };
     this.stoppedAt.set(paneId, Date.now());
-    await run(['send-keys', '-t', paneId, 'Escape']);
+    await this.keys(paneId, ['Escape']);
     this.touch(paneId);
     this.log('interrupt', { pane: paneId });
     const box = this.boxes.find((b) => b.paneId === paneId);
@@ -1093,6 +1196,7 @@ class Hub {
   // Picks option n in the menu the pane shows, by moving to it and pressing Enter.
   async choose(paneId, n) {
     if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
+    await this.needClaude(paneId);
     const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     if (!menu || !menu.options.some((o) => o.n === n)) return { ok: false, reason: 'That choice is no longer on screen.' };
     if (/model|effort/i.test(menu.question + ' ' + menu.options.map((o) => o.label).join(' '))) {
@@ -1104,7 +1208,7 @@ class Hub {
     this.touch(paneId);
     // In the model menu, "s" applies the pick to this session only, so his
     // default stays as it was (the guard above still watches it).
-    await run(['send-keys', '-t', paneId, ...keys, menu.sessionKey ? 's' : 'Enter']);
+    await this.keys(paneId, [...keys, menu.sessionKey ? 's' : 'Enter']);
     this.log('choose', { pane: paneId, n, session: !!menu.sessionKey });
     const rw = this.rewinding.get(paneId);
     if (rw && Date.now() - rw.at < 120000) this.afterRewind(paneId, rw, (menu.options.find((o) => o.n === n) || {}).label || '');
@@ -1115,11 +1219,12 @@ class Hub {
   // Leaves the menu the pane shows, as Esc does in the terminal.
   async dismiss(paneId) {
     if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
+    await this.needClaude(paneId);
     const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     if (!menu) return { ok: true, gone: true };
     if (!menu.esc) return { ok: false, reason: 'Pick an option above.' };
     this.touch(paneId);
-    await run(['send-keys', '-t', paneId, 'Escape']);
+    await this.keys(paneId, ['Escape']);
     this.log('dismiss', { pane: paneId });
     this.soon('poll', 300, () => this.pollScreens());
     return { ok: true };
@@ -1129,6 +1234,7 @@ class Hub {
   // move to that option, type, and press Enter.
   async answer(paneId, text) {
     if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
+    await this.needClaude(paneId);
     const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     if (!menu || !menu.free) return { ok: false, reason: 'Pick an option above.' };
     const one = String(text).replace(/\s+/g, ' ').trim();
@@ -1137,11 +1243,11 @@ class Hub {
     if (!box || (await this.onShell(box))) return { ok: false, reason: 'That box ended.' };
     const d = menu.free - menu.selected;
     this.touch(paneId);
-    if (d) await run(['send-keys', '-t', paneId, ...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up')]);
+    if (d) await this.keys(paneId, [...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up')]);
     await sleep(150);
-    await run(['send-keys', '-t', paneId, '-l', '--', one]);
+    await this.keys(paneId, ['-l', '--', one]);
     await sleep(150);
-    await run(['send-keys', '-t', paneId, 'Enter']);
+    await this.keys(paneId, ['Enter']);
     this.log('answer', { pane: paneId, chars: one.length });
     this.soon('poll', 400, () => this.pollScreens());
     return { ok: true };
@@ -1174,8 +1280,13 @@ class Hub {
       } catch {
         return false;
       }
-      if (parseMenu(s)) seen.asked = true;
-      if (/trust (the files in )?this folder/i.test(s) && parseMenu(s)) {
+      // A question counts only while Claude runs. Once one showed, a shell
+      // means Claude quit ("No, exit"), though its question still shows.
+      const cmd = (await run(['display', '-p', '-t', paneId, '#{pane_current_command}']).catch(() => '')).trim();
+      if ((asked || seen.asked) && SHELLS.test(cmd)) return 'exited';
+      const menu = CLAUDE_CMD.test(cmd) ? parseMenu(s) : null;
+      if (menu) seen.asked = true;
+      if (/trust (the files in )?this folder/i.test(s) && menu) {
         if (!asked) {
           asked = true;
           end = Date.now() + 600000;
@@ -1184,11 +1295,7 @@ class Hub {
         }
         continue;
       }
-      if (asked) {
-        const cmd = (await run(['display', '-p', '-t', paneId, '#{pane_current_command}']).catch(() => '')).trim();
-        if (SHELLS.test(cmd)) return 'exited';
-      }
-      if (/(?:⏵⏵|⏸) .+ on\b/.test(s) && /❯/.test(s) && !parseMenu(s)) return true;
+      if (/(?:⏵⏵|⏸) .+ on\b/.test(s) && /❯/.test(s) && !menu) return true;
     }
     return false;
   }
@@ -1283,7 +1390,7 @@ class Hub {
     if (ready === 'exited') return { ok: false, reason: `${name} closed: its folder was not trusted.`, paneId, ...keep };
     if (!ready) return { ok: false, reason: `${name} did not start in time. Open Terminal to see why.`, paneId, ...keep };
     await this.promptEmpty(paneId, 5000);
-    await this.deliverChecked(paneId, `/rename ${name}`);
+    await this.deliverChecked(paneId, `/rename ${name}`).catch(() => false);
     const first = await this.sendFirst(paneId, name, message, seen.asked);
     this.log('box started', { name });
     await this.scan();
@@ -1305,7 +1412,15 @@ class Hub {
       return { unsent: message };
     }
     this.typedByApp.set(paneId, [message]);
-    if (!(await this.deliverChecked(paneId, message))) {
+    const went = await this.deliverChecked(paneId, message).catch((e) => {
+      if (e && e.result) return 'refused';
+      throw e;
+    });
+    if (went === 'refused') {
+      this.log('first message kept', { name, why: 'ended' });
+      return { unsent: message };
+    }
+    if (!went) {
       // Taken back out of the terminal, so it is in one place only.
       await this.clearPrompt(paneId, message).catch(() => false);
       this.log('first message kept', { name, why: 'stuck' });
@@ -1370,7 +1485,15 @@ class Hub {
         r.why = 'gone';
         break;
       }
-      if (parseMenu(s)) {
+      // A question counts only while Claude runs: after "No, exit" it still
+      // shows in the window over a bare shell.
+      const cmd = (await run(['display', '-p', '-t', r.paneId, '#{pane_current_command}']).catch(() => '')).trim();
+      if (SHELLS.test(cmd) && (r.asking || Date.now() - t0 > 5000)) {
+        r.state = 'failed';
+        r.why = 'exited';
+        break;
+      }
+      if (CLAUDE_CMD.test(cmd) && parseMenu(s)) {
         if (!r.asking) {
           this.log('start asks', { name });
           this.soon('poll', 100, () => this.pollScreens());
@@ -1383,14 +1506,6 @@ class Hub {
       if (READY(s)) {
         r.state = 'resumed';
         break;
-      }
-      if (Date.now() - t0 > 5000) {
-        const cmd = (await run(['display', '-p', '-t', r.paneId, '#{pane_current_command}']).catch(() => '')).trim();
-        if (SHELLS.test(cmd)) {
-          r.state = 'failed';
-          r.why = 'exited';
-          break;
-        }
       }
       if (Date.now() > end) {
         r.state = 'failed';
@@ -1407,6 +1522,9 @@ class Hub {
       if (r.after) await r.after(r.paneId).catch(() => {});
       setTimeout(() => this.emitBoxes(), 6500);
     }
+    // Claude quit (he said "No, exit", or it stopped): the box has ended, with
+    // Start it again, like any box whose Claude quit.
+    if (r.why === 'exited') this.resuming.delete(name);
     await this.scan().catch(() => {});
     this.emitBoxes();
   }
@@ -1547,9 +1665,9 @@ class Hub {
     if (st === 'no-prompt') return { ok: false, reason: `${box.name} is waiting on a choice. Answer it first.` };
     if (st === 'typed') return { ok: false, reason: `Something is typed in ${box.name}. Send or clear it first.` };
     this.touch(paneId);
-    await run(['send-keys', '-t', paneId, 'Escape']);
+    await this.keys(paneId, ['Escape']);
     await sleep(150);
-    await run(['send-keys', '-t', paneId, 'Escape']);
+    await this.keys(paneId, ['Escape']);
     let open = false;
     for (let i = 0; i < 10 && !open; i++) {
       await sleep(200);
@@ -1561,7 +1679,7 @@ class Hub {
     let seen = 0;
     let prev = null;
     for (let step = 0; step < 150; step++) {
-      await run(['send-keys', '-t', paneId, 'Up']);
+      await this.keys(paneId, ['Up']);
       await sleep(120);
       screen = await run(['capture-pane', '-p', '-t', paneId]);
       const sel = screen.split('\n').filter((l) => /❯/.test(l)).pop() || '';
@@ -1569,7 +1687,7 @@ class Hub {
       const head = same(line.replace(/…$/, ''));
       if (head && want.startsWith(head) && head.length >= Math.min(want.length, 12)) {
         if (seen === dupAfter) {
-          await run(['send-keys', '-t', paneId, 'Enter']);
+          await this.keys(paneId, ['Enter']);
           this.rewinding.set(paneId, { text, from: this.tsOf(paneId, spec && spec.id), sid: box.claude.sessionId, at: Date.now() });
           this.log('rewind', { box: box.name, steps: step + 1 });
           this.soon('poll', 300, () => this.pollScreens());
@@ -1581,7 +1699,7 @@ class Hub {
       if (step > 0 && (screen === prev || /\(current\)/.test(line))) break;
       prev = screen;
     }
-    await run(['send-keys', '-t', paneId, 'Escape']);
+    await this.keys(paneId, ['Escape']);
     return { ok: false, reason: `Could not find that message in ${box.name}'s rewind menu.` };
   }
 

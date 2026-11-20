@@ -21,7 +21,8 @@ export interface Box {
   tokens: { used: number; max: number } | null;
   // Set when the box ended: its window closed (window false), or its Claude exited.
   // later: New Box can resume its conversation after it is removed.
-  ended?: { start: boolean; window: boolean; later?: boolean } | null;
+  // at: when it ended; seen: when he first saw it ended (null: not yet).
+  ended?: { start: boolean; window: boolean; later?: boolean; at?: number; seen?: number | null } | null;
   // The conversation this row holds. One row per conversation.
   session?: string | null;
   lastPane?: string | null;
@@ -151,6 +152,7 @@ interface Bridge {
   retry(paneId: string): Promise<Result>;
   startAgain(name: string): Promise<Result>;
   closeEnded(name: string): Promise<Result>;
+  seenEnded(name: string): Promise<Result>;
   rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
   files(paneId: string, query: string): Promise<string[]>;
   drafts(): Promise<Record<string, Draft>>;

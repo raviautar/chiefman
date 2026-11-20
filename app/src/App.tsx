@@ -80,6 +80,9 @@ export function App() {
   const [, setTick] = useState(0);
   const [linkFor, setLinkFor] = useState<string | null>(null);
   const [incoming, setIncoming] = useState<Record<string, { text: string; seq: number }>>({});
+  // First messages held while their box starts, by box name.
+  const [held, setHeld] = useState<Record<string, string>>({});
+  const [endedOpen, setEndedOpen] = useState(false);
   const pending = useRef<Record<string, Pending[]>>({});
   const quiet = useRef(new Set<string>());
   const wantSelect = useRef<string | null>(null);
@@ -283,8 +286,67 @@ export function App() {
     }
   }, [boxes]);
 
-  const box = useMemo(() => boxes.find((b) => b.name === selected) || boxes[0] || null, [boxes, selected]);
+  // Ended boxes. One he never saw end waits in the quiet "Ended" line; one
+  // he saw leaves the list by itself; one that holds his typed text stays a
+  // row until he sends, resumes or removes it. The chief always stays.
+  const hasText = (name: string) => {
+    const d = saved.current[name];
+    return !!d && (!!d.text.trim() || d.atts.length > 0);
+  };
+  const tucked = (b: Box) => !!b.ended && !b.ended.seen && b.name !== 'chief' && b.name !== selected && !hasText(b.name);
+  const listed = boxes.filter((b) => !tucked(b));
+  const endedLine = boxes.filter(tucked);
+
+  const box = useMemo(() => boxes.find((b) => b.name === selected) || listed[0] || null, [boxes, selected]);
   const paneId = box ? box.paneId : null;
+
+  // He has seen a box end once it is in front while the window is on screen.
+  const endedNow = box?.ended ? box.name : null;
+  const seenNow = box?.ended?.seen ?? null;
+  useEffect(() => {
+    if (!endedNow || seenNow) return;
+    const mark = () => {
+      if (document.visibilityState === 'visible') api().seenEnded(endedNow);
+    };
+    mark();
+    document.addEventListener('visibilitychange', mark);
+    return () => document.removeEventListener('visibilitychange', mark);
+  }, [endedNow, seenNow]);
+
+  // A seen ended box with none of his text leaves when he switches away, or
+  // about 10 s after he saw it end while it stays in front.
+  const leaving = useRef(new Set<string>());
+  const [leaveTick, setLeaveTick] = useState(0);
+  useEffect(() => {
+    let due = Infinity;
+    for (const b of boxes) {
+      if (!b.ended?.seen || b.name === 'chief' || hasText(b.name) || leaving.current.has(b.name)) continue;
+      const at = Math.max(b.ended.at ?? 0, b.ended.seen) + 10000;
+      if (b.name !== box?.name || Date.now() >= at) {
+        leaving.current.add(b.name);
+        // One try only: a window that runs something else stays.
+        removeEnded(b.name).then((r) => r.ok && leaving.current.delete(b.name));
+      } else due = Math.min(due, at);
+    }
+    if (due === Infinity) return;
+    const t = setTimeout(() => setLeaveTick((x) => x + 1), due - Date.now() + 50);
+    return () => clearTimeout(t);
+  }, [boxes, box?.name, leaveTick]);
+
+  function resumeEnded(name: string) {
+    api()
+      .startAgain(name)
+      .then((r) => {
+        if (r.ok) {
+          setSelected(name);
+          setView('chat');
+        } else show(r.reason || "Couldn't start it.", true);
+      });
+  }
+
+  async function clearEnded(names: string[]) {
+    for (const n of names) await removeEnded(n);
+  }
 
   useEffect(() => {
     if (box) store.set('chiefman.selected', box.name);
@@ -341,11 +403,11 @@ export function App() {
       }
       if (!e.metaKey || e.altKey || e.ctrlKey) return;
       const k = e.key.toLowerCase();
-      const at = boxes.findIndex((b) => b.name === box?.name);
+      const at = listed.findIndex((b) => b.name === box?.name);
       let next: Box | undefined;
-      if (/^[1-9]$/.test(k)) next = boxes[Number(k) - 1];
-      else if (k === '[' || e.code === 'BracketLeft') next = boxes[(at - 1 + boxes.length) % boxes.length];
-      else if (k === ']' || e.code === 'BracketRight') next = boxes[(at + 1) % boxes.length];
+      if (/^[1-9]$/.test(k)) next = listed[Number(k) - 1];
+      else if (k === '[' || e.code === 'BracketLeft') next = listed[(at - 1 + listed.length) % listed.length];
+      else if (k === ']' || e.code === 'BracketRight') next = listed[(at + 1) % listed.length];
       else if (k === 'n' && !e.shiftKey) {
         e.preventDefault();
         setOverlay('newbox');
@@ -479,8 +541,18 @@ export function App() {
       setSelected(row.name);
       setView('chat');
     } else if (spec.resume) adopt.current = { name: spec.name, key: `session.${spec.resume}` };
+    // His message shows dim under a start-up question until the box is up.
+    const target = row ? row.name : spec.name;
+    if (spec.message) setHeld((w) => ({ ...w, [target]: spec.message }));
     api()
       .newBox(spec)
+      .finally(() =>
+        setHeld((w) => {
+          const next = { ...w };
+          delete next[target];
+          return next;
+        }),
+      )
       .then((r) => {
         if (r.name && r.name !== spec.name && !r.existing) {
           if (adopt.current?.name === spec.name) adopt.current = { ...adopt.current, name: r.name };
@@ -639,6 +711,7 @@ export function App() {
         onDraft={(d) => setDraftFor(box.name, d)}
         onRemove={() => removeEnded(box.name)}
         note={notes[box.name]}
+        waiting={held[box.name]}
         onOpen={setFull}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
@@ -651,7 +724,7 @@ export function App() {
       <nav className="nav" aria-label="Sidebar">
         <div className="nav-lights" />
         <div className="nav-list">
-          {boxes.map((b, i) => {
+          {listed.map((b, i) => {
             const on = box?.name === b.name;
             return (
               <button
@@ -674,6 +747,38 @@ export function App() {
             );
           })}
         </div>
+        {endedLine.length > 0 && (
+          <div className="ended-group">
+            <button className="ended-toggle" aria-expanded={endedOpen} onClick={() => setEndedOpen(!endedOpen)}>
+              <svg className={'ended-chev' + (endedOpen ? ' open' : '')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M3.5 2l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Ended ({endedLine.length})
+            </button>
+            {endedOpen && (
+              <div className="ended-items">
+                {endedLine.map((b) => (
+                  <div key={b.id} className="ended-item">
+                    <span className="name">{b.name}</span>
+                    {b.ended?.start && (
+                      <button className="text-btn" onClick={() => resumeEnded(b.name)}>
+                        Resume
+                      </button>
+                    )}
+                    <button className="text-btn" onClick={() => clearEnded([b.name])}>
+                      Clear
+                    </button>
+                  </div>
+                ))}
+                {endedLine.length > 1 && (
+                  <button className="text-btn ended-all" onClick={() => clearEnded(endedLine.map((b) => b.name))}>
+                    Clear all
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {info.restore && (
           <div className="nav-quiet" role="status">
             {waiting ? `${waiting.name} needs you` : info.restore.label} · {info.restore.done} of {info.restore.total} back

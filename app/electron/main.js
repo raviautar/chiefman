@@ -166,7 +166,8 @@ function act(ch, fn) {
     try {
       r = await fn(...a);
     } catch (e) {
-      r = { ok: false, reason: `Couldn't do that: ${String((e && e.message) || e).slice(0, 120)}` };
+      // A refused key brings its own result ("<box> ended.").
+      r = e && e.result ? e.result : { ok: false, reason: `Couldn't do that: ${String((e && e.message) || e).slice(0, 120)}` };
     }
     if (!r || typeof r !== 'object') r = { ok: false };
     if (r.ok === false && !r.reason) r = { ...r, reason: "Couldn't do that." };
@@ -181,6 +182,8 @@ function wireIpc() {
     if (!PANE.test(p)) return;
     hub.watchPane(p);
     seen(p);
+    // Its question is checked again the moment he switches to it.
+    hub.soon('poll', 30, () => hub.pollScreens());
   });
   on('cm:term', (p) => hub.openTerm(PANE.test(p) ? p : null));
   on('cm:term-input', (p, d) => PANE.test(p) && typeof d === 'string' && hub.termInput(p, d));
@@ -205,6 +208,7 @@ function wireIpc() {
   const BOX_NAME = /^[A-Za-z0-9._-]{1,64}$/;
   act('cm:start-again', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.startAgain(n) : { ok: false, reason: 'Bad request.' }));
   act('cm:close-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.closeEnded(n) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:seen-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.seenEnded(n) : { ok: false }));
   act('cm:rewind', (p, spec) =>
     PANE.test(p) && spec && typeof spec.text === 'string' && spec.text.length < 100000
       ? hub.rewind(p, { text: spec.text, id: typeof spec.id === 'string' ? spec.id : '', dupAfter: Number(spec.dupAfter) || 0 })
