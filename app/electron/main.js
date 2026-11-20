@@ -191,6 +191,9 @@ function wireIpc() {
     PANE.test(p) && (kind === 'model' || kind === 'effort') && typeof v === 'string' ? hub.switchBox(p, kind, v) : { ok: false, reason: 'Bad request.' },
   );
   handle('cm:retry', (p) => (PANE.test(p) ? hub.retryStart(p) : { ok: false, reason: 'Bad request.' }));
+  const BOX_NAME = /^[A-Za-z0-9._-]{1,64}$/;
+  handle('cm:start-again', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.startAgain(n) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:close-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.closeEnded(n) : { ok: false, reason: 'Bad request.' }));
   handle('cm:rewind', (p, spec) =>
     PANE.test(p) && spec && typeof spec.text === 'string' && spec.text.length < 100000
       ? hub.rewind(p, { text: spec.text, id: typeof spec.id === 'string' ? spec.id : '', dupAfter: Number(spec.dupAfter) || 0 })

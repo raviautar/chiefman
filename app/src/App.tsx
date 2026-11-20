@@ -245,9 +245,11 @@ export function App() {
     if (!narrow) store.set('chiefman.panel.wide', open ? '1' : '0');
   }
 
+  // A box whose window closed is still read from its old pane's log.
+  const watchId = box ? box.paneId ?? box.lastPane ?? null : null;
   useEffect(() => {
-    if (paneId) api().watch(paneId);
-  }, [paneId]);
+    if (watchId) api().watch(watchId);
+  }, [watchId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -318,7 +320,7 @@ export function App() {
         setAsk(null);
         resolve(yes);
       };
-      setAsk({ title: `Replace what's typed in ${name}?`, typed, answer });
+      setAsk({ title: `Something else is typed in ${name}'s terminal. Replace it?`, typed, answer });
     });
   }
 
@@ -345,9 +347,13 @@ export function App() {
     };
     let r = await api().send(p, text);
     if (!r.ok && r.ask === 'replace') {
-      if (!(await askReplace(name, r.typed || ''))) {
-        drop();
-        return false;
+      // His message shows as sent only once he picks Replace.
+      const held = (pending.current[p] || []).find((x) => x.id === id);
+      drop();
+      if (!(await askReplace(name, r.typed || ''))) return false;
+      if (held) {
+        pending.current[p] = [...(pending.current[p] || []), held];
+        setTick((t) => t + 1);
       }
       r = await api().send(p, text, true);
     }
@@ -490,7 +496,10 @@ export function App() {
   const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
 
   let body;
-  if (!box || !box.paneId) {
+  // A box whose window closed has no pane, but keeps its chat and draft. Its
+  // chat keeps the old pane's key, so the field keeps his text and focus.
+  const shownPane = box ? box.paneId ?? box.lastPane ?? null : null;
+  if (!box || (!box.paneId && box.status !== 'ended')) {
     body = (
       <div className="chat">
         <div className="empty">
@@ -508,20 +517,20 @@ export function App() {
         </div>
       </div>
     );
-  } else if (view === 'terminal') {
+  } else if (view === 'terminal' && box.paneId) {
     body = <TerminalView key={box.paneId} paneId={box.paneId} />;
   } else if (!draftsReady) {
     body = <div className="chat" />;
   } else {
     body = (
       <ChatView
-        key={box.paneId}
+        key={shownPane ?? `ended:${box.name}`}
         box={box}
-        chat={chats[box.paneId]}
-        pending={pendingFor(box.paneId)}
+        chat={shownPane ? chats[shownPane] : undefined}
+        pending={shownPane ? pendingFor(shownPane) : []}
         quiet={quiet.current}
         fold={fold}
-        incoming={incoming[box.paneId]}
+        incoming={box.paneId ? incoming[box.paneId] : undefined}
         initial={saved.current[box.name]}
         attachDir={config?.attachDir ?? ''}
         onTaken={() => {
@@ -550,11 +559,11 @@ export function App() {
             return (
               <button
                 key={b.id}
-                className={'row' + (on ? ' on' : '') + (b.status === 'off' || b.status === 'failed' ? ' off' : '')}
+                className={'row' + (on ? ' on' : '') + (b.status === 'off' || b.status === 'failed' || b.status === 'ended' ? ' off' : '')}
                 onClick={() => setSelected(b.name)}
                 title={i < 9 ? `${b.name}  ⌘${i + 1}` : b.name}
               >
-                <BoxIcon icon={b.icon} color={b.status === 'off' ? '#B3B2AD' : b.color} />
+                <BoxIcon icon={b.icon} color={b.status === 'off' || b.status === 'ended' ? '#B3B2AD' : b.color} />
                 <span className="name">{b.name}</span>
                 {b.cost != null && b.cost > 0 && <span className="row-cost">{money(b.cost)}</span>}
                 {b.menu ? (
@@ -710,7 +719,7 @@ export function App() {
           />
         )}
         {ask && (
-          <Confirm title={ask.title} body="Your typed text in this box goes away, and this message is sent." quote={ask.typed} yes="Replace" ending onYes={() => ask.answer(true)} onClose={() => ask.answer(false)} />
+          <Confirm title={ask.title} body="That text goes away, and your message is sent." quote={ask.typed} yes="Replace" ending onYes={() => ask.answer(true)} onClose={() => ask.answer(false)} />
         )}
         {overlay === 'rename' && box && (
           <RenameSheet box={box} taken={boxes.map((b) => b.name)} onRename={rename} onClose={() => setOverlay(null)} />

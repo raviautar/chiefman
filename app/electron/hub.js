@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { run, hasSession, Control } = require('./tmux');
-const { readSessions, liveSessionIds, transcriptPath } = require('./sessions');
+const { readSessions, liveSessionIds, transcriptPath, alive } = require('./sessions');
 const { Transcript } = require('./transcript');
 const { newestDrill } = require('./drilldown');
 const { State } = require('./state');
@@ -52,6 +52,10 @@ class Hub {
     this.log = log || (() => {});
     this.store = new State(cfg.stateDir);
     this.state = this.store.load();
+    // Boxes whose window closed: kept, with their draft, until he starts them
+    // again or closes them, or their window comes back.
+    this.ended = new Map((Array.isArray(this.state.ended) ? this.state.ended : []).filter((e) => e && NAME_RE.test(e.name || '')).map((e) => [e.name, e]));
+    this.closing = new Set();
     this.phase = 'starting';
     this.error = null;
     this.restoreRun = null;
@@ -229,7 +233,45 @@ class Hub {
     return 'idle';
   }
 
+  // A box ended when its window closed (status "ended", no pane), or when its
+  // Claude exited and left the window on a shell. Either can start again
+  // from its session.
+  endedInfo(b) {
+    if (b.claude || this.status(b) !== 'off') return null;
+    const saved = this.state.boxes.find((s) => s.name === b.name);
+    if (!saved || !UUID_RE.test(saved.sessionId || '')) return null;
+    return { start: true, window: true };
+  }
+
   publicBoxes() {
+    const gone = [...this.ended.values()]
+      .filter((e) => !this.boxes.some((b) => b.name === e.name))
+      .map((e) => ({
+        id: `ended:${e.name}`,
+        name: e.name,
+        paneId: null,
+        lastPane: e.paneId || null,
+        icon: e.icon,
+        color: e.color,
+        status: 'ended',
+        since: null,
+        activity: null,
+        menu: null,
+        mode: null,
+        switching: null,
+        cost: e.costCarry || null,
+        context: null,
+        tokens: null,
+        model: null,
+        modelName: null,
+        effort: null,
+        remote: false,
+        ended: { start: UUID_RE.test(e.sessionId || ''), window: false },
+      }));
+    return this.livePublicBoxes().concat(gone);
+  }
+
+  livePublicBoxes() {
     return this.boxes.map((b) => {
       const sc = this.screens.get(b.paneId) || {};
       return {
@@ -246,6 +288,7 @@ class Hub {
         switching: this.switching.has(b.paneId) ? { ...this.switching.get(b.paneId), asking: !!sc.menu } : null,
         ...this.meter(b),
         remote: !!(b.claude && b.claude.bridge),
+        ended: this.endedInfo(b),
       };
     });
   }
@@ -557,10 +600,39 @@ class Hub {
       const [windowId, index, name, paneId] = line.split('\t');
       if (seen.has(windowId)) continue;
       seen.add(windowId);
-      const saved = this.state.boxes.find((b) => b.name === name);
+      const saved = this.state.boxes.find((b) => b.name === name) || this.ended.get(name);
       boxes.push({ windowId, index: Number(index), name, paneId, claude: sessions.get(paneId) || null, ...look(name, saved) });
     }
     boxes.sort((a, b) => a.index - b.index);
+    // A window that closed on its own leaves its box as ended. A rename keeps
+    // the window id, and a Close from the app is expected, so neither counts.
+    for (const old of this.boxes) {
+      if (boxes.some((b) => b.windowId === old.windowId || b.name === old.name)) continue;
+      if (this.closing.delete(old.name) || this.starting.has(old.name)) continue;
+      const saved = this.state.boxes.find((s) => s.name === old.name) || {};
+      this.ended.set(old.name, {
+        name: old.name,
+        icon: old.icon,
+        color: old.color,
+        paneId: old.paneId,
+        sessionId: (old.claude && old.claude.sessionId) || saved.sessionId || null,
+        cwd: (old.claude && old.claude.cwd) || saved.cwd || this.cfg.workdir,
+        model: saved.model || this.cfg.model,
+        effort: saved.effort || this.cfg.effort,
+        costCarry: Number(saved.costCarry) || 0,
+        at: Date.now(),
+      });
+      this.log('box ended', { name: old.name });
+    }
+    // Its window came back: the box is live again and keeps its record.
+    for (const b of boxes) {
+      const e = this.ended.get(b.name);
+      if (!e) continue;
+      this.ended.delete(b.name);
+      if (!this.state.boxes.some((s) => s.name === b.name)) {
+        this.state.boxes.push({ name: e.name, icon: e.icon, color: e.color, sessionId: e.sessionId, cwd: e.cwd, model: e.model, effort: e.effort, createdAt: null, costCarry: e.costCarry || 0 });
+      }
+    }
     this.boxes = boxes;
     this.panes = new Set(boxes.map((b) => b.paneId));
     for (const p of [...this.working.keys()]) if (!this.panes.has(p)) this.working.delete(p);
@@ -597,7 +669,7 @@ class Hub {
       if (!entry.sessionId && old.pending) entry.pending = true;
       return entry;
     });
-    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes };
+    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()] };
     if (JSON.stringify(next) !== JSON.stringify(this.state)) {
       this.state = next;
       try {
@@ -611,6 +683,8 @@ class Hub {
   // Reads every Claude pane: working or not, the spinner's words, any menu.
   async pollScreens() {
     if (this.polling || !this.ctl) return;
+    // A Claude that died shows at once, not at the next scan.
+    if (this.boxes.some((b) => b.claude && !alive(b.claude.pid))) this.soon('scan', 50, () => this.scan());
     this.polling = true;
     let changed = false;
     try {
@@ -680,8 +754,16 @@ class Hub {
   follow(slot, handlers) {
     const box = this.boxes.find((b) => b.paneId === slot.paneId);
     const back = box && !box.claude ? this.resuming.get(box.name) : null;
-    const sid = box && box.claude ? box.claude.sessionId : back && back.paneId === box.paneId ? back.sessionId : null;
-    const cwd = box && box.claude ? box.claude.cwd : back ? back.cwd : null;
+    let sid = box && box.claude ? box.claude.sessionId : back && back.paneId === box.paneId ? back.sessionId : null;
+    let cwd = box && box.claude ? box.claude.cwd : back ? back.cwd : null;
+    // A box that ended keeps showing its conversation, read from its log.
+    if (!sid) {
+      const saved = box ? this.state.boxes.find((s) => s.name === box.name) : [...this.ended.values()].find((e) => e.paneId === slot.paneId);
+      if (saved && UUID_RE.test(saved.sessionId || '')) {
+        sid = saved.sessionId;
+        cwd = saved.cwd;
+      }
+    }
     if (slot.tr && sid === slot.sessionId) return;
     if (slot.tr) slot.tr.stop();
     slot.tr = null;
@@ -887,6 +969,8 @@ class Hub {
     // Before Claude registers it can already be asking (the trust question).
     const asking = !!(this.screens.get(paneId) || {}).menu;
     if (!box.claude) return { ok: false, reason: asking ? 'Answer the question above first.' : `${box.name} has no Claude running.` };
+    // Claude may have died since the last scan; text must never reach a shell.
+    if (await this.onShell(box)) return { ok: false, reason: `${box.name} ended.` };
     let screen;
     try {
       screen = await run(['capture-pane', '-p', '-e', '-t', paneId]);
@@ -901,7 +985,7 @@ class Hub {
       const typed = promptText(screen);
       const ours = (this.typedByApp.get(paneId) || []).some((t) => same(t) === same(typed));
       if (!ours && !opts.replace) {
-        return { ok: false, ask: 'replace', typed: mask(typed).slice(0, 300), reason: `Replace what's typed in ${box.name}?` };
+        return { ok: false, ask: 'replace', typed: mask(typed).slice(0, 300), reason: `Something else is typed in ${box.name}'s terminal. Replace it?` };
       }
       if (!(await this.clearPrompt(paneId, typed))) return { ok: false, reason: `Could not clear what's typed in ${box.name}.` };
       this.log('cleared prompt', { box: box.name, ours });
@@ -1020,6 +1104,8 @@ class Hub {
     if (!menu || !menu.free) return { ok: false, reason: 'Pick an option above.' };
     const one = String(text).replace(/\s+/g, ' ').trim();
     if (!one) return { ok: false };
+    const box = this.boxes.find((b) => b.paneId === paneId);
+    if (!box || (await this.onShell(box))) return { ok: false, reason: 'That box ended.' };
     const d = menu.free - menu.selected;
     this.touch(paneId);
     if (d) await run(['send-keys', '-t', paneId, ...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up')]);
@@ -1251,6 +1337,73 @@ class Hub {
     this.log('retry start', { name: box.name });
     this.emitBoxes();
     this.followStart(box.name);
+    return { ok: true };
+  }
+
+  // ---- boxes that ended ------------------------------------------------------
+
+  // Starts an ended box again on its own session: in a new window with the
+  // same name when its window closed, or in its window when only Claude exited.
+  async startAgain(name) {
+    const e = this.ended.get(name);
+    const box = this.boxes.find((b) => b.name === name);
+    const saved = e || this.state.boxes.find((s) => s.name === name);
+    if (!saved || !UUID_RE.test(saved.sessionId || '')) return { ok: false, reason: `${name} has no session to start again.` };
+    if (liveSessionIds(this.cfg.claudeHome).has(saved.sessionId)) return { ok: false, reason: 'That session already runs in another window.' };
+    if (!this.ctl) return { ok: false, reason: 'chiefman is not connected to tmux yet.' };
+    const cmd = this.claudeCmd(saved.sessionId, saved.model, saved.effort);
+    const cwd = saved.cwd && fs.existsSync(saved.cwd) ? saved.cwd : this.cfg.workdir;
+    let paneId;
+    if (box) {
+      if (!this.endedInfo(box)) return { ok: false, reason: `${name} is not ended.` };
+      const now = (await run(['display', '-p', '-t', box.paneId, '#{pane_current_command}']).catch(() => '')).trim();
+      if (!SHELLS.test(now)) return { ok: false, reason: `Something else runs in ${name}'s window.` };
+      await run(['respawn-pane', '-k', '-t', box.paneId, '-c', cwd]);
+      paneId = box.paneId;
+    } else {
+      if (!e) return { ok: false, reason: `${name} is gone.` };
+      // The saved record keeps its name, icon and colour for the new window.
+      this.state.boxes = this.state.boxes.filter((b) => b.name !== name).concat({
+        name, icon: e.icon, color: e.color, sessionId: e.sessionId, cwd, model: e.model, effort: e.effort,
+        createdAt: null, costCarry: e.costCarry || 0,
+      });
+      this.store.save(this.state);
+      ({ paneId } = await this.newWindow(name, false, cwd));
+    }
+    this.resuming.set(name, { paneId, cmd, cwd, sessionId: saved.sessionId, state: 'resuming' });
+    await this.scan();
+    await sleep(900);
+    await run(['send-keys', '-t', paneId, '-l', '--', cmd]);
+    await run(['send-keys', '-t', paneId, 'Enter']);
+    this.log('start again', { name });
+    this.followStart(name);
+    return { ok: true, paneId };
+  }
+
+  // True when the box's pane runs a bare shell: its Claude is gone.
+  async onShell(box) {
+    const now = (await run(['display', '-p', '-t', box.paneId, '#{pane_current_command}']).catch(() => '')).trim();
+    if (!SHELLS.test(now)) return false;
+    this.soon('scan', 50, () => this.scan());
+    return true;
+  }
+
+  // Drops an ended box. A window left on a bare shell is closed with it.
+  async closeEnded(name) {
+    const box = this.boxes.find((b) => b.name === name);
+    if (box) {
+      if (!this.endedInfo(box)) return { ok: false, reason: `${name} is not ended.` };
+      const now = (await run(['display', '-p', '-t', box.paneId, '#{pane_current_command}']).catch(() => '')).trim();
+      if (!SHELLS.test(now)) return { ok: false, reason: `Something else runs in ${name}'s window.` };
+      this.closing.add(name);
+      await run(['kill-window', '-t', box.windowId]);
+    }
+    this.ended.delete(name);
+    this.state.boxes = this.state.boxes.filter((b) => b.name !== name);
+    this.log('closed ended', { name });
+    await this.scan();
+    this.recordState();
+    this.emitBoxes();
     return { ok: true };
   }
 

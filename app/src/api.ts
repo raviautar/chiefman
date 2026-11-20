@@ -1,4 +1,4 @@
-export type Status = 'working' | 'idle' | 'off' | 'resuming' | 'resumed' | 'starting' | 'failed';
+export type Status = 'working' | 'idle' | 'off' | 'resuming' | 'resumed' | 'starting' | 'failed' | 'ended';
 
 export interface Box {
   id: string;
@@ -19,6 +19,9 @@ export interface Box {
   mode: string | null;
   switching: { kind: 'model' | 'effort'; value: string; asking: boolean } | null;
   tokens: { used: number; max: number } | null;
+  // Set when the box ended: its window closed (window false), or its Claude exited.
+  ended?: { start: boolean; window: boolean } | null;
+  lastPane?: string | null;
 }
 
 export interface Recent {
@@ -130,6 +133,8 @@ interface Bridge {
   dismiss(paneId: string): Promise<Result>;
   answer(paneId: string, text: string): Promise<Result>;
   retry(paneId: string): Promise<Result>;
+  startAgain(name: string): Promise<Result>;
+  closeEnded(name: string): Promise<Result>;
   rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
   files(paneId: string, query: string): Promise<string[]>;
   drafts(): Promise<Record<string, Draft>>;

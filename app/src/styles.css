@@ -1987,6 +1987,34 @@ button {
   opacity: 0.7;
 }
 
+/* A box that ended: one quiet line with two text buttons. */
+.ended-line {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ended-line .text-btn {
+  font-size: 13px;
+}
+.ended-line .text-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.paste-fold {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.paste-fold:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 /* Warnings and notices sit just above the message field. */
 .toast {
   top: auto;

@@ -26,15 +26,38 @@ const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 export const attUrl = (p: string) => 'cm-att://f/' + encodeURIComponent(p.slice(p.lastIndexOf('/') + 1));
 
 // His message with any attachment path shown as its picture, or its name.
+// A long paste folds as the terminal folds it: the first lines and a count
+// of the rest, which a click opens.
+const FOLD_OVER = 12;
+const FOLD_SHOW = 3;
+function Folded({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const lines = text.split('\n');
+  if (open || lines.length <= FOLD_OVER) return <>{text}</>;
+  return (
+    <>
+      {lines.slice(0, FOLD_SHOW).join('\n')}
+      {'\n'}
+      <button className="paste-fold" onClick={() => setOpen(true)} title="Show all of it">
+        [Pasted text +{lines.length - FOLD_SHOW} lines]
+      </button>
+    </>
+  );
+}
+
 export function YouText({ text, attachDir, onOpen }: { text: string; attachDir: string; onOpen: (url: string) => void }) {
-  if (!attachDir || !text.includes(attachDir + '/')) return <>{text}</>;
+  if (!attachDir || !text.includes(attachDir + '/')) return <Folded text={text} />;
   const esc = attachDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const parts = text.split(new RegExp(`(${esc}/[A-Za-z0-9._-]+)`));
   const words = parts.filter((_p, i) => i % 2 === 0).join(' ').trim();
   const files = parts.filter((_p, i) => i % 2 === 1);
   return (
     <>
-      {words && <span>{words}</span>}
+      {words && (
+        <span>
+          <Folded text={words} />
+        </span>
+      )}
       <span className="you-atts">
         {files.map((f) =>
           IMAGE.test(f) ? (
@@ -160,6 +183,7 @@ export function ChatView({
   const [atts, setAtts] = useState<Attachment[]>(initial?.atts ?? []);
   const [unfold, setUnfold] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [endBusy, setEndBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -175,7 +199,8 @@ export function ChatView({
   const failed = box.status === 'failed';
   const working = box.status === 'working' && !menu;
   const off = box.status === 'off';
-  const closed = off || starting || resuming || failed;
+  const ended = box.status === 'ended' || !!box.ended;
+  const closed = off || starting || resuming || failed || ended;
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.map((p) => p.t)];
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
@@ -313,6 +338,21 @@ export function ChatView({
     if (!r.ok) onError(r.reason || 'Not sent.');
   }
 
+  // A box that ended starts again on its session, or is closed with its draft.
+  async function startAgain() {
+    setEndBusy(true);
+    const r = await api().startAgain(box.name);
+    setEndBusy(false);
+    if (!r.ok) onError(r.reason || 'Could not start it again.');
+  }
+
+  async function closeEnded() {
+    setEndBusy(true);
+    const r = await api().closeEnded(box.name);
+    setEndBusy(false);
+    if (!r.ok) onError(r.reason || 'Not closed.');
+  }
+
   async function dismiss() {
     if (!box.paneId) return;
     const r = await api().dismiss(box.paneId);
@@ -433,7 +473,7 @@ export function ChatView({
         <Live text="Starting…" />
       </div>
     );
-  else if (chat?.loaded && !items.length && !pending.length && !working && !menu && !resuming && !failed)
+  else if (chat?.loaded && !items.length && !pending.length && !working && !menu && !resuming && !failed && !ended)
     middle = <div className="empty">{off ? 'Nothing runs in this window.' : 'No messages yet.'}</div>;
   else
     middle = (
@@ -510,6 +550,19 @@ export function ChatView({
           </div>
         )}
         {resuming && !menu && <Live text="Coming back…" />}
+        {ended && (
+          <div className="ended-line rise" role="status">
+            <span>{box.name} ended</span>
+            {box.ended?.start && (
+              <button className="text-btn" onClick={startAgain} disabled={endBusy}>
+                Start it again
+              </button>
+            )}
+            <button className="text-btn" onClick={closeEnded} disabled={endBusy}>
+              Close
+            </button>
+          </div>
+        )}
         {failed && (
           <div className="ask rise">
             <div className="say">Didn't start. Claude did not come up in this window.</div>

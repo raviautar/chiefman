@@ -82,4 +82,4 @@ function transcriptPath(claudeHome, cwd, sessionId) {
   return null;
 }
 
-module.exports = { readSessions, liveSessionIds, transcriptPath };
+module.exports = { readSessions, liveSessionIds, transcriptPath, alive };
