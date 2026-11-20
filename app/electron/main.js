@@ -13,6 +13,9 @@ const log = makeLog(cfg.stateDir);
 let win = null;
 let hub = null;
 
+// A test run with its own state folder gets its own profile, so it neither
+// collides with the running app nor shares its storage.
+if (process.env.CHIEFMAN_STATE_DIR) app.setPath('userData', path.join(cfg.stateDir, 'profile'));
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => {
   if (!win) return;

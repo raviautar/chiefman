@@ -239,7 +239,11 @@ export function ChatView({
             }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return;
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && e.altKey) {
+                // Option+Enter makes a new line, as in Claude Code.
+                e.preventDefault();
+                document.execCommand('insertText', false, '\n');
+              } else if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 submit();
               } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.metaKey && !e.altKey) {

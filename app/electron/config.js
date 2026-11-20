@@ -18,9 +18,13 @@ function readConfig() {
   }
 }
 
-// The plugin shipped with the app: the folder that holds this app folder,
-// when it is a Claude Code plugin. A packaged app has none.
+// The plugin shipped with the app. The installed app carries it in its
+// Resources folder; run from source, it is the folder that holds the app folder.
 function shippedPlugin() {
+  if (process.resourcesPath) {
+    const packed = path.join(process.resourcesPath, 'plugin');
+    if (fs.existsSync(path.join(packed, '.claude-plugin'))) return [packed];
+  }
   const root = path.resolve(__dirname, '..', '..');
   return fs.existsSync(path.join(root, '.claude-plugin')) ? [root] : [];
 }

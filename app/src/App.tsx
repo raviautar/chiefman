@@ -211,12 +211,20 @@ export function App() {
   async function sendToBox(text: string) {
     if (!box || !box.paneId) return false;
     const p = box.paneId;
+    // Shown before delivery ends: the transcript can show the message first,
+    // and it clears this bubble only if the bubble is already there.
+    const id = 'p' + Date.now();
+    pending.current[p] = [...(pending.current[p] || []), { id, t: text, queued: box.status === 'working' }];
+    setTick((t) => t + 1);
     const r = await api().send(p, text);
+    const list = pending.current[p] || [];
     if (!r.ok) {
+      pending.current[p] = list.filter((x) => x.id !== id);
+      setTick((t) => t + 1);
       show(r.reason || 'Not sent.', true);
       return false;
     }
-    pending.current[p] = [...(pending.current[p] || []), { id: 'p' + Date.now(), t: text, queued: !!r.queued }];
+    pending.current[p] = list.map((x) => (x.id === id ? { ...x, queued: !!r.queued } : x));
     setTick((t) => t + 1);
     return true;
   }

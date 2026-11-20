@@ -224,6 +224,7 @@ class Hub {
       if (sid && sid !== u.sid) {
         if (u.cur) u.olds.push(u.cur);
         u.sid = sid;
+        u.cwd = b.claude.cwd;
         const f = transcriptPath(this.cfg.claudeHome, b.claude.cwd, sid);
         u.cur = f ? new Usage(f) : null;
         this.soon('usage', 50, () => this.pollUsage());
@@ -248,6 +249,11 @@ class Hub {
     let changed = false;
     try {
       for (const u of [...this.usage.values()]) {
+        // A new session writes its transcript only with its first message.
+        if (u.sid && !u.cur) {
+          const f = transcriptPath(this.cfg.claudeHome, u.cwd, u.sid);
+          if (f) u.cur = new Usage(f);
+        }
         for (const o of u.olds) if (await o.poll()) changed = true;
         if (u.cur && (await u.cur.poll())) changed = true;
       }
