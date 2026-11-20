@@ -127,7 +127,9 @@ class Usage {
     // The big request logs start with their type; message lines do not.
     if (line.startsWith('{"type":"') && !line.startsWith('{"type":"assistant"') && !line.startsWith('{"type":"system"')) return;
     const assistant = line.includes('"usage"') && line.includes('"type":"assistant"');
-    const local = main && line.includes('"local_command"');
+    // Claude logs a command's output as a system line or, in newer versions,
+    // as a user line holding <local-command-stdout>.
+    const local = main && (line.includes('"local_command"') || line.includes('local-command-stdout'));
     if (!assistant && !local) return;
     let d;
     try {
@@ -135,9 +137,10 @@ class Usage {
     } catch {
       return;
     }
-    if (d.type === 'system' && d.subtype === 'local_command') {
-      const c = typeof d.content === 'string' ? d.content : '';
-      const m = /Set model to ([A-Za-z]+ [\d.]+)/.exec(c);
+    const userOut = d.type === 'user' && d.message && typeof d.message.content === 'string' && d.message.content.includes('<local-command-stdout>');
+    if ((d.type === 'system' && d.subtype === 'local_command') || userOut) {
+      const c = userOut ? d.message.content : typeof d.content === 'string' ? d.content : '';
+      const m = /Set model to `?([A-Za-z]+ [\d.]+)/.exec(c);
       if (m && idFromName(m[1])) {
         this.modelSet = { id: idFromName(m[1]), seq: ++this.seq, at: Date.parse(d.timestamp) || 0 };
       }
@@ -163,12 +166,18 @@ class Usage {
     return this.last ? this.last.model : null;
   }
 
-  get context() {
+  // Tokens the last answer read, and the model's window.
+  get tokens() {
     if (!this.last) return null;
     const u = this.last.u;
     const p = price(this.last.model);
     const used = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-    return p ? Math.min(1, used / p[3]) : null;
+    return p ? { used, max: p[3] } : null;
+  }
+
+  get context() {
+    const t = this.tokens;
+    return t ? Math.min(1, t.used / t.max) : null;
   }
 }
 

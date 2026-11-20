@@ -28,9 +28,21 @@ APP="out/chiefman-darwin-$ARCH/chiefman.app"
 codesign --force --deep --sign - "$APP"
 DEST="$HOME/Applications/chiefman.app"
 mkdir -p "$HOME/Applications"
+# A running copy is quit first and opened again after, so it never keeps
+# running old code from a replaced bundle.
+RUNNING=""
+if pgrep -f "$DEST/Contents/MacOS/" >/dev/null 2>&1; then RUNNING=1; fi
 if [ -d "$DEST" ]; then
   osascript -e 'quit app "chiefman"' >/dev/null 2>&1 || true
-  sleep 1
+  i=0
+  while pgrep -f "$DEST/Contents/MacOS/" >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -gt 20 ]; then
+      echo "chiefman is still running. Quit it, then run this again." >&2
+      exit 1
+    fi
+    sleep 0.5
+  done
   rm -rf "$DEST"
 fi
 ditto "$APP" "$DEST"
@@ -38,3 +50,4 @@ mdimport "$DEST"
 
 rm -rf out
 echo "Installed $DEST"
+if [ -n "$RUNNING" ]; then open "$DEST"; fi

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Drill, DrillItem } from './api';
 import { Arrow, Check } from './icons';
 
@@ -27,23 +27,39 @@ function ReplyField({ n, onSend }: { n: number; onSend: (text: string) => Promis
   );
 }
 
+// One click answers once. A new card ignores clicks for its first 600 ms,
+// so the second half of a double click on the last card cannot answer it.
 function Card({ item, onSend }: { item: DrillItem; onSend: (text: string) => Promise<boolean> }) {
   const [replying, setReplying] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const born = useRef(Date.now());
+  const once = useRef(false);
+  const answer = async (text: string) => {
+    if (once.current || Date.now() - born.current < 600) return false;
+    once.current = true;
+    setBusy(true);
+    const ok = await onSend(text);
+    if (!ok) {
+      once.current = false;
+      setBusy(false);
+    }
+    return ok;
+  };
   return (
     <div className="card rise" key={item.n}>
       <div className="card-text" title={item.full}>
         {item.text}
       </div>
       {replying ? (
-        <ReplyField n={item.n} onSend={onSend} />
+        <ReplyField n={item.n} onSend={answer} />
       ) : (
         <div className="chips">
           {item.words.map((w, i) => (
-            <button key={w} className={'chip' + (i === 0 ? ' primary' : '')} onClick={() => onSend(w)}>
+            <button key={w} className={'chip' + (i === 0 ? ' primary' : '')} disabled={busy} onClick={() => answer(w)}>
               {w}
             </button>
           ))}
-          <button className="chip" onClick={() => setReplying(true)}>
+          <button className="chip" disabled={busy} onClick={() => Date.now() - born.current >= 600 && setReplying(true)}>
             Reply
           </button>
         </div>
@@ -98,6 +114,7 @@ export function DrillPanel({
       ) : (
         <div className="drill-empty">Nothing needs you.</div>
       )}
+      {drill?.also && <div className="drill-also">Also: {drill.also}</div>}
       {last && (
         <span className="sent-line" key={last}>
           <Check />

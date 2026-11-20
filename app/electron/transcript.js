@@ -5,7 +5,8 @@ const { mask } = require('./mask');
 const CHUNK = 16 * 1024 * 1024;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const KEEP_TYPES = ['{"type":"user"', '{"type":"assistant"', '{"type":"system"', '{"type":"attachment"'];
-const HIDDEN = /^\/(model|effort|rename|remote-control|context)\b/;
+// Commands the app sends for its own buttons; they never show as bubbles.
+const HIDDEN = /^\/(model|effort|rename|remote-control|context|compact|clear)\b/;
 const NOT_A_MESSAGE = /^\s*(<(command-|local-command|bash-|system-reminder|task-notification|user-prompt-submit|teammate-message|tick>)|\[Request interrupted|Caveat: )/;
 
 function userText(content) {
@@ -51,7 +52,7 @@ function duration(ms) {
 function worthParsing(line) {
   if (!line) return false;
   if (line.startsWith('{"type":"')) return KEEP_TYPES.some((p) => line.startsWith(p));
-  return line.includes('"user"') || line.includes('"assistant"') || line.includes('turn_duration') || line.includes('queued_command') || line.includes('local_command');
+  return line.includes('"user"') || line.includes('"assistant"') || line.includes('turn_duration') || line.includes('queued_command') || line.includes('local_command') || line.includes('compact_boundary');
 }
 
 // Follows one session log, start to end, and keeps what is worth showing:
@@ -222,6 +223,17 @@ class Transcript extends EventEmitter {
         this.turn = { anchor: 'u:' + d.uuid, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
         return;
       }
+      // Newer Claude versions log a command's output as a user line.
+      if (typeof raw === 'string' && raw.includes('<local-command-std')) {
+        const out = localOutput(raw);
+        if (this.hideOut) {
+          if (out && this.hideOut === 'context' && this.loaded) this.emit('context', mask(out));
+          this.hideOut = false;
+          return;
+        }
+        if (out) this.push({ id: 'o:' + d.uuid, k: 'box', t: mask(out), ts });
+        return;
+      }
       const t = cleanUser(raw);
       if (!t) return;
       this.endTurn(ts);
@@ -274,6 +286,11 @@ class Transcript extends EventEmitter {
         return;
       }
       if (out) this.push({ id: 'o:' + d.uuid, k: 'box', t: mask(out), ts });
+      return;
+    }
+    if (d.type === 'system' && d.subtype === 'compact_boundary') {
+      this.endTurn(ts);
+      this.push({ id: 'k:' + d.uuid, k: 'work', t: 'Compacted', ts });
       return;
     }
     if (d.type === 'system' && d.subtype === 'turn_duration' && this.turn) {

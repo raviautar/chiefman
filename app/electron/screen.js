@@ -87,11 +87,62 @@ function parseActivity(screen) {
   return null;
 }
 
-// A numbered choice menu with a ❯ on the current option, as Claude Code
-// draws for permission prompts and AskUserQuestion.
+const ART = /[─-▟■-◿]/g;
+const HINT = /enter to (select|confirm)|esc to (cancel|exit|close)|to navigate|\(esc\)/i;
+
+// Text above a menu, without the box-drawing art Claude draws around it.
+// When the block holds a question line, that line alone is the question.
+function questionAbove(lines, first) {
+  const block = [];
+  let blanks = 0;
+  for (let i = first - 1; i >= Math.max(0, first - 10); i--) {
+    const raw = lines[i];
+    if (RULE.test(raw) || /^\s*[╭╰┌└]/.test(raw)) break;
+    const t = raw.replace(ART, '').replace(/\s+/g, ' ').trim();
+    if (!t) {
+      if (raw.trim()) break; // a bar of art closes the menu's block
+      if (block.length && ++blanks >= 2) break;
+      continue;
+    }
+    blanks = 0;
+    block.unshift(t);
+  }
+  const asks = block.filter((t) => /\?$/.test(t));
+  if (asks.length) return asks[asks.length - 1];
+  return block.join(' ');
+}
+
+// The trust question, in plain words.
+function trustQuestion(lines) {
+  const at = lines.findIndex((l) => /accessing workspace:/i.test(l));
+  let folder = '';
+  for (let i = at + 1; at >= 0 && i < Math.min(lines.length, at + 4); i++) {
+    if (lines[i].trim()) {
+      folder = lines[i].trim();
+      break;
+    }
+  }
+  return `Trust ${folder ? folder.replace(/^\/Users\/[^/]+/, '~') : 'this folder'}? Claude can read, change and run files there.`;
+}
+
+// A choice menu with a ❯ on the current option, as Claude Code draws for
+// permission prompts, AskUserQuestion, the trust question and its own menus.
+// Options are numbered, or plain lines in one column.
 function parseMenu(screen) {
   const lines = plainLines(screen);
   const start = Math.max(0, lines.length - 40);
+  const numbered = parseNumbered(lines, start);
+  const menu = numbered || parsePlain(lines, start);
+  if (!menu) return null;
+  if (menu.options.some((o) => /trust this folder/i.test(o.label))) menu.question = trustQuestion(lines);
+  menu.options = menu.options.map((o) => ({
+    n: o.n,
+    label: o.label.replace(ART, '').replace(/\s*\(esc\)\s*$/i, '').trim().replace(/\s{2,}/g, ' · '),
+  }));
+  return menu;
+}
+
+function parseNumbered(lines, start) {
   const opts = [];
   for (let i = start; i < lines.length; i++) {
     const m = /^\s*(❯\s*)?(\d{1,2})\.\s+(.+?)\s*$/.exec(lines[i]);
@@ -112,23 +163,71 @@ function parseMenu(screen) {
   const first = best[0].i;
   const last = best[best.length - 1].i;
   const near = lines.slice(Math.max(0, first - 1), Math.min(lines.length, last + 8)).join('\n');
-  if (!/esc to (cancel|exit|close)|enter to (select|confirm)|to navigate|\(esc\)/i.test(near)) return null;
-  let question = '';
-  for (let i = first - 1; i >= Math.max(0, first - 6); i--) {
-    const t = lines[i].trim();
-    if (!t) {
-      if (question) break;
-      continue;
-    }
-    if (RULE.test(t) || /^[╭╰┌└]/.test(t)) break;
-    question = question ? `${t} ${question}` : t;
-    if (/[?:]$/.test(t)) break;
-  }
+  if (!HINT.test(near)) return null;
   return {
-    question,
+    question: questionAbove(lines, first),
     selected: (best.find((o) => o.on) || best[0]).n,
-    options: best.map((o) => ({ n: o.n, label: o.label.replace(/\s*\(esc\)\s*$/i, '') })),
+    options: best.map((o) => ({ n: o.n, label: o.label })),
   };
 }
 
-module.exports = { promptState, parseActivity, parseMenu, strip };
+function parsePlain(lines, start) {
+  let hint = -1;
+  for (let i = lines.length - 1; i >= start; i--) {
+    if (HINT.test(lines[i])) {
+      hint = i;
+      break;
+    }
+  }
+  if (hint < 0) return null;
+  let on = -1;
+  for (let i = hint - 1; i >= Math.max(start, hint - 14); i--) {
+    if (RULE.test(lines[i])) return null;
+    if (/^\s*❯\s+\S/.test(lines[i])) {
+      on = i;
+      break;
+    }
+  }
+  if (on < 0) return null;
+  const col = lines[on].indexOf('❯') + (/^(\s*❯\s+)/.exec(lines[on])[1].length - lines[on].indexOf('❯'));
+  const isOption = (l) => l.trim() && !RULE.test(l) && (/^\s*❯\s+\S/.test(l) || (l.length > col && l.slice(0, col).trim() === '' && l[col] !== ' '));
+  let a = on;
+  while (a - 1 >= start && isOption(lines[a - 1]) && lines[a - 1].search(/\S/) <= col) a--;
+  let b = on;
+  while (b + 1 < hint && isOption(lines[b + 1])) b++;
+  const rows = [];
+  for (let i = a; i <= b; i++) rows.push({ i, label: lines[i].replace(/^\s*❯?\s*/, '').trim() });
+  if (rows.length < 2 || rows.length > 9) return null;
+  return {
+    question: questionAbove(lines, a),
+    selected: on - a + 1,
+    options: rows.map((r, k) => ({ n: k + 1, label: r.label })),
+  };
+}
+
+// The mode the footer shows under the prompt: "bypass permissions",
+// "auto mode", "manual mode", "accept edits", "plan mode".
+function parseMode(screen) {
+  const lines = plainLines(screen);
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
+    const m = /(?:⏵⏵|⏸|▶▶)\s+(.+?)\s+on\b/.exec(lines[i]);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
+
+// What is typed at the prompt, as plain text.
+function promptText(screen) {
+  const lines = plainLines(screen);
+  let i = lines.length - 1;
+  for (; i >= 0; i--) if (/^\s*❯/.test(lines[i])) break;
+  if (i < 0) return '';
+  const out = [lines[i].replace(/^\s*❯\s?/, '')];
+  for (let j = i + 1; j < lines.length; j++) {
+    if (RULE.test(lines[j])) break;
+    out.push(lines[j].replace(/^\s{0,2}/, ''));
+  }
+  return out.join('\n').replace(/\s+$/, '');
+}
+
+module.exports = { promptState, parseActivity, parseMenu, parseMode, promptText, strip };

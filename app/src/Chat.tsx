@@ -13,8 +13,24 @@ export interface ChatState {
 export interface Pending {
   id: string;
   t: string;
+  n: string;
+  base: number;
   queued: boolean;
 }
+
+// A message as compared with its copy in the log: line endings, trailing
+// spaces, empty lines, quote style and spacing do not count.
+export const norm = (s: string) =>
+  s
+    .replace(/\r\n?/g, '\n')
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‘’‚‛]/g, "'")
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter(Boolean)
+    .join('\n')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const PAGE = 150;
 
@@ -135,8 +151,14 @@ export function ChatView({
     input.current?.focus();
   }
 
+  async function cycleMode() {
+    if (!box.paneId) return;
+    const r = await api().cycleMode(box.paneId);
+    if (!r.ok) onError(r.reason || 'Not changed.');
+  }
+
   let middle;
-  if (starting)
+  if (starting && !menu)
     middle = (
       <div className="empty">
         <Live text="Starting…" />
@@ -239,7 +261,10 @@ export function ChatView({
             }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return;
-              if (e.key === 'Enter' && e.altKey) {
+              if (e.key === 'Tab' && e.shiftKey && box.mode) {
+                e.preventDefault();
+                cycleMode();
+              } else if (e.key === 'Enter' && e.altKey) {
                 // Option+Enter makes a new line, as in Claude Code.
                 e.preventDefault();
                 document.execCommand('insertText', false, '\n');
@@ -255,6 +280,13 @@ export function ChatView({
             <Arrow />
           </button>
         </div>
+        {box.mode && !starting && (
+          <div className="composer-foot">
+            <button className="mode-chip" onClick={cycleMode} title="Change mode (Shift+Tab)">
+              {box.mode}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

@@ -6,6 +6,7 @@ process.env.PATH = [process.env.PATH, '/opt/homebrew/bin', '/usr/local/bin'].fil
 
 const cfg = require('./config');
 const { Hub } = require('./hub');
+const { mask } = require('./mask');
 const { makeLog } = require('./log');
 
 const log = makeLog(cfg.stateDir);
@@ -50,6 +51,7 @@ function notice(boxes) {
     if (front) continue;
     unseen.add(b.paneId);
     if (app.dock) app.dock.setBadge(String(unseen.size));
+    log('notify', { box: b.name, why: asks ? 'asks' : 'done', badge: unseen.size });
     if (Notification.isSupported()) {
       const n = new Notification({ title: b.name, body: asks ? 'Waiting on your choice' : 'Done', silent: false });
       n.on('click', () => {
@@ -95,8 +97,12 @@ function wireIpc() {
   });
   on('cm:term', (p) => hub.openTerm(PANE.test(p) ? p : null));
   on('cm:term-input', (p, d) => PANE.test(p) && typeof d === 'string' && hub.termInput(p, d));
-  handle('cm:send', (p, t) => (PANE.test(p) && typeof t === 'string' ? hub.sendText(p, t) : { ok: false, reason: 'Bad request.' }));
-  handle('cm:chief-send', (t) => (typeof t === 'string' ? hub.sendChief(t) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:send', (p, t, replace) =>
+    PANE.test(p) && typeof t === 'string' ? hub.sendText(p, t, { replace: replace === true }) : { ok: false, reason: 'Bad request.' },
+  );
+  handle('cm:chief-send', (t, replace) => (typeof t === 'string' ? hub.sendChief(t, replace === true) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:mode', (p) => (PANE.test(p) ? hub.cycleMode(p) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:mask', (t) => (typeof t === 'string' ? mask(t) : ''));
   handle('cm:new-box', async (spec) => {
     try {
       return await hub.newBox(spec && typeof spec === 'object' ? spec : {});

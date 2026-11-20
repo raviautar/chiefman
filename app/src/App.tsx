@@ -3,7 +3,7 @@ import { api, Box, BoxSpec, Drill, HubEvent, PhaseInfo, Snapshot } from './api';
 import { AppMark, BoxIcon, Check, Spinner } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
-import { ChatState, ChatView, Pending } from './Chat';
+import { ChatState, ChatView, Pending, norm } from './Chat';
 import { TerminalView } from './Terminal';
 import { DrillPanel } from './Drill';
 import { NewBoxSheet } from './NewBox';
@@ -49,7 +49,8 @@ export function App() {
   const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | null>(null);
   const [picking, setPicking] = useState(false);
   const [more, setMore] = useState(false);
-  const [ctx, setCtx] = useState<{ paneId: string; text: string | null } | null>(null);
+  const [ctx, setCtx] = useState<string | null>(null);
+  const [ask, setAsk] = useState<{ title: string; typed: string; answer: (yes: boolean) => void } | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [sent, setSent] = useState<Record<string, string>>({});
   const [now, setNow] = useState(Date.now());
@@ -76,8 +77,8 @@ export function App() {
         case 'drill':
           setDrill(ev.drill);
           break;
-        case 'context':
-          setCtx((c) => (c && c.paneId === ev.paneId ? { paneId: ev.paneId, text: ev.text } : c));
+        case 'notice':
+          show(ev.text, !!ev.bad);
           break;
         case 'select':
           wantPane.current = ev.paneId;
@@ -88,13 +89,9 @@ export function App() {
           break;
         case 'chat-add': {
           const fresh = new Set(ev.added.map((a) => a.item.id));
-          const youFresh = ev.added.map((a) => a.item).filter((i) => i.k === 'you');
+          // His message, back from the log, replaces its sent bubble quietly.
           const list = pending.current[ev.paneId] || [];
-          if (youFresh.length && list.length) {
-            const n = Math.min(list.length, youFresh.length);
-            youFresh.slice(0, n).forEach((y) => quiet.current.add(y.id));
-            pending.current[ev.paneId] = list.slice(n);
-          }
+          for (const a of ev.added) if (a.item.k === 'you' && list.some((p) => p.n === norm(a.item.t))) quiet.current.add(a.item.id);
           setChats((c) => {
             const prev = c[ev.paneId];
             const items = prev ? [...prev.items] : [];
@@ -171,7 +168,7 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (restoring) return;
-      if (e.key === 'Escape' && !e.metaKey && !overlay && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
+      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
         if (el && (el.closest('.drill') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
@@ -206,37 +203,91 @@ export function App() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [boxes, box, overlay, view, restoring, picking, more, ctx]);
+  }, [boxes, box, overlay, view, restoring, picking, more, ctx, ask]);
+
+  // Asks once, in the app, before typed text of his is replaced.
+  function askReplace(name: string, typed: string) {
+    return new Promise<boolean>((resolve) => {
+      let done = false;
+      const answer = (yes: boolean) => {
+        if (done) return;
+        done = true;
+        setAsk(null);
+        resolve(yes);
+      };
+      setAsk({ title: `Replace what's typed in ${name}?`, typed, answer });
+    });
+  }
 
   async function sendToBox(text: string) {
     if (!box || !box.paneId) return false;
     const p = box.paneId;
-    // Shown before delivery ends: the transcript can show the message first,
-    // and it clears this bubble only if the bubble is already there.
+    const name = box.name;
+    // A command gets no bubble: the log shows it, or it is one the app hides.
+    // A message gets its bubble before delivery ends, and keeps it until the
+    // log holds one more copy of the same text than it did now.
+    // The bubble shows the text as the log will: secrets masked.
     const id = 'p' + Date.now();
-    pending.current[p] = [...(pending.current[p] || []), { id, t: text, queued: box.status === 'working' }];
-    setTick((t) => t + 1);
-    const r = await api().send(p, text);
-    const list = pending.current[p] || [];
-    if (!r.ok) {
-      pending.current[p] = list.filter((x) => x.id !== id);
+    if (!text.startsWith('/')) {
+      const shown = await api().mask(text);
+      const n = norm(shown);
+      const list = pending.current[p] || [];
+      const base = youCount(p, n) + list.filter((x) => x.n === n).length;
+      pending.current[p] = [...list, { id, t: shown, n, base, queued: box.status === 'working' }];
       setTick((t) => t + 1);
+    }
+    const drop = () => {
+      pending.current[p] = (pending.current[p] || []).filter((x) => x.id !== id);
+      setTick((t) => t + 1);
+    };
+    let r = await api().send(p, text);
+    if (!r.ok && r.ask === 'replace') {
+      if (!(await askReplace(name, r.typed || ''))) {
+        drop();
+        return false;
+      }
+      r = await api().send(p, text, true);
+    }
+    if (!r.ok) {
+      drop();
       show(r.reason || 'Not sent.', true);
       return false;
     }
-    pending.current[p] = list.map((x) => (x.id === id ? { ...x, queued: !!r.queued } : x));
+    if (r.duplicate) {
+      drop();
+      return true;
+    }
+    pending.current[p] = (pending.current[p] || []).map((x) => (x.id === id ? { ...x, queued: !!r.queued } : x));
     setTick((t) => t + 1);
     return true;
   }
 
   async function sendDrill(n: number, text: string) {
-    const r = await api().sendChief(`${n}. ${text}`);
+    const chief = boxes.find((b) => b.name === 'chief');
+    let r = await api().sendChief(`${n}. ${text}`);
+    if (!r.ok && r.ask === 'replace') {
+      if (!(await askReplace(chief ? chief.name : 'chief', r.typed || ''))) return false;
+      r = await api().sendChief(`${n}. ${text}`, true);
+    }
     if (!r.ok) {
       show(r.reason || 'Not sent.', true);
       return false;
     }
     setSent((s) => ({ ...s, [`${drill?.id}:${n}`]: text }));
     return true;
+  }
+
+  function youCount(paneId: string, n: string) {
+    const items = chats[paneId]?.items || [];
+    return items.filter((i) => i.k === 'you' && norm(i.t) === n).length;
+  }
+
+  // Sent bubbles whose message the log now holds are gone.
+  function pendingFor(paneId: string) {
+    const list = pending.current[paneId] || [];
+    const keep = list.filter((x) => youCount(paneId, x.n) <= x.base);
+    if (keep.length !== list.length) pending.current[paneId] = keep;
+    return keep;
   }
 
   function startBox(spec: BoxSpec) {
@@ -270,15 +321,9 @@ export function App() {
     if (!r.ok) show(r.reason || 'Not sent.', true);
   }
 
-  async function openContext() {
+  function openContext() {
     if (!box?.paneId) return;
-    const p = box.paneId;
-    setCtx({ paneId: p, text: null });
-    const r = await api().action(p, 'context');
-    if (!r.ok) {
-      setCtx(null);
-      show(r.reason || 'Not sent.', true);
-    }
+    setCtx(ctx === box.paneId ? null : box.paneId);
   }
 
   async function rename(name: string) {
@@ -291,7 +336,6 @@ export function App() {
   const boxActions: Action[] =
     box && box.paneId && box.status !== 'off' && box.status !== 'starting' && !restoring
       ? [
-          { label: 'Context', run: openContext },
           { label: 'Compact', run: () => setOverlay('compact') },
           { label: 'Clear', run: () => setOverlay('clear') },
           { label: 'Rename', run: () => setOverlay('rename') },
@@ -358,7 +402,7 @@ export function App() {
         key={box.paneId}
         box={box}
         chat={chats[box.paneId]}
-        pending={pending.current[box.paneId] || []}
+        pending={pendingFor(box.paneId)}
         quiet={quiet.current}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
@@ -409,13 +453,19 @@ export function App() {
                   <button className="pill meter" onClick={openContext} title="What fills the context">
                     {meter || 'context'}
                   </button>
-                  {ctx && ctx.paneId === box!.paneId && <ContextPop text={ctx.text} onClose={() => setCtx(null)} />}
+                  {ctx === box!.paneId && <ContextPop tokens={box!.tokens} cost={box!.cost} onClose={() => setCtx(null)} />}
                 </span>
                 {box!.modelName && (
                   <span style={{ position: 'relative' }}>
-                    <button className="pill" onClick={() => setPicking(!picking)} title="Model and effort">
-                      {box!.modelName}
-                      {box!.effort ? ` · ${box!.effort}` : ''}
+                    <button className="pill" onClick={() => setPicking(!picking)} title="Model and effort" disabled={!!box!.switching}>
+                      {box!.switching && !box!.switching.asking ? (
+                        'Switching…'
+                      ) : (
+                        <>
+                          {box!.modelName}
+                          {box!.effort ? ` · ${box!.effort}` : ''}
+                        </>
+                      )}
                     </button>
                     {picking && <Picker model={box!.model} effort={box!.effort} onPick={switchBox} onClose={() => setPicking(false)} />}
                   </span>
@@ -509,6 +559,9 @@ export function App() {
             onYes={() => act(overlay)}
             onClose={() => setOverlay(null)}
           />
+        )}
+        {ask && (
+          <Confirm title={ask.title} body="Your typed text in this box goes away, and this message is sent." quote={ask.typed} yes="Replace" onYes={() => ask.answer(true)} onClose={() => ask.answer(false)} />
         )}
         {overlay === 'rename' && box && (
           <RenameSheet box={box} taken={boxes.map((b) => b.name)} onRename={rename} onClose={() => setOverlay(null)} />

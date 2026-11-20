@@ -16,6 +16,9 @@ export interface Box {
   modelName: string | null;
   effort: string | null;
   remote: boolean;
+  mode: string | null;
+  switching: { kind: 'model' | 'effort'; value: string; asking: boolean } | null;
+  tokens: { used: number; max: number } | null;
 }
 
 export interface Recent {
@@ -50,6 +53,7 @@ export interface Drill {
   at?: string;
   items: DrillItem[];
   rest: number;
+  also: string | null;
 }
 
 export type Phase = 'starting' | 'ready' | 'restoring' | 'fresh' | 'error';
@@ -71,6 +75,7 @@ export type HubEvent =
   | { type: 'boxes'; boxes: Box[] }
   | { type: 'select'; paneId: string }
   | { type: 'context'; paneId: string; text: string }
+  | { type: 'notice'; text: string; bad?: boolean }
   | { type: 'chat-reset'; paneId: string; items: Item[]; steps: number }
   | { type: 'chat-add'; paneId: string; added: { item: Item; after: string | null }[]; steps: number }
   | { type: 'drill'; drill: Drill | null }
@@ -85,6 +90,10 @@ export interface Result {
   url?: string;
   started?: boolean;
   path?: string;
+  ask?: 'replace';
+  typed?: string;
+  duplicate?: boolean;
+  pending?: boolean;
 }
 
 interface Bridge {
@@ -92,11 +101,13 @@ interface Bridge {
   watch(paneId: string): void;
   term(paneId: string | null): void;
   termInput(paneId: string, data: string): void;
-  send(paneId: string, text: string): Promise<Result>;
-  sendChief(text: string): Promise<Result>;
+  send(paneId: string, text: string, replace?: boolean): Promise<Result>;
+  sendChief(text: string, replace?: boolean): Promise<Result>;
+  cycleMode(paneId: string): Promise<Result>;
+  mask(text: string): Promise<string>;
   newBox(spec: BoxSpec): Promise<Result>;
   interrupt(paneId: string): Promise<Result>;
-  action(paneId: string, kind: 'compact' | 'clear' | 'context'): Promise<Result>;
+  action(paneId: string, kind: 'compact' | 'clear'): Promise<Result>;
   rename(paneId: string, name: string): Promise<Result>;
   recent(): Promise<Recent[]>;
   switchBox(paneId: string, kind: 'model' | 'effort', value: string): Promise<Result>;

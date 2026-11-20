@@ -85,17 +85,27 @@ function parseList(text) {
   const lines = text.split('\n');
   const head = lines.findIndex((l) => /^\s*\**\s*needs you:\s*\d+/i.test(l));
   if (head >= 0) {
+    const count = Number(/needs you:\s*(\d+)/i.exec(lines[head])[1]);
     const items = [];
+    let also = null;
+    let done = false;
     for (const line of lines.slice(head + 1)) {
-      if (/^\s*also:/i.test(line)) break;
+      const a = /^\s*\**\s*also:\**\s*(.*)$/i.exec(line);
+      if (a) {
+        also = stripMarks(a[1]).trim() || null;
+        break;
+      }
+      if (/^\s*\**\s*(everything else|in flight|the rest)\b/i.test(line)) done = true;
       const m = /^\s{0,3}(\d{1,2})[.)]\s+(.+)$/.exec(line);
       if (!m) continue;
       const raw = m[2];
+      const now = !done && items.filter((x) => x.now).length < count;
       const words = quotes(raw)
         .map((q) => q.text)
         .filter((w) => w.split(/\s+/).length <= 6 && !/https?:/.test(w));
-      items.push({ n: Number(m[1]), text: shortLine(raw), full: stripMarks(raw).trim(), words: [...new Set(words)].slice(0, 4), now: true });
+      items.push({ n: Number(m[1]), text: shortLine(raw), full: stripMarks(raw).trim(), words: [...new Set(words)].slice(0, 4), now });
     }
+    items.also = also || items.filter((x) => !x.now).map((x) => x.text).join(' · ') || null;
     return items;
   }
   const items = [];
@@ -140,7 +150,7 @@ function newestDrill(items) {
     const answered = new Set();
     for (const later of items.slice(i + 1)) if (later.k === 'you') for (const n of answeredNumbers(later.t)) answered.add(n);
     const open = list.filter((x) => !answered.has(x.n));
-    return { id: it.id, at: it.ts, items: open.filter((x) => x.now), rest: open.filter((x) => !x.now).length };
+    return { id: it.id, at: it.ts, items: open.filter((x) => x.now), rest: open.filter((x) => !x.now).length, also: list.also || null };
   }
   return null;
 }

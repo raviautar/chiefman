@@ -48,12 +48,23 @@ export function MoreMenu({ actions, onClose }: { actions: Action[]; onClose: () 
   );
 }
 
-export function ContextPop({ text, onClose }: { text: string | null; onClose: () => void }) {
+const kTokens = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+export function ContextPop({
+  tokens,
+  cost,
+  onClose,
+}: {
+  tokens: { used: number; max: number } | null;
+  cost: number | null;
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useAway(ref, onClose);
+  const money = cost != null && cost > 0 ? ` · $${cost < 10 ? cost.toFixed(2) : Math.round(cost)}` : '';
   return (
     <div className="context-pop" ref={ref} role="dialog" aria-label="Context">
-      {text === null ? <span className="muted">Reading…</span> : <pre>{text}</pre>}
+      {tokens ? `${kTokens(tokens.used)} of ${kTokens(tokens.max)} tokens used${money}` : 'Nothing counted yet: the box has not answered.'}
     </div>
   );
 }
@@ -62,12 +73,14 @@ export function ContextPop({ text, onClose }: { text: string | null; onClose: ()
 export function Confirm({
   title,
   body,
+  quote,
   yes,
   onYes,
   onClose,
 }: {
   title: string;
   body: string;
+  quote?: string;
   yes: string;
   onYes: () => void;
   onClose: () => void;
@@ -77,6 +90,7 @@ export function Confirm({
       <div className="scrim" onClick={onClose} />
       <div className="sheet small" role="dialog" aria-label={title} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <h2>{title}</h2>
+        {quote && <blockquote className="sheet-quote">{quote}</blockquote>}
         <p className="sheet-body">{body}</p>
         <div className="sheet-foot">
           <span className="err" />
@@ -87,8 +101,8 @@ export function Confirm({
             className="btn dark"
             autoFocus
             onClick={() => {
-              onClose();
               onYes();
+              onClose();
             }}
           >
             {yes}
