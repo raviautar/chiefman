@@ -61,8 +61,8 @@ export function App() {
   const [draftsReady, setDraftsReady] = useState(false);
   const saved = useRef<Record<string, Draft>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const answeredAt = useRef(0);
-  const restsClosed = useRef(false);
+  const [linger, setLinger] = useState(false);
+  const [nothing, setNothing] = useState(false);
   const [chats, setChats] = useState<Record<string, ChatState>>({});
   const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | null>(null);
   const [picking, setPicking] = useState(false);
@@ -81,6 +81,11 @@ export function App() {
   const wantPane = useRef<string | null>(null);
   const boxesRef = useRef<Box[]>([]);
   boxesRef.current = boxes;
+
+  const asks = drill ? drill.items.filter((i) => !sent[`${drill.id}:${i.n}`]).length : 0;
+  // The panel takes room only while something needs him, and for 2 s after
+  // his answer to the last item.
+  const drillShown = panel && (asks > 0 || linger);
 
   const show = (text: string, bad = false) => setToast({ text, bad, id: Date.now() });
 
@@ -151,7 +156,7 @@ export function App() {
     const mq = window.matchMedia(NARROW);
     const onWidth = () => {
       setNarrow(mq.matches);
-      setPanel(!restsClosed.current && panelFor(mq.matches));
+      setPanel(panelFor(mq.matches));
     };
     mq.addEventListener('change', onWidth);
     return () => {
@@ -198,14 +203,25 @@ export function App() {
 
   // Below 1180 px the panel floats over the chat; a click outside closes it.
   useEffect(() => {
-    if (!narrow || !panel) return;
+    if (!narrow || !drillShown) return;
     const away = (e: MouseEvent) => {
       const t = e.target as Element | null;
       if (t && !t.closest('.drill, .drill-btn, .scrim, .sheet')) showPanel(false);
     };
     document.addEventListener('mousedown', away, true);
     return () => document.removeEventListener('mousedown', away, true);
-  }, [narrow, panel]);
+  }, [narrow, drillShown]);
+
+  // "Nothing needs you." closes on a click anywhere else.
+  useEffect(() => {
+    if (!nothing) return;
+    const away = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (!t || !t.closest('.drill-wrap')) setNothing(false);
+    };
+    document.addEventListener('mousedown', away, true);
+    return () => document.removeEventListener('mousedown', away, true);
+  }, [nothing]);
 
   useEffect(() => {
     if (!toast) return;
@@ -240,7 +256,6 @@ export function App() {
 
   // Only his click or key opens or closes the panel, and only that is saved.
   function showPanel(open: boolean) {
-    restsClosed.current = false;
     setPanel(open);
     if (!narrow) store.set('chiefman.panel.wide', open ? '1' : '0');
   }
@@ -258,7 +273,13 @@ export function App() {
         setFull(null);
         return;
       }
-      if (e.key === 'Escape' && narrow && panel && !overlay && !ask) {
+      if (e.key === 'Escape' && nothing) {
+        e.preventDefault();
+        e.stopPropagation();
+        setNothing(false);
+        return;
+      }
+      if (e.key === 'Escape' && narrow && drillShown && !overlay && !ask) {
         e.preventDefault();
         e.stopPropagation();
         showPanel(false);
@@ -308,7 +329,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [boxes, box, overlay, view, picking, more, ctx, ask, full, narrow, panel]);
+  }, [boxes, box, overlay, view, picking, more, ctx, ask, full, narrow, drillShown, nothing]);
 
   // Asks once, in the app, before typed text of his is replaced.
   function askReplace(name: string, typed: string) {
@@ -383,7 +404,8 @@ export function App() {
       return false;
     }
     setSent((s) => ({ ...s, [`${drill?.id}:${n}`]: text }));
-    answeredAt.current = Date.now();
+    // The last answer keeps the panel up, in the same render, for 2 s.
+    if (drill && !drill.items.some((i) => i.n !== n && !sent[`${drill.id}:${i.n}`])) setLinger(true);
     return true;
   }
 
@@ -465,34 +487,28 @@ export function App() {
     { label: view === 'chat' ? 'Terminal' : 'Chat', run: () => setView(view === 'chat' ? 'terminal' : 'chat') },
   ];
 
-  const asks = drill ? drill.items.filter((i) => !sent[`${drill.id}:${i.n}`]).length : 0;
-
-  // His answer to the last card: "Nothing needs you." shows for 2 s, then
-  // the panel closes. It stays closed until he opens it, or until a new item
-  // comes in a wide window (a narrow one never opens it by itself).
-  const prevAsks = useRef(asks);
-  const panelOpen = useRef(panel);
-  panelOpen.current = panel;
+  // His answer to the last card: "Nothing needs you." shows for 2 s, then the
+  // panel folds away. A wide window shows it again when a new item comes, if
+  // he had it open; a narrow one opens it only on his click.
   useEffect(() => {
-    const before = prevAsks.current;
-    prevAsks.current = asks;
-    if (asks === 0 && before > 0 && panel && Date.now() - answeredAt.current < 15000) {
+    if (asks > 0) {
+      setLinger(false);
+      setNothing(false);
+      return;
+    }
+    if (linger) {
       const t = setTimeout(() => {
-        if (!panelOpen.current) return;
-        setPanel(false);
-        restsClosed.current = true;
+        setLinger(false);
+        if (narrow) setPanel(false);
       }, 2000);
       return () => clearTimeout(t);
     }
-    if (asks > 0 && before === 0 && restsClosed.current && !panel && !narrow) {
-      restsClosed.current = false;
-      setPanel(true);
-    }
+    if (narrow) setPanel(false);
   }, [asks]);
   const title = box ? box.name : 'chiefman';
   const meter = box ? meterLine(box) : '';
   const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
-  const fold = panel && box && box.name === 'chief' && drill ? { id: drill.id, count: asks } : null;
+  const fold = drillShown && box && box.name === 'chief' && drill ? { id: drill.id, count: asks } : null;
   const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
 
   let body;
@@ -667,18 +683,29 @@ export function App() {
               </button>
             </div>
           )}
-          <button
-            className={'drill-btn' + (panel ? ' on' : '')}
-            aria-label="Drill-down"
-            title={asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you` : 'Drill-down'}
-            aria-pressed={panel}
-            onClick={() => showPanel(!panel)}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M15 4v16" />
-            </svg>
-            {asks > 0 && !panel && <span className="badge">{asks}</span>}
-          </button>
+          <span className="drill-wrap">
+            <button
+              className={'drill-btn' + (drillShown || nothing ? ' on' : '')}
+              aria-label="Drill-down"
+              title={asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you` : 'Drill-down'}
+              aria-pressed={drillShown}
+              onClick={() => {
+                // With nothing for him, a click only says so.
+                if (asks === 0 && !drillShown) setNothing(!nothing);
+                else showPanel(!drillShown);
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M15 4v16" />
+              </svg>
+              {asks > 0 && !drillShown && <span className="badge">{asks}</span>}
+            </button>
+            {nothing && (
+              <div className="nothing-pop rise" role="status">
+                Nothing needs you.
+              </div>
+            )}
+          </span>
         </div>
 
         {toast && (
@@ -731,7 +758,7 @@ export function App() {
         )}
       </main>
 
-      {panel && <DrillPanel drill={drill} sent={sent} floating={narrow} onSend={sendDrill} />}
+      {drillShown && <DrillPanel drill={drill} sent={sent} floating={narrow} onSend={sendDrill} />}
     </div>
   );
 }

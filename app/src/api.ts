@@ -20,7 +20,8 @@ export interface Box {
   switching: { kind: 'model' | 'effort'; value: string; asking: boolean } | null;
   tokens: { used: number; max: number } | null;
   // Set when the box ended: its window closed (window false), or its Claude exited.
-  ended?: { start: boolean; window: boolean } | null;
+  // later: New Box can resume its conversation after it is removed.
+  ended?: { start: boolean; window: boolean; later?: boolean } | null;
   lastPane?: string | null;
 }
 

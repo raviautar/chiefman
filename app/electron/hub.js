@@ -55,6 +55,8 @@ class Hub {
     // Boxes whose window closed: kept, with their draft, until he starts them
     // again or closes them, or their window comes back.
     this.ended = new Map((Array.isArray(this.state.ended) ? this.state.ended : []).filter((e) => e && NAME_RE.test(e.name || '')).map((e) => [e.name, e]));
+    // Sessions of boxes he removed from the list: New Box offers them first.
+    this.removed = (Array.isArray(this.state.removed) ? this.state.removed : []).filter((e) => e && UUID_RE.test(e.id || '') && NAME_RE.test(e.name || '')).slice(0, 6);
     this.closing = new Set();
     this.phase = 'starting';
     this.error = null;
@@ -240,7 +242,20 @@ class Hub {
     if (b.claude || this.status(b) !== 'off') return null;
     const saved = this.state.boxes.find((s) => s.name === b.name);
     if (!saved || !UUID_RE.test(saved.sessionId || '')) return null;
-    return { start: true, window: true };
+    return { start: true, window: true, later: this.resumable(saved.sessionId) };
+  }
+
+  // New Box resumes sessions from the working folder only.
+  sessionDir() {
+    return path.join(this.cfg.claudeHome, 'projects', this.cfg.workdir.replace(/[^A-Za-z0-9]/g, '-'));
+  }
+
+  sessionFile(id) {
+    return path.join(this.sessionDir(), `${id}.jsonl`);
+  }
+
+  resumable(id) {
+    return UUID_RE.test(id || '') && fs.existsSync(this.sessionFile(id));
   }
 
   publicBoxes() {
@@ -266,7 +281,7 @@ class Hub {
         modelName: null,
         effort: null,
         remote: false,
-        ended: { start: UUID_RE.test(e.sessionId || ''), window: false },
+        ended: { start: UUID_RE.test(e.sessionId || ''), window: false, later: this.resumable(e.sessionId) },
       }));
     return this.livePublicBoxes().concat(gone);
   }
@@ -531,21 +546,25 @@ class Hub {
 
   // Earlier sessions in the working folder, newest first, for New Box.
   recentSessions() {
-    const dir = path.join(this.cfg.claudeHome, 'projects', this.cfg.workdir.replace(/[^A-Za-z0-9]/g, '-'));
+    const dir = this.sessionDir();
     const live = liveSessionIds(this.cfg.claudeHome);
     let files = [];
     try {
-      files = fs
+      const kept = this.removed
+        .filter((e) => !live.has(e.id) && this.resumable(e.id))
+        .map((e) => ({ f: `${e.id}.jsonl`, t: fs.statSync(this.sessionFile(e.id)).mtimeMs, name: e.name }));
+      const top = fs
         .readdirSync(dir)
-        .filter((f) => UUID_RE.test(f.slice(0, -6)) && f.endsWith('.jsonl') && !live.has(f.slice(0, -6)))
+        .filter((f) => UUID_RE.test(f.slice(0, -6)) && f.endsWith('.jsonl') && !live.has(f.slice(0, -6)) && !kept.some((k) => k.f === f))
         .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
         .sort((a, b) => b.t - a.t)
         .slice(0, 10);
+      files = kept.concat(top);
     } catch {
       return [];
     }
     return files
-      .map(({ f, t }) => {
+      .map(({ f, t, name }) => {
         let text = '';
         try {
           const fd = fs.openSync(path.join(dir, f), 'r');
@@ -572,6 +591,7 @@ class Hub {
           }
           if (title && first) break;
         }
+        title = title || name || '';
         if (!first && !title) return null;
         return { id: f.slice(0, -6), at: t, title: mask(title).slice(0, 40), first: mask(first).slice(0, 100) };
       })
@@ -669,7 +689,7 @@ class Hub {
       if (!entry.sessionId && old.pending) entry.pending = true;
       return entry;
     });
-    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()] };
+    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()], removed: this.removed };
     if (JSON.stringify(next) !== JSON.stringify(this.state)) {
       this.state = next;
       try {
@@ -1195,6 +1215,7 @@ class Hub {
   }
 
   async startBox(name, icon, color, message, model, effort, resume) {
+    if (resume) this.removed = this.removed.filter((e) => e.id !== resume);
     const record = {
       name, icon, color, sessionId: resume || null, cwd: this.cfg.workdir, model, effort,
       createdAt: new Date().toISOString(), pending: true,
@@ -1398,6 +1419,8 @@ class Hub {
       this.closing.add(name);
       await run(['kill-window', '-t', box.windowId]);
     }
+    const sid = (this.ended.get(name) || this.state.boxes.find((b) => b.name === name) || {}).sessionId;
+    if (UUID_RE.test(sid || '')) this.removed = [{ id: sid, name, at: Date.now() }, ...this.removed.filter((e) => e.id !== sid)].slice(0, 6);
     this.ended.delete(name);
     this.state.boxes = this.state.boxes.filter((b) => b.name !== name);
     this.log('closed ended', { name });

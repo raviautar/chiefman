@@ -2002,6 +2002,36 @@ button {
   opacity: 0.5;
   cursor: default;
 }
+.ended-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* A closed box: the arrow stays dim, whatever is typed. */
+.send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.drill-wrap {
+  position: relative;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.nothing-pop {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  z-index: 40;
+  white-space: nowrap;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--white);
+  box-shadow: 0 8px 28px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
+}
 .paste-fold {
   padding: 0;
   border: 0;

@@ -480,7 +480,7 @@ export function ChatView({
       <div className="chat-col">
         {shown.map((m) => {
           const isFresh = chat!.fresh.has(m.id);
-          if (fold && m.id === fold.id && !unfold)
+          if (fold && fold.count > 0 && m.id === fold.id && !unfold)
             return (
               <button key={m.id} className="work fold" onClick={() => setUnfold(true)} title="Show the whole message">
                 <Chevron />
@@ -551,16 +551,19 @@ export function ChatView({
         )}
         {resuming && !menu && <Live text="Coming back…" />}
         {ended && (
-          <div className="ended-line rise" role="status">
-            <span>{box.name} ended</span>
-            {box.ended?.start && (
-              <button className="text-btn" onClick={startAgain} disabled={endBusy}>
-                Start it again
+          <div className="ended rise" role="status">
+            <div className="ended-line">
+              <span>{box.name} ended</span>
+              {box.ended?.start && (
+                <button className="text-btn" onClick={startAgain} disabled={endBusy}>
+                  Start it again
+                </button>
+              )}
+              <button className="text-btn" onClick={closeEnded} disabled={endBusy}>
+                Remove from list
               </button>
-            )}
-            <button className="text-btn" onClick={closeEnded} disabled={endBusy}>
-              Close
-            </button>
+            </div>
+            {box.ended?.later && <div className="ended-note">The conversation stays saved. You can resume it later from New Box.</div>}
           </div>
         )}
         {failed && (
@@ -719,7 +722,7 @@ export function ChatView({
               }
             }}
           />
-          <button aria-label="Send" className={'send' + (draft.trim() || atts.length ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
+          <button aria-label="Send" className={'send' + (!closed && (draft.trim() || atts.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
             <Arrow />
           </button>
         </div>
