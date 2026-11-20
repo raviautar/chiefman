@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('chiefman', {
   newBox: (spec) => ipcRenderer.invoke('cm:new-box', spec),
   interrupt: (paneId) => ipcRenderer.invoke('cm:interrupt', paneId),
   choose: (paneId, n) => ipcRenderer.invoke('cm:choose', paneId, n),
+  dismiss: (paneId) => ipcRenderer.invoke('cm:dismiss', paneId),
+  answer: (paneId, text) => ipcRenderer.invoke('cm:answer', paneId, text),
   action: (paneId, kind) => ipcRenderer.invoke('cm:action', paneId, kind),
   rename: (paneId, name) => ipcRenderer.invoke('cm:rename', paneId, name),
   recent: () => ipcRenderer.invoke('cm:recent'),

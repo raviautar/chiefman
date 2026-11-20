@@ -31,7 +31,10 @@ export interface Recent {
 export interface Menu {
   question: string;
   selected: number;
-  options: { n: number; label: string }[];
+  options: { n: number; label: string; current?: boolean }[];
+  // Esc leaves it (the app shows Cancel); free is the "Type something." option.
+  esc?: boolean;
+  free?: number | null;
 }
 
 export interface Item {
@@ -124,6 +127,8 @@ interface Bridge {
   copy(text: string): void;
   attach(name: string, data: ArrayBuffer): Promise<Result>;
   choose(paneId: string, n: number): Promise<Result>;
+  dismiss(paneId: string): Promise<Result>;
+  answer(paneId: string, text: string): Promise<Result>;
   retry(paneId: string): Promise<Result>;
   rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
   files(paneId: string, query: string): Promise<string[]>;

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { api, Box, Draft, Item, Menu } from './api';
-import { Arrow } from './icons';
+import { Arrow, Check } from './icons';
 import { Markdown } from './Markdown';
 
 export interface ChatState {
@@ -76,10 +76,26 @@ const ENDING = /^\s*(no\b|never ?mind|cancel|exit|quit|deny|decline|reject|delet
 
 // The safe or continuing option is the dark one; an ending option is a plain
 // button placed last. Each keeps its number for the pick.
+// A list that marks the current choice (the model menu) has no dark option.
 export function arrange(options: Menu['options']) {
   const keep = options.filter((o) => !ENDING.test(o.label));
   const end = options.filter((o) => ENDING.test(o.label));
-  return [...keep.map((o, i) => ({ ...o, primary: i === 0 })), ...end.map((o) => ({ ...o, primary: false }))];
+  const lead = options.some((o) => o.current) ? -1 : 0;
+  return [...keep.map((o, i) => ({ ...o, primary: i === lead })), ...end.map((o) => ({ ...o, primary: false }))];
+}
+
+// Claude's own way out of a menu, unless an option already is one.
+const OUT = /^\s*(cancel|never ?mind|no,? go back|go back)\b/i;
+export const canCancel = (menu: Menu) => !!menu.esc && !menu.options.some((o) => OUT.test(o.label));
+
+function OptionLabel({ label }: { label: string }) {
+  const [main, ...rest] = label.split(' · ');
+  return (
+    <>
+      <span>{main}</span>
+      {rest.length > 0 && <span className="opt-note">{rest.join(' · ')}</span>}
+    </>
+  );
 }
 
 const PAGE = 150;
@@ -256,9 +272,17 @@ export function ChatView({
     const paths = atts.map((a) => a.path);
     const text = [typed, ...paths].filter(Boolean).join(' ');
     if (!text || sending || closed) return;
+    // While a question shows, the field answers it in his own words where
+    // Claude offers that; otherwise the note above the field says what to do.
+    if (menu && (!menu.free || !typed)) return;
     setSending(true);
     stick.current = true;
-    const ok = await onSend(text);
+    let ok: boolean;
+    if (menu) {
+      const r = await api().answer(box.paneId!, typed);
+      if (!r.ok) onError(r.reason || 'Not sent.');
+      ok = r.ok;
+    } else ok = await onSend(text);
     setSending(false);
     if (ok) {
       setDraft('');
@@ -286,6 +310,12 @@ export function ChatView({
   async function choose(n: number) {
     if (!box.paneId) return;
     const r = await api().choose(box.paneId, n);
+    if (!r.ok) onError(r.reason || 'Not sent.');
+  }
+
+  async function dismiss() {
+    if (!box.paneId) return;
+    const r = await api().dismiss(box.paneId);
     if (!r.ok) onError(r.reason || 'Not sent.');
   }
 
@@ -454,11 +484,28 @@ export function ChatView({
           <div className="ask rise" key={menu.question + menu.options.length}>
             {menu.question && <div className="say">{menu.question}</div>}
             <div className="choices">
-              {arrange(menu.options).map((o) => (
-                <button key={o.n} className={'chip' + (o.primary ? ' primary' : '')} onClick={() => choose(o.n)}>
-                  {o.label}
+              {arrange(menu.options).map((o) =>
+                o.n === menu.free ? (
+                  <button key={o.n} className="chip" onClick={() => input.current?.focus()} title="Type it in the field below">
+                    Your own answer…
+                  </button>
+                ) : (
+                  <button
+                    key={o.n}
+                    className={'chip' + (o.primary ? ' primary' : '') + (o.current ? ' current' : '')}
+                    aria-current={o.current ? 'true' : undefined}
+                    onClick={() => choose(o.n)}
+                  >
+                    {o.current && <Check color="currentColor" size={13} />}
+                    <OptionLabel label={o.label} />
+                  </button>
+                ),
+              )}
+              {canCancel(menu) && (
+                <button className="chip" onClick={dismiss}>
+                  Cancel
                 </button>
-              ))}
+              )}
             </div>
           </div>
         )}
@@ -550,6 +597,11 @@ export function ChatView({
             ))}
           </div>
         )}
+        {menu && (closed || !menu.free) && (
+          <div className="field-note" role="status">
+            {menu.esc ? 'Pick an option above, or Esc to cancel' : 'Pick an option above'}
+          </div>
+        )}
         <div className={'composer' + (draft.includes('\n') || draft.length > 70 ? ' tall' : '') + (draft.startsWith('!') ? ' shell' : '')}>
           <label htmlFor="composer" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
             Message {box.name}
@@ -563,7 +615,7 @@ export function ChatView({
             value={draft}
             readOnly={closed}
             aria-expanded={pop ? 'true' : 'false'}
-            placeholder={closed ? '' : 'Message'}
+            placeholder={closed ? '' : menu?.free ? 'Type your own answer' : 'Message'}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);
@@ -580,10 +632,7 @@ export function ChatView({
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.defaultPrevented) return;
               if (closed) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (menu) onError('Answer the question above first.');
-                }
+                if (e.key === 'Enter' && !e.shiftKey) e.preventDefault();
                 return;
               }
               if (popKey(e)) return;

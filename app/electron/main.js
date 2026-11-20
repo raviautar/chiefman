@@ -182,6 +182,8 @@ function wireIpc() {
   });
   handle('cm:interrupt', (p) => (PANE.test(p) ? hub.interrupt(p) : { ok: false }));
   handle('cm:choose', (p, n) => (PANE.test(p) && Number.isInteger(n) ? hub.choose(p, n) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:dismiss', (p) => (PANE.test(p) ? hub.dismiss(p) : { ok: false, reason: 'Bad request.' }));
+  handle('cm:answer', (p, t) => (PANE.test(p) && typeof t === 'string' && t.length <= 5000 ? hub.answer(p, t) : { ok: false, reason: 'Bad request.' }));
   handle('cm:action', (p, kind) => (PANE.test(p) && typeof kind === 'string' ? hub.action(p, kind) : { ok: false, reason: 'Bad request.' }));
   handle('cm:rename', (p, name) => (PANE.test(p) && typeof name === 'string' ? hub.rename(p, name) : { ok: false, reason: 'Bad request.' }));
   handle('cm:recent', () => hub.recentSessions());

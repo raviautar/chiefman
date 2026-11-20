@@ -107,9 +107,21 @@ function questionAbove(lines, first) {
     blanks = 0;
     block.unshift(t);
   }
-  const asks = block.filter((t) => /\?$/.test(t));
+  const plain = block.map(plainLine).filter(Boolean);
+  const asks = plain.filter((t) => /\?$/.test(t));
   if (asks.length) return asks[asks.length - 1];
-  return block.join(' ');
+  return plain.join(' ');
+}
+
+// Sentences that only make sense in the terminal: flags, keys, and "your
+// pick is the default", which the app does not do (it keeps his default).
+const TERMINAL = /\s--[a-z]|\b(ctrl|shift|alt|cmd|option)\+|[←→↑↓]|\b(enter|esc|tab|space) to\b|\bdefault for new sessions\b/i;
+function plainLine(t) {
+  return t
+    .split(/(?<=[.!?])\s+/)
+    .filter((s) => !TERMINAL.test(' ' + s))
+    .join(' ')
+    .trim();
 }
 
 // The trust question, in plain words.
@@ -136,13 +148,29 @@ function parseMenu(screen) {
   const numbered = parseNumbered(lines, start);
   const menu = numbered || parsePlain(lines, start);
   if (!menu) return null;
-  if (menu.options.some((o) => /trust this folder/i.test(o.label))) menu.question = trustQuestion(lines);
+  const trust = menu.options.some((o) => /trust this folder/i.test(o.label));
+  if (trust) menu.question = trustQuestion(lines);
   if (/^Rewind\b/.test(menu.question || '')) menu.question = menu.question.replace(/^Rewind\s+/, '').replace(/\s*\(\d+\s*\w+ ago\)/, '');
-  menu.options = menu.options.map((o) => ({
-    n: o.n,
-    label: o.label.replace(ART, '').replace(/\s*\(esc\)\s*$/i, '').trim().replace(/\s{2,}/g, ' · '),
-  }));
-  return menu;
+  const hint = lines.slice(menu.end, menu.end + 9).join(' ');
+  // Esc leaves the menu, unless an option is already marked as the Esc one,
+  // or Esc means "exit Claude" (the trust question).
+  const escOption = menu.options.some((o) => /\(esc\)\s*$/i.test(o.label));
+  const esc = !trust && !escOption && (menu.bare || /esc to (cancel|exit|close|go back)/i.test(hint));
+  const options = menu.options.map((o) => {
+    const raw = o.label.replace(ART, '').replace(/\s*\(esc\)\s*$/i, '');
+    const label = raw.replace(/\s*✔\s*/g, '  ').trim().replace(/\s{2,}/g, ' · ');
+    return /✔/.test(raw) ? { n: o.n, label, current: true } : { n: o.n, label };
+  });
+  const free = options.find((o) => /^type something\.?$/i.test(o.label));
+  return {
+    question: menu.question,
+    selected: menu.selected,
+    options,
+    esc,
+    // The model menu can apply a pick to this session only, which keeps his default.
+    sessionKey: /\bs to use this session only\b/i.test(hint),
+    free: free ? free.n : null,
+  };
 }
 
 function parseNumbered(lines, start) {
@@ -174,6 +202,8 @@ function parseNumbered(lines, start) {
     question: questionAbove(lines, first),
     selected: (best.find((o) => o.on) || best[0]).n,
     options: best.map((o) => ({ n: o.n, label: o.label })),
+    end: last + 1,
+    bare,
   };
 }
 
@@ -208,6 +238,8 @@ function parsePlain(lines, start) {
     question: questionAbove(lines, a),
     selected: on - a + 1,
     options: rows.map((r, k) => ({ n: k + 1, label: r.label })),
+    end: b + 1,
+    bare: false,
   };
 }
 

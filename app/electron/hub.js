@@ -669,7 +669,9 @@ class Hub {
     return {
       question: mask(menu.question),
       selected: menu.selected,
-      options: menu.options.map((o) => ({ n: o.n, label: mask(o.label) })),
+      options: menu.options.map((o) => (o.current ? { n: o.n, label: mask(o.label), current: true } : { n: o.n, label: mask(o.label) })),
+      esc: !!menu.esc,
+      free: menu.free || null,
     };
   }
 
@@ -987,10 +989,45 @@ class Hub {
     const d = n - menu.selected;
     const keys = Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up');
     this.touch(paneId);
-    await run(['send-keys', '-t', paneId, ...keys, 'Enter']);
-    this.log('choose', { pane: paneId, n });
+    // In the model menu, "s" applies the pick to this session only, so his
+    // default stays as it was (the guard above still watches it).
+    await run(['send-keys', '-t', paneId, ...keys, menu.sessionKey ? 's' : 'Enter']);
+    this.log('choose', { pane: paneId, n, session: !!menu.sessionKey });
     const rw = this.rewinding.get(paneId);
     if (rw && Date.now() - rw.at < 120000) this.afterRewind(paneId, rw, (menu.options.find((o) => o.n === n) || {}).label || '');
+    this.soon('poll', 400, () => this.pollScreens());
+    return { ok: true };
+  }
+
+  // Leaves the menu the pane shows, as Esc does in the terminal.
+  async dismiss(paneId) {
+    if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
+    const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
+    if (!menu) return { ok: true, gone: true };
+    if (!menu.esc) return { ok: false, reason: 'Pick an option above.' };
+    this.touch(paneId);
+    await run(['send-keys', '-t', paneId, 'Escape']);
+    this.log('dismiss', { pane: paneId });
+    this.soon('poll', 300, () => this.pollScreens());
+    return { ok: true };
+  }
+
+  // His own words as the answer, where the menu offers "Type something.":
+  // move to that option, type, and press Enter.
+  async answer(paneId, text) {
+    if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
+    const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
+    if (!menu || !menu.free) return { ok: false, reason: 'Pick an option above.' };
+    const one = String(text).replace(/\s+/g, ' ').trim();
+    if (!one) return { ok: false };
+    const d = menu.free - menu.selected;
+    this.touch(paneId);
+    if (d) await run(['send-keys', '-t', paneId, ...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up')]);
+    await sleep(150);
+    await run(['send-keys', '-t', paneId, '-l', '--', one]);
+    await sleep(150);
+    await run(['send-keys', '-t', paneId, 'Enter']);
+    this.log('answer', { pane: paneId, chars: one.length });
     this.soon('poll', 400, () => this.pollScreens());
     return { ok: true };
   }

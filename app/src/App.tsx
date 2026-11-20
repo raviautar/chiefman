@@ -259,6 +259,15 @@ export function App() {
         showPanel(false);
         return;
       }
+      // Esc on a menu leaves it, as in the terminal, where Claude allows that.
+      // A menu without that (the trust question) gets no Esc at all.
+      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.menu) {
+        const el = document.activeElement;
+        if (el && (el.closest('.drill') || el.getAttribute('aria-expanded') === 'true')) return;
+        e.preventDefault();
+        if (box.menu.esc) api().dismiss(box.paneId).then((r) => !r.ok && r.reason && show(r.reason, true));
+        return;
+      }
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
         if (el && (el.closest('.drill') || el.getAttribute('aria-expanded') === 'true')) return;
