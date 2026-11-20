@@ -150,7 +150,8 @@ function newestDrill(items) {
     const answered = new Set();
     for (const later of items.slice(i + 1)) if (later.k === 'you') for (const n of answeredNumbers(later.t)) answered.add(n);
     const open = list.filter((x) => !answered.has(x.n));
-    return { id: it.id, at: it.ts, items: open.filter((x) => x.now), rest: open.filter((x) => !x.now).length, also: list.also || null };
+    // total: what needed him when the list came, answered or not.
+    return { id: it.id, at: it.ts, items: open.filter((x) => x.now), total: list.filter((x) => x.now).length, rest: open.filter((x) => !x.now).length, also: list.also || null };
   }
   return null;
 }

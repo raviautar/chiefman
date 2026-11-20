@@ -166,7 +166,7 @@ export function ChatView({
   chat: ChatState | undefined;
   pending: Pending[];
   quiet: Set<string>;
-  fold: { id: string; count: number } | null;
+  fold: { id: string; text: string } | null;
   incoming: { text: string; seq: number } | undefined;
   initial: Draft | undefined;
   attachDir: string;
@@ -183,7 +183,7 @@ export function ChatView({
   const [hist, setHist] = useState<number | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
   const [atts, setAtts] = useState<Attachment[]>(initial?.atts ?? []);
-  const [unfold, setUnfold] = useState(false);
+  const [unfold, setUnfold] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [endBusy, setEndBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -483,11 +483,11 @@ export function ChatView({
       <div className="chat-col">
         {shown.map((m) => {
           const isFresh = chat!.fresh.has(m.id);
-          if (fold && fold.count > 0 && m.id === fold.id && !unfold)
+          if (fold && m.id === fold.id && unfold !== fold.id)
             return (
-              <button key={m.id} className="work fold" onClick={() => setUnfold(true)} title="Show the whole message">
+              <button key={m.id} className="work fold" onClick={() => setUnfold(fold.id)} title="Show the whole message">
                 <Chevron />
-                Drill-down · {fold.count} need{fold.count === 1 ? 's' : ''} you
+                {fold.text}
               </button>
             );
           if (m.k === 'you')

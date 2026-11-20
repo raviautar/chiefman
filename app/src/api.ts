@@ -60,6 +60,7 @@ export interface Drill {
   id: string;
   at?: string;
   items: DrillItem[];
+  total?: number;
   rest: number;
   also: string | null;
 }

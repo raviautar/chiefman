@@ -540,7 +540,16 @@ export function App() {
   const title = box ? box.name : 'chiefman';
   const meter = box ? meterLine(box) : '';
   const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
-  const fold = drillShown && box && box.name === 'chief' && drill ? { id: drill.id, count: asks } : null;
+  // The chief's list folds to one line while the panel shows it, and once
+  // all of it is answered. A list that never had items stays plain text.
+  const fold =
+    box && box.name === 'chief' && drill
+      ? asks > 0 && drillShown
+        ? { id: drill.id, text: `Drill-down · ${asks} need${asks === 1 ? 's' : ''} you` }
+        : asks === 0 && (drill.total ?? 0) > 0
+          ? { id: drill.id, text: 'Drill-down · all answered' }
+          : null
+      : null;
   const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
 
   let body;
