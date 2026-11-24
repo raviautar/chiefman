@@ -159,3 +159,5 @@ export const PlanIcon = () => <Svg d="M6 3.5h12v17H6z M9 8h6 M9 12h6 M9 16h3.5" 
 export const TodoIcon = () => <Svg d="M4 7l1.8 1.8L9 5.5 M4 15.5l1.8 1.8L9 14 M12.5 7.5H20 M12.5 16H20" />;
 // What a box made: a box.
 export const MadeIcon = () => <Svg d="M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8" />;
+// A todo step: an empty circle while left, ticked once done.
+export const StepIcon = ({ done }: { done: boolean }) => <Svg d={done ? ICON.check : 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z'} />;

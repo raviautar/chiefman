@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type Box, type LiveItem, type LiveSum, type Todo } from './api';
 import { Card, type Tone } from './Card';
 import { Markdown } from './Markdown';
-import { AgentIcon, Check, RunsIcon, ShellIcon, TodoIcon, WatchIcon } from './icons';
+import { AgentIcon, Check, RunsIcon, ShellIcon, StepIcon, TodoIcon, WatchIcon } from './icons';
 import { meterOf } from './Actions';
 import './live.css';
 
@@ -40,7 +40,7 @@ export function waitText(l: LiveSum, now = Date.now()) {
   return `Waiting on ${inLine(l.on)}${l.more ? ` and ${l.more} more` : ''}${time ? ` · ${time}` : ''}`;
 }
 
-const KIND_ICON = { agent: <AgentIcon size={14} />, command: <ShellIcon size={14} />, watch: <WatchIcon size={14} /> };
+const KIND_ICON = { agent: <AgentIcon />, command: <ShellIcon />, watch: <WatchIcon /> };
 
 // One thing that runs, or ran in this batch: its words, its minutes, a tick
 // once done; an agent's report folds under it, a command shows its last line.
@@ -53,7 +53,7 @@ function RunRow({ it, now }: { it: LiveItem; now: number }) {
     <>
       <span className="live-ic">{KIND_ICON[it.kind]}</span>
       <span className="live-say">{it.say}</span>
-      {ended && (bad ? <span className="live-bad">failed</span> : it.status === 'completed' ? <span className="live-tick" aria-label="done"><Check size={12} /></span> : <span className="live-kind">stopped</span>)}
+      {ended && (bad ? <span className="live-bad">failed</span> : it.status === 'completed' ? <span className="live-tick" aria-label="done"><Check /></span> : <span className="live-kind">stopped</span>)}
       <span className="live-time">{time}</span>
     </>
   );
@@ -127,7 +127,7 @@ function TodoCard({ todo }: { todo: Todo }) {
         {todo.list.map((x, i) => (
           <li key={i} className={'todo-' + x.s}>
             <span className="todo-box" aria-hidden="true">
-              {x.s === 'completed' && <Check size={10} />}
+              <StepIcon done={x.s === 'completed'} />
             </span>
             <span className="todo-t">{x.t}</span>
           </li>

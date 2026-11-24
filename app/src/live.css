@@ -1,18 +1,14 @@
 /* ---- what runs now, waiting, Claude Code's asks, a box at a glance, what
-   a box made (Live.tsx, Approve.tsx, Made.tsx). Colours only from the app's
-   variables, and only for state. ---- */
+   a box made (Live.tsx, Approve.tsx, Made.tsx). Only the named values at
+   the top of styles.css; colour only for a state. ---- */
 
 /* Waiting: its turn is over, something it started still runs. */
+.av-dot.waiting,
 .dot.waiting {
-  display: block;
-  margin: 0;
-  background: var(--b-pink);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b-pink) 18%, transparent);
+  background: var(--waiting);
 }
-.av-dot.waiting {
-  display: block;
-  margin: 0;
-  background: var(--b-pink);
+.mark.crown.waiting {
+  color: var(--waiting);
 }
 
 /* ---- above the message box: what runs, the todo list ---- */
@@ -21,7 +17,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 4px;
   width: 100%;
   max-width: 640px;
   box-sizing: border-box;
@@ -29,7 +25,6 @@
 }
 .live-dock .wcard {
   max-width: 100%;
-  margin-bottom: 4px;
 }
 .live-dock .wcard-line {
   max-width: 100%;
@@ -53,22 +48,22 @@
   box-sizing: border-box;
   padding: 3px 6px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--r-control);
   background: transparent;
-  color: var(--wcard-ink);
+  color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--body);
   text-align: left;
   cursor: pointer;
 }
 .live-row:hover {
-  background: var(--wcard-hover);
+  background: var(--hover);
 }
 .live-row:active {
-  background: var(--b-fill-2);
+  background: var(--press);
 }
 .live-row:focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 .live-row.still {
@@ -81,7 +76,7 @@
 .live-ic {
   flex: none;
   display: inline-flex;
-  color: var(--wcard-grey);
+  color: var(--t2);
 }
 .live-say {
   flex: 1;
@@ -91,30 +86,30 @@
   white-space: nowrap;
 }
 .live-item.ended .live-say {
-  color: var(--b-t2);
+  color: var(--t2);
 }
 .live-time,
 .live-kind {
   flex: none;
-  font-size: 12px;
-  color: var(--wcard-grey);
+  font-size: var(--small);
+  color: var(--t2);
   font-variant-numeric: tabular-nums;
 }
 .live-tick {
   flex: none;
   display: inline-flex;
-  color: var(--wcard-passed);
+  color: var(--done);
 }
 .live-bad {
   flex: none;
-  font-size: 12px;
-  color: var(--wcard-failed);
+  font-size: var(--small);
+  color: var(--failed);
 }
 .live-last {
-  padding: 0 6px 4px 28px;
+  padding: 0 6px 4px 30px;
   font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--wcard-grey);
+  font-size: var(--small);
+  color: var(--t2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -122,20 +117,20 @@
   cursor: text;
 }
 .live-report {
-  margin: 2px 6px 8px 28px;
+  margin: 2px 6px 8px 30px;
   padding: 8px 10px;
   max-height: 240px;
   overflow: auto;
-  border-radius: 8px;
-  background: var(--b-fill);
-  font-size: 12.5px;
+  border-radius: var(--r-control);
+  background: var(--fill);
+  font-size: var(--body);
   user-select: text;
   cursor: text;
 }
 .live-note {
   padding: 4px 6px;
-  font-size: 12.5px;
-  color: var(--wcard-grey);
+  font-size: var(--body);
+  color: var(--t2);
 }
 
 .todo-list {
@@ -145,44 +140,31 @@
 }
 .todo-list li {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 3px 6px;
-  font-size: 13px;
-  line-height: 18px;
+  font-size: var(--body);
 }
 .todo-box {
   flex: none;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  margin-top: 2px;
-  box-sizing: border-box;
-  border: 1.5px solid var(--b-t3);
-  border-radius: 4px;
-  color: var(--white);
+  color: var(--t3);
 }
 .todo-completed .todo-box {
-  border-color: var(--wcard-passed);
-  background: var(--wcard-passed);
+  color: var(--done);
 }
 .todo-in_progress .todo-box {
-  border-color: var(--wcard-working);
+  color: var(--working);
 }
 .todo-completed .todo-t {
-  color: var(--wcard-grey);
+  color: var(--t2);
 }
 .todo-in_progress .todo-t {
-  font-weight: 500;
+  font-weight: var(--bold);
 }
 
 /* ---- Claude Code's own asks: a permission, a plan ---- */
 
-.ask-card {
-  margin-top: 2px;
-}
 /* An ask stays open until he answers: its title row does not fold it. */
 .ask-card .wcard-fold {
   display: none;
@@ -195,21 +177,21 @@
 }
 .ask-note {
   margin: 0 0 6px;
-  font-size: 12.5px;
-  color: var(--b-t2);
+  font-size: var(--body);
+  color: var(--t2);
 }
 .ask-file {
   margin: 0 0 6px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--small);
   overflow-wrap: anywhere;
   user-select: text;
 }
 .ask-fold.cut,
 .plan-text.cut {
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, var(--b-ink) 65%, transparent);
-  mask-image: linear-gradient(to bottom, var(--b-ink) 65%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, var(--ink) 65%, transparent);
+  mask-image: linear-gradient(to bottom, var(--ink) 65%, transparent);
 }
 .ask-fold.cut {
   max-height: 150px;
@@ -219,19 +201,18 @@
 }
 .ask-card .turn-pre {
   margin: 0 0 4px;
-  font-size: 12px;
 }
 .ask-fold.cut .turn-pre {
   max-height: none;
   overflow: hidden;
 }
 .ask-text {
-  font-size: 13px;
+  font-size: var(--body);
   white-space: pre-wrap;
   user-select: text;
 }
 .plan-text {
-  font-size: 13px;
+  font-size: var(--body);
   user-select: text;
   cursor: text;
 }
@@ -247,17 +228,16 @@
 }
 .peek .wcard {
   max-width: 100%;
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--b-ink) 14%, transparent), 0 1px 3px color-mix(in srgb, var(--b-ink) 8%, transparent);
+  box-shadow: var(--shadow);
 }
 .peek .wcard-fold {
   display: none;
 }
 .peek .wcard-head {
-  min-height: 36px;
   cursor: default;
 }
 .peek .wcard-title {
-  font-weight: 600;
+  font-weight: var(--bold);
 }
 .peek .wcard-body {
   display: flex;
@@ -269,9 +249,9 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--body);
   line-height: 1.4;
-  color: var(--b-t2);
+  color: var(--t2);
 }
 .peek-t {
   flex: 1;
@@ -282,19 +262,17 @@
   -webkit-box-orient: vertical;
 }
 .peek-asks .peek-t {
-  color: var(--wcard-ink);
-  font-weight: 500;
+  color: var(--ink);
 }
-.peek-ago {
+.peek-ago,
+.peek-meter {
   flex: none;
-  font-size: 11.5px;
-  color: var(--wcard-grey);
+  font-size: var(--small);
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
 }
 .peek-meter {
   margin-top: 4px;
-  font-size: 11.5px;
-  color: var(--wcard-grey);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---- what a box made ---- */
@@ -316,7 +294,7 @@
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 64px color-mix(in srgb, var(--b-ink) 16%, transparent);
+  box-shadow: var(--shadow);
 }
 .made-sheet .wcard-head {
   flex: none;
@@ -338,8 +316,8 @@
 }
 .made-none {
   padding: 6px;
-  font-size: 12.5px;
-  color: var(--wcard-grey);
+  font-size: var(--body);
+  color: var(--t2);
 }
 
 @media (prefers-reduced-motion: reduce) {
