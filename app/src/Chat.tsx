@@ -36,31 +36,36 @@ function answerLine(text: string, asks: Ask[]) {
 }
 
 // Which reply's questions are still open (live), which of his messages
-// answered questions and fold to one line, and which replies' questions he
-// skipped. A reply's questions close at his next message, or a skill run, or
-// one waiting to go; a newer reply with questions of its own skips them too.
-// answering: what waits to go is his answers from the widgets.
-function askState(items: Item[], waiting: boolean, answering: boolean) {
+// answered questions and fold to one line, and how the other questions
+// closed. His message right after them answers them: by number from the
+// widgets (answered), or in his own words (words). A skill run, a command,
+// a shell line or a newer reply with questions of its own moves past them
+// (skipped). next: what waits to go, first in line.
+function askState(items: Item[], next?: Pending) {
   const answered: Record<string, string> = {};
+  const words = new Set<string>();
   const skipped = new Set<string>();
   let live: string | null = null;
   const turn = (i: Item) => i.k === 'you' || (i.k === 'work' && i.id.startsWith('u:'));
+  const asks = (i: Item) => i.k === 'box' && !!i.asks?.length;
+  const said = (t: string) => !/^\s*[/!]/.test(t);
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    if (it.k !== 'box' || !it.asks?.length) continue;
-    const next = items.slice(i + 1).find(turn);
-    if (!next) {
-      if (live) skipped.add(live);
-      live = null;
-      if (!waiting) live = it.id;
-      else if (!answering) skipped.add(it.id);
-      continue;
+    if (!asks(it)) continue;
+    const after = items.slice(i + 1).find((x) => turn(x) || asks(x));
+    if (after && !turn(after)) skipped.add(it.id);
+    else if (!after) {
+      if (!next) live = it.id;
+      else if (next.skill || !said(next.t)) skipped.add(it.id);
+      else if (!next.answer) words.add(it.id);
+    } else {
+      const line = after.k === 'you' ? answerLine(after.t, it.asks!) : null;
+      if (line) answered[after.id] = line;
+      else if (after.k === 'you' && said(after.t)) words.add(it.id);
+      else skipped.add(it.id);
     }
-    const line = next.k === 'you' ? answerLine(next.t, it.asks) : null;
-    if (line) answered[next.id] = line;
-    else skipped.add(it.id);
   }
-  return { live, answered, skipped };
+  return { live, answered, words, skipped };
 }
 
 type Attachment = Draft['atts'][number];
@@ -317,7 +322,7 @@ export function ChatView({
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.filter((p) => !p.skill).map((p) => p.t)];
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
-  const asked = askState(items, pending.length > 0, pending.some((p) => p.answer));
+  const asked = askState(items, pending[0]);
   const liveItem = asked.live ? items.find((i) => i.id === asked.live) : undefined;
   const liveKeys = liveItem?.asks ? liveItem.asks.map((a) => `${liveItem.id}:${a.n}`) : [];
   const answers = compose(bundle, liveKeys);
@@ -785,15 +790,20 @@ export function ChatView({
                   <Markdown text={m.t} />
                 </div>
               )}
-              {/* Questions he skipped fold to one quiet line; a click shows them. */}
-              {asked.skipped.has(m.id) && !unfolded.has(m.id + ':q') ? (
+              {/* Questions he answered in his words, or skipped, fold to one
+                  quiet line; a click shows them. */}
+              {(asked.words.has(m.id) || asked.skipped.has(m.id)) && !unfolded.has(m.id + ':q') ? (
                 <button
-                  className="work fold skipped"
+                  className="work fold q-fold"
                   onClick={() => setUnfolded((s) => new Set(s).add(m.id + ':q'))}
                   title={m.asks.map((a) => `${a.n}. ${a.q}`).join('\n')}
                 >
                   <Chevron />
-                  {m.asks.length === 1 ? 'Question skipped' : `${m.asks.length} questions skipped`}
+                  {asked.words.has(m.id)
+                    ? 'Answered in your words'
+                    : m.asks.length === 1
+                      ? 'Question skipped'
+                      : `${m.asks.length} questions skipped`}
                 </button>
               ) : (
                 <AskList

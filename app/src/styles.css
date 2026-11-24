@@ -2756,8 +2756,8 @@ button:focus-visible,
 
 /* ---- skipped questions, tables, the compact drill-down list ---- */
 
-/* Questions he skipped: one quiet line under the reply. */
-.reply-group > .fold.skipped {
+/* Questions he answered in his words, or skipped: one quiet line under the reply. */
+.reply-group > .fold.q-fold {
   margin-top: 8px;
 }
 
