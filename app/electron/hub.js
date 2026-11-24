@@ -6,7 +6,7 @@ const { Transcript } = require('./transcript');
 const { newestDrill } = require('./drilldown');
 const { State } = require('./state');
 const { mask } = require('./mask');
-const { promptState, parseActivity, parseMenu, parseMode, promptText } = require('./screen');
+const { promptState, parseActivity, parseMenu, parseMode, promptText, SEND_ALL } = require('./screen');
 const { DefaultKeeper } = require('./defaults');
 const { Usage, modelName } = require('./usage');
 const { readPlan, readWorkspace } = require('./plan');
@@ -117,6 +117,10 @@ class Hub {
     this.switched = new Map();
     this.switching = new Map();
     this.queues = new Map();
+    // One answer to a box's question menu at a time; panes whose "Review
+    // your answers" step the app is submitting (not shown meanwhile).
+    this.menuOps = new Map();
+    this.confirming = new Set();
     this.lastSend = new Map();
     this.typedByApp = new Map();
     // Remote Control, by Claude pid: the ones he turned off (kept across app
@@ -1047,6 +1051,8 @@ class Hub {
         let menu = parseMenu(text);
         // The Remote Control dialog the icon's click opens is answered by the app.
         if (menu && this.remoteBusy.has(b.claude.pid) && menu.options.some((o) => /^Disconnect this session\b/.test(o.label))) menu = null;
+        // So is the review step after his last answer to a question menu.
+        if (menu && menu.review && this.confirming.has(b.paneId)) menu = null;
         const sc = {
           activity: w ? mask(parseActivity(text) || '') || null : null,
           menu: menu && this.maskMenu(menu),
@@ -1424,12 +1430,72 @@ class Hub {
     return { ok: true };
   }
 
+  // One answer to a box's menu at a time: a second click waits for the first,
+  // then finds the screen the first one left.
+  onMenu(paneId, fn) {
+    const next = (this.menuOps.get(paneId) || Promise.resolve()).then(fn);
+    this.menuOps.set(paneId, next.catch(() => {}));
+    return next;
+  }
+
+  // The question a click was made on. A click that lands after Claude moved
+  // on to the next question (a fast second click) must not answer that one.
+  askOf(menu) {
+    return `${mask(menu.question || '')}|${menu.options.length}`;
+  }
+
+  moved(menu, ask) {
+    return typeof ask === 'string' && ask !== '' && this.askOf(menu) !== ask;
+  }
+
+  // He chose in the app, so Claude's "Review your answers" step after the
+  // last question is submitted for him. The next question or the prompt
+  // showing instead ends the wait.
+  async confirmReview(paneId, before) {
+    this.confirming.add(paneId);
+    try {
+      const end = Date.now() + 3000;
+      while (Date.now() < end) {
+        await sleep(200);
+        let s;
+        try {
+          s = await run(['capture-pane', '-p', '-t', paneId]);
+        } catch {
+          return false;
+        }
+        const menu = parseMenu(s);
+        if (!menu) {
+          if (/(?:⏵⏵|⏸) .+ on\b/.test(s) && /❯/.test(s)) return false;
+          continue;
+        }
+        if (!menu.review) {
+          if (this.askOf(menu) === before) continue;
+          return false;
+        }
+        const send = menu.options.find((o) => SEND_ALL.test(o.label));
+        if (!send) return false;
+        await this.keys(paneId, [...moves(menu, send.n), 'Enter']);
+        this.log('review submitted', { pane: paneId });
+        return true;
+      }
+      this.log('review not seen', { pane: paneId });
+      return false;
+    } finally {
+      this.confirming.delete(paneId);
+    }
+  }
+
   // Picks option n in the menu the pane shows, by moving to it and pressing Enter.
-  async choose(paneId, n) {
+  choose(paneId, n, ask) {
+    return this.onMenu(paneId, () => this.chooseNow(paneId, n, ask));
+  }
+
+  async chooseNow(paneId, n, ask) {
     if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
     await this.needClaude(paneId);
     const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     if (!menu || !menu.options.some((o) => o.n === n)) return { ok: false, reason: 'That choice is no longer on screen.' };
+    if (this.moved(menu, ask)) return { ok: false, stale: true };
     if (/model|effort/i.test(menu.question + ' ' + menu.options.map((o) => o.label).join(' '))) {
       this.keeper.guard(['model'], 30000);
       this.keeper.guard(['modelSettings'], 30000);
@@ -1442,12 +1508,17 @@ class Hub {
     this.log('choose', { pane: paneId, n, session: !!menu.sessionKey });
     const rw = this.rewinding.get(paneId);
     if (rw && Date.now() - rw.at < 120000) this.afterRewind(paneId, rw, (menu.options.find((o) => o.n === n) || {}).label || '');
+    if (menu.reviewNext) await this.confirmReview(paneId, this.askOf(menu));
     this.soon('poll', 400, () => this.pollScreens());
     return { ok: true };
   }
 
   // Leaves the menu the pane shows, as Esc does in the terminal.
-  async dismiss(paneId) {
+  dismiss(paneId) {
+    return this.onMenu(paneId, () => this.dismissNow(paneId));
+  }
+
+  async dismissNow(paneId) {
     if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
     await this.needClaude(paneId);
     const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
@@ -1462,15 +1533,20 @@ class Hub {
 
   // His own words as the answer, where the menu offers "Type something.":
   // move to that option, type, and press Enter.
-  async answer(paneId, text) {
+  answer(paneId, text, ask) {
+    return this.onMenu(paneId, () => this.answerNow(paneId, text, ask));
+  }
+
+  async answerNow(paneId, text, ask) {
     if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
     await this.needClaude(paneId);
     const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     if (!menu || !menu.free) return { ok: false, reason: 'Pick an option above.' };
+    if (this.moved(menu, ask)) return { ok: false, reason: 'The question changed. Send again to answer this one.' };
     const one = String(text).replace(/\s+/g, ' ').trim();
     if (!one) return { ok: false };
     // With check boxes, Enter would only tick it: his words go with the picks.
-    if (menu.multi) return this.submitMenu(paneId, menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n), one);
+    if (menu.multi) return this.submitNow(paneId, menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n), one);
     const box = this.boxes.find((b) => b.paneId === paneId);
     if (!box || (await this.onShell(box))) return { ok: false, reason: 'That box ended.' };
     const d = moves(menu, menu.free);
@@ -1481,6 +1557,7 @@ class Hub {
     await sleep(150);
     await this.keys(paneId, ['Enter']);
     this.log('answer', { pane: paneId, chars: one.length });
+    if (menu.reviewNext) await this.confirmReview(paneId, this.askOf(menu));
     this.soon('poll', 400, () => this.pollScreens());
     return { ok: true };
   }
@@ -1488,13 +1565,18 @@ class Hub {
   // A question that allows several picks, driven as the terminal does: each
   // check box that should change gets Enter, his own words go in the last
   // one, and once the screen shows exactly his picks, Enter on Submit (or
-  // Next) sends them.
-  async submitMenu(paneId, picks, text) {
+  // Next) sends them. The review step after it is submitted too.
+  submitMenu(paneId, picks, text, ask) {
+    return this.onMenu(paneId, () => this.submitNow(paneId, picks, text, ask));
+  }
+
+  async submitNow(paneId, picks, text, ask) {
     if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
     await this.needClaude(paneId);
     const read = async () => parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     let menu = await read();
     if (!menu || !menu.multi || !menu.order.includes(0)) return { ok: false, reason: 'That question is no longer on screen.' };
+    if (this.moved(menu, ask)) return { ok: false, stale: true };
     const want = new Set(picks);
     const one = String(text || '').replace(/\s+/g, ' ').trim();
     const box = this.boxes.find((b) => b.paneId === paneId);
@@ -1532,6 +1614,7 @@ class Hub {
     at = now.at;
     await go(0, ['Enter']);
     this.log('submit menu', { pane: paneId, picks: want.size, words: !!one });
+    if (now.reviewNext) await this.confirmReview(paneId, this.askOf(now));
     this.soon('poll', 400, () => this.pollScreens());
     return { ok: true };
   }

@@ -177,6 +177,14 @@ export function arrange(options: Menu['options']) {
 const OUT = /^\s*(cancel|never ?mind|no,? go back|go back)\b/i;
 export const canCancel = (menu: Menu) => !!menu.esc && !menu.options.some((o) => OUT.test(o.label));
 
+// The options a question menu shows as buttons. His own words go in the
+// message field, so "Type something" and "Chat about this" need none.
+const CHAT = /^chat about this\.?$/i;
+const shownOptions = (menu: Menu) => menu.options.filter((o) => o.n !== menu.free && !(menu.free != null && CHAT.test(o.label)));
+
+// The question a click is made on, as the hub checks it (Hub.askOf).
+const askOf = (menu: Menu) => `${menu.question}|${menu.options.length}`;
+
 function OptionLabel({ label }: { label: string }) {
   const [main, ...rest] = label.split(' · ');
   return (
@@ -269,7 +277,9 @@ export function ChatView({
   // Send. Kept with the box's draft, so each box keeps its own.
   const [bundle, setBundle] = useState<Bundle>(initial?.bundle ?? {});
   // His ticks on Claude's own question with check boxes, for that question.
+  // tickNow has the newest ones before they show, so two fast clicks both count.
   const [ticks, setTicks] = useState<{ key: string; on: number[] } | null>(null);
+  const tickNow = useRef<{ key: string; on: number[] } | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
@@ -330,13 +340,27 @@ export function ChatView({
     n.onDraft({ text: n.draft, caret: n.draft.length, atts: n.atts, bundle: { ...n.bundle, [quoteKey()]: { text: reply, quote } } });
   }
 
+  function clearTicks() {
+    tickNow.current = null;
+    setTicks(null);
+  }
+
+  function tick(n: number) {
+    const cur = tickNow.current?.key === menuKey ? tickNow.current.on : ticked;
+    const next = { key: menuKey, on: cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n] };
+    tickNow.current = next;
+    setTicks(next);
+  }
+
+  // His ticks and his words from the field, in one Submit.
   async function submitTicks(words?: string) {
     if (!box.paneId || !menu?.multi || menuBusy) return false;
+    const on = tickNow.current?.key === menuKey ? tickNow.current.on : ticked;
     setMenuBusy(true);
-    const r = await api().submitMenu(box.paneId, ticked, words);
+    const r = await api().submitMenu(box.paneId, on, words, askOf(menu));
     setMenuBusy(false);
-    if (!r.ok) onError(r.reason || 'Not sent.');
-    else setTicks(null);
+    if (!r.ok && !r.stale) onError(r.reason || 'Not sent.');
+    else clearTicks();
     return r.ok;
   }
 
@@ -344,7 +368,7 @@ export function ChatView({
   // later starts from what the box shows.
   const multiUp = !!menu?.multi;
   useEffect(() => {
-    if (!multiUp) setTicks(null);
+    if (!multiUp) clearTicks();
   }, [multiUp]);
 
   useLayoutEffect(() => {
@@ -452,7 +476,7 @@ export function ChatView({
     let ok: boolean;
     if (menu?.multi) ok = await submitTicks(typed);
     else if (menu) {
-      const r = await api().answer(box.paneId!, typed);
+      const r = await api().answer(box.paneId!, typed, askOf(menu));
       if (!r.ok) onError(r.reason || 'Not sent.');
       ok = r.ok;
     } else ok = await onSend(text, { answer: !!answers && !quoted && !typed && !paths.length });
@@ -482,9 +506,17 @@ export function ChatView({
   }
 
   async function choose(n: number) {
-    if (!box.paneId) return;
-    const r = await api().choose(box.paneId, n);
-    if (!r.ok) onError(r.reason || 'Not sent.');
+    if (!box.paneId || !menu || menuBusy) return;
+    setMenuBusy(true);
+    const r = await api().choose(box.paneId, n, askOf(menu));
+    setMenuBusy(false);
+    if (!r.ok && !r.stale) onError(r.reason || 'Not sent.');
+  }
+
+  // Submit sends what he typed in the field too, as his own answer.
+  async function submitButton() {
+    const words = menu?.free != null ? draft.trim() : '';
+    if ((await submitTicks(words)) && words) setDraft('');
   }
 
   // A box that ended starts again on its session, or is closed with its draft.
@@ -753,7 +785,7 @@ export function ChatView({
                       className={'chip pick' + (on ? ' on' : '')}
                       aria-pressed={on}
                       disabled={menuBusy}
-                      onClick={() => setTicks({ key: menuKey, on: on ? ticked.filter((n) => n !== o.n) : [...ticked, o.n] })}
+                      onClick={() => tick(o.n)}
                     >
                       <span className="tick" aria-hidden="true">{on && <Check size={11} />}</span>
                       <OptionLabel label={o.label} />
@@ -762,15 +794,10 @@ export function ChatView({
                 })}
             </div>
             <div className="choices">
-              <button className="chip primary" disabled={menuBusy} onClick={() => submitTicks()}>
+              <button className="chip primary" disabled={menuBusy} onClick={submitButton}>
                 {menu.button === 'Next' ? 'Next' : 'Submit'}
               </button>
-              {menu.free != null && (
-                <button className="chip" onClick={() => input.current?.focus()} title="Type it in the field below">
-                  Your own answer…
-                </button>
-              )}
-              {menu.options
+              {shownOptions(menu)
                 .filter((o) => !o.box)
                 .map((o) => (
                   <button key={o.n} className="chip" disabled={menuBusy} onClick={() => choose(o.n)}>
@@ -778,7 +805,7 @@ export function ChatView({
                   </button>
                 ))}
               {canCancel(menu) && (
-                <button className="menu-cancel" onClick={dismiss}>
+                <button className="menu-cancel" onClick={dismiss} title="Esc">
                   Cancel
                 </button>
               )}
@@ -789,25 +816,20 @@ export function ChatView({
           <div className="ask rise" key={menu.question + menu.options.length}>
             {menu.question && <div className="say">{menu.question}</div>}
             <div className="choices">
-              {arrange(menu.options).map((o) =>
-                o.n === menu.free ? (
-                  <button key={o.n} className="chip" onClick={() => input.current?.focus()} title="Type it in the field below">
-                    Your own answer…
-                  </button>
-                ) : (
-                  <button
-                    key={o.n}
-                    className={'chip' + (o.primary ? ' primary' : '') + (o.current ? ' current' : '')}
-                    aria-current={o.current ? 'true' : undefined}
-                    onClick={() => choose(o.n)}
-                  >
-                    {o.current && <Check color="currentColor" size={13} />}
-                    <OptionLabel label={o.label} />
-                  </button>
-                ),
-              )}
+              {arrange(shownOptions(menu)).map((o) => (
+                <button
+                  key={o.n}
+                  className={'chip' + (o.primary ? ' primary' : '') + (o.current ? ' current' : '')}
+                  aria-current={o.current ? 'true' : undefined}
+                  disabled={menuBusy}
+                  onClick={() => choose(o.n)}
+                >
+                  {o.current && <Check color="currentColor" size={13} />}
+                  <OptionLabel label={o.label} />
+                </button>
+              ))}
               {canCancel(menu) && (
-                <button className="menu-cancel" onClick={dismiss}>
+                <button className="menu-cancel" onClick={dismiss} title="Esc">
                   Cancel
                 </button>
               )}
@@ -975,7 +997,7 @@ export function ChatView({
             value={draft}
             readOnly={closed && !typeAhead}
             aria-expanded={pop ? 'true' : 'false'}
-            placeholder={typeAhead ? 'Type, then Resume and send' : closed ? '' : menu?.free ? 'Type your own answer' : 'Message'}
+            placeholder={typeAhead ? 'Type, then Resume and send' : closed ? '' : menu?.free ? 'Or type your answer' : 'Message'}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);

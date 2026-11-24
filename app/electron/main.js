@@ -213,12 +213,14 @@ function wireIpc() {
   handle('cm:mask', (t) => (typeof t === 'string' ? mask(t) : ''));
   act('cm:new-box', (spec) => hub.newBox(spec && typeof spec === 'object' ? spec : {}));
   act('cm:interrupt', (p) => (PANE.test(p) ? hub.interrupt(p) : { ok: false }));
-  act('cm:choose', (p, n) => (PANE.test(p) && Number.isInteger(n) ? hub.choose(p, n) : { ok: false, reason: 'Bad request.' }));
+  // ask: the question the click was made on (see Hub.askOf).
+  const isAsk = (a) => a == null || (typeof a === 'string' && a.length <= 5000);
+  act('cm:choose', (p, n, a) => (PANE.test(p) && Number.isInteger(n) && isAsk(a) ? hub.choose(p, n, a) : { ok: false, reason: 'Bad request.' }));
   act('cm:dismiss', (p) => (PANE.test(p) ? hub.dismiss(p) : { ok: false, reason: 'Bad request.' }));
-  act('cm:answer', (p, t) => (PANE.test(p) && typeof t === 'string' && t.length <= 5000 ? hub.answer(p, t) : { ok: false, reason: 'Bad request.' }));
-  act('cm:submit-menu', (p, picks, t) =>
-    PANE.test(p) && Array.isArray(picks) && picks.length <= 20 && picks.every((n) => Number.isInteger(n)) && (t == null || (typeof t === 'string' && t.length <= 5000))
-      ? hub.submitMenu(p, picks, t || '')
+  act('cm:answer', (p, t, a) => (PANE.test(p) && typeof t === 'string' && t.length <= 5000 && isAsk(a) ? hub.answer(p, t, a) : { ok: false, reason: 'Bad request.' }));
+  act('cm:submit-menu', (p, picks, t, a) =>
+    PANE.test(p) && Array.isArray(picks) && picks.length <= 20 && picks.every((n) => Number.isInteger(n)) && (t == null || (typeof t === 'string' && t.length <= 5000)) && isAsk(a)
+      ? hub.submitMenu(p, picks, t || '', a)
       : { ok: false, reason: 'Bad request.' },
   );
   act('cm:action', (p, kind) => (PANE.test(p) && typeof kind === 'string' ? hub.action(p, kind) : { ok: false, reason: 'Bad request.' }));

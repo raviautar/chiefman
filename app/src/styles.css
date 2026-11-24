@@ -2225,21 +2225,22 @@ button:focus-visible,
   font-size: 12px;
   color: var(--muted);
 }
-/* Cancel is a way out, not a choice: plain text, set apart, last. */
+/* Cancel is a way out, not a choice: one quiet word, set apart, last.
+   Esc does the same. */
 .choices .menu-cancel {
-  margin-left: 10px;
+  margin-left: 6px;
   padding: 6px 4px;
   border: 0;
   background: transparent;
   font: inherit;
   font-size: 13px;
   color: var(--muted);
-  text-decoration: underline;
-  text-underline-offset: 3px;
   cursor: pointer;
 }
 .choices .menu-cancel:hover {
   color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .pill-chevron {
   margin-left: 5px;

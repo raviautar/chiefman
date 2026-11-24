@@ -90,6 +90,18 @@ function parseActivity(screen) {
 const ART = /[─-▟■-◿]/g;
 const HINT = /enter to (select|confirm)|esc to (cancel|exit|close)|to navigate|\(esc\)/i;
 
+// The tabs over a question menu: "← ☐ Ship today  ☒ Checks  ✔ Submit →".
+// With a Submit tab, Claude shows "Review your answers" after the last one.
+const TABS = /^\s*(←\s+)?[☐☒☑✔]\s+\S/;
+const isTabs = (l) => TABS.test(l) && /[☐☒☑]/.test(l);
+function tabsAbove(lines, first) {
+  for (let i = first - 1; i >= Math.max(0, first - 16); i--) {
+    if (RULE.test(lines[i])) break;
+    if (isTabs(lines[i])) return lines[i];
+  }
+  return null;
+}
+
 // Text above a menu, without the box-drawing art Claude draws around it.
 // When the block holds a question line, that line alone is the question.
 function questionAbove(lines, first) {
@@ -98,6 +110,7 @@ function questionAbove(lines, first) {
   for (let i = first - 1; i >= Math.max(0, first - 10); i--) {
     const raw = lines[i];
     if (RULE.test(raw) || /^\s*[╭╰┌└]/.test(raw)) break;
+    if (isTabs(raw)) continue;
     const t = raw.replace(ART, '').replace(/\s+/g, ' ').trim();
     if (!t) {
       if (raw.trim()) break; // a bar of art closes the menu's block
@@ -146,6 +159,7 @@ function reviewQuestion(lines, first) {
   while (r >= Math.max(0, first - 30) && !REVIEW.test(lines[r])) r--;
   const out = ['Review your answers'];
   for (const raw of lines.slice(r + 1, first)) {
+    if (isTabs(raw)) continue;
     const t = raw.replace(ART, '').trim();
     if (!t) continue;
     if (/^→\s*/.test(t) && out.length > 1) out[out.length - 1] += ' ' + t.replace(/^→\s*/, '');
@@ -188,7 +202,11 @@ function parseMenu(screen) {
   const boxes = options.filter((o) => o.box);
   const free = menu.multi && menu.button ? boxes[boxes.length - 1] : options.find((o) => /^type something\.?$/i.test(o.label));
   const order = menu.order || options.map((o) => o.n);
+  const tabs = menu.first != null ? tabsAbove(lines, menu.first) : null;
   return {
+    // The last step of a question menu, and whether one follows this question.
+    review: !!menu.review,
+    reviewNext: !menu.review && !!tabs && /✔\s*Submit\b/.test(tabs),
     question: menu.question,
     selected: menu.selected,
     options,
@@ -205,7 +223,8 @@ function parseMenu(screen) {
 
 const BOX = /^\[( |✔|✓|x|X|×)\]\s+/;
 const BUTTON = /^\s*(❯\s*)?(Submit|Next)\s*$/;
-const REVIEW = /^\s*Review your answers\s*$/;
+const REVIEW = /^\s*Review your answers\b/;
+const SEND_ALL = /^submit answers?\b/i;
 
 function parseNumbered(lines, start) {
   const opts = [];
@@ -233,8 +252,11 @@ function parseNumbered(lines, start) {
   // Some of Claude's own menus (the rewind question) have no key hint: they
   // sit under a ▔ bar with nothing below them.
   const bare = lines.slice(last + 1).every((l) => !l.trim()) && lines.slice(Math.max(0, first - 14), first).some((l) => /^\s*▔{10,}/.test(l));
-  // Nor does the last step of a question menu, "Review your answers".
-  const review = lines.slice(last + 1).every((l) => !l.trim()) && best.some((o) => o.on) && lines.slice(Math.max(0, first - 30), first).some((l) => REVIEW.test(l));
+  // Nor does the last step of a question menu, "Review your answers". Its
+  // "Submit answers" line names it, whatever shows under it.
+  const review =
+    lines.slice(Math.max(0, first - 30), first).some((l) => REVIEW.test(l)) &&
+    (best.some((o) => SEND_ALL.test(o.label)) || (lines.slice(last + 1).every((l) => !l.trim()) && best.some((o) => o.on)));
   if (!HINT.test(near) && !bare && !review) return null;
   const multi = best.filter((o) => BOX.test(o.label)).length >= 2;
   let button = null;
@@ -330,4 +352,4 @@ function promptText(screen) {
   return out.join('\n').replace(/\s+$/, '');
 }
 
-module.exports = { promptState, parseActivity, parseMenu, parseMode, promptText, strip };
+module.exports = { promptState, parseActivity, parseMenu, parseMode, promptText, strip, SEND_ALL };

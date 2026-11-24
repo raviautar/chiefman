@@ -164,6 +164,8 @@ export interface Result {
   path?: string;
   ask?: 'replace';
   typed?: string;
+  // A click on a question Claude had already moved past: nothing was done.
+  stale?: boolean;
   duplicate?: boolean;
   pending?: boolean;
   session?: string;
@@ -197,11 +199,12 @@ interface Bridge {
   remote(paneId: string, what: 'on' | 'off' | 'link'): Promise<Result>;
   copy(text: string): void;
   attach(name: string, data: ArrayBuffer): Promise<Result>;
-  choose(paneId: string, n: number): Promise<Result>;
+  // ask: the question the click was made on, as askOf in Chat.tsx makes it.
+  choose(paneId: string, n: number, ask?: string): Promise<Result>;
   dismiss(paneId: string): Promise<Result>;
-  answer(paneId: string, text: string): Promise<Result>;
+  answer(paneId: string, text: string, ask?: string): Promise<Result>;
   // Ticks exactly these check boxes, adds his words if any, and submits.
-  submitMenu(paneId: string, picks: number[], text?: string): Promise<Result>;
+  submitMenu(paneId: string, picks: number[], text?: string, ask?: string): Promise<Result>;
   retry(paneId: string): Promise<Result>;
   // With a message: Resume and send.
   startAgain(name: string, message?: string): Promise<Result>;
