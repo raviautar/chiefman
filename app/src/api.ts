@@ -7,6 +7,9 @@ export interface Box {
   icon: string;
   color: string;
   status: Status;
+  // The same state as the box's tmux tab: working, asks (it asked him
+  // something), done. Shown only as a coloured dot.
+  tab: 'working' | 'asks' | 'done' | null;
   since: number | null;
   activity: string | null;
   menu: Menu | null;

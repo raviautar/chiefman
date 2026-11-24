@@ -200,7 +200,7 @@ export function Palette({
             <button key={r.key} className={r === cur ? 'on' : ''} onMouseDown={() => go(r)}>
               {r.box ? <BoxIcon icon={r.box.icon} color={r.box.color} size={15} /> : <span className="dot-action" />}
               <span>{r.label}</span>
-              {r.box && r.box.status === 'working' && <span className="dot-working" />}
+              {r.box && r.box.tab && <span className={'state ' + r.box.tab} />}
             </button>
           ))}
         </div>

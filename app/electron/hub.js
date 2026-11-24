@@ -102,6 +102,10 @@ class Hub {
     this.drill = null;
     this.term = null;
     this.working = new Map();
+    // Each pane's @claude_state tmux option, and whether the tab bar draws
+    // tabs from it.
+    this.tabs = new Map();
+    this.tabFormat = false;
     this.screens = new Map();
     this.resumedAt = new Map();
     this.starting = new Set();
@@ -168,6 +172,8 @@ class Hub {
     this.log('attached', { session: this.cfg.session, flags: 'ignore-size' });
     this.created = await this.sessionCreated();
     await this.keepWindowList();
+    const fmt = await run(['show-options', '-gv', 'window-status-format']).catch(() => '');
+    this.tabFormat = /@claude_state/.test(fmt);
     await this.scan();
     this.setPhase('ready');
     this.timers.push(setInterval(() => this.scan(), 5000));
@@ -363,6 +369,7 @@ class Hub {
         icon: e.icon,
         color: e.color,
         status: 'ended',
+        tab: null,
         since: null,
         activity: null,
         menu: null,
@@ -381,7 +388,24 @@ class Hub {
     return this.livePublicBoxes().concat(gone);
   }
 
+  // The box's state as its tmux tab shows it: working, asks (it asked him
+  // something and waits) or done. Where the tab bar draws tabs from the
+  // @claude_state option that Claude's hooks set, that option decides, so
+  // the app and the tab bar never disagree. Without it, the app reads the
+  // screen: working, or a question.
+  tabOf(b, sc, tabBar) {
+    if (tabBar) {
+      const s = this.tabs.get(b.paneId) || '';
+      if (s === 'working' || s === 'stopping') return 'working';
+      if (s === 'input') return 'asks';
+      return s === 'done' ? 'done' : null;
+    }
+    if (sc.menu) return 'asks';
+    return this.working.has(b.paneId) ? 'working' : null;
+  }
+
   livePublicBoxes() {
+    const tabBar = this.tabFormat || [...this.tabs.values()].some(Boolean);
     return this.boxes.map((b) => {
       const sc = this.screens.get(b.paneId) || {};
       return {
@@ -391,6 +415,7 @@ class Hub {
         icon: b.icon,
         color: b.color,
         status: this.status(b),
+        tab: this.tabOf(b, sc, tabBar),
         since: this.working.get(b.paneId) || null,
         activity: this.working.has(b.paneId) ? sc.activity || null : null,
         menu: sc.menu || null,
@@ -809,15 +834,20 @@ class Hub {
       // A question shows only while Claude runs: after it quits, its last
       // screen stays in the window, buttons and all.
       const cmds = new Map();
+      const tabs = new Map();
       try {
-        const out = await run(['list-panes', '-s', '-t', `=${this.cfg.session}`, '-F', '#{pane_id}\t#{pane_current_command}']);
+        const out = await run(['list-panes', '-s', '-t', `=${this.cfg.session}`, '-F', '#{pane_id}\t#{pane_current_command}\t#{@claude_state}']);
         for (const line of out.split('\n')) {
-          const [p, c] = line.split('\t');
-          if (p) cmds.set(p, c || '');
+          const [p, c, st] = line.split('\t');
+          if (!p) continue;
+          cmds.set(p, c || '');
+          tabs.set(p, st || '');
         }
       } catch {
         return;
       }
+      if (JSON.stringify([...tabs]) !== JSON.stringify([...this.tabs])) changed = true;
+      this.tabs = tabs;
       for (const b of this.boxes) {
         if (!b.paneId) continue;
         const cmd = cmds.get(b.paneId) || '';

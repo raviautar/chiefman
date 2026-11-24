@@ -139,13 +139,35 @@ button {
   opacity: 1;
 }
 
-.dot-working {
+/* A box's state, the same colours as its tmux tab: blue while it works,
+   orange when it asked him something, green when its task is done. */
+.state {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--forest);
-  box-shadow: 0 0 0 3px var(--mint);
-  flex-shrink: 0;
+  flex: none;
+}
+.state.working {
+  background: #3e7bfa;
+  box-shadow: 0 0 0 3px rgba(62, 123, 250, 0.16);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.state.asks {
+  background: #f5843a;
+  box-shadow: 0 0 0 3px rgba(245, 132, 58, 0.18);
+}
+.state.done {
+  background: #5ea83a;
+  box-shadow: 0 0 0 3px rgba(94, 168, 58, 0.18);
+}
+.switcher button .state {
+  flex: none;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .spin {
@@ -544,7 +566,8 @@ button {
   .b2,
   .b3,
   .b4,
-  .spin {
+  .spin,
+  .state.working {
     animation: none;
   }
   .shimmer {
@@ -1701,14 +1724,6 @@ button {
 .ended-all {
   align-self: flex-start;
   margin-top: 2px;
-}
-.dot-asks {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--rust);
-  box-shadow: 0 0 0 3px #fde3d6;
-  flex-shrink: 0;
 }
 .drill-title {
   font-family: var(--serif);

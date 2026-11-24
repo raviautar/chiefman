@@ -742,12 +742,8 @@ export function App() {
                 <BoxIcon icon={b.icon} color={b.status === 'off' || b.status === 'ended' ? '#B3B2AD' : b.color} />
                 <span className="name">{b.name}</span>
                 {b.cost != null && b.cost > 0 && <span className="row-cost">{money(b.cost)}</span>}
-                {b.menu ? (
-                  <span className="dot-asks" aria-label="asks you" title="Asks you" />
-                ) : (
-                  b.status === 'working' && <span className="dot-working" aria-label="working" />
-                )}
-                {b.status === 'resuming' && !b.menu && <Spinner />}
+                {b.tab && <span className={'state ' + b.tab} aria-label={b.tab === 'asks' ? 'asks you' : b.tab} />}
+                {b.status === 'resuming' && !b.tab && <Spinner />}
                 {b.status === 'resumed' && <Check color="#034F46" />}
               </button>
             );
