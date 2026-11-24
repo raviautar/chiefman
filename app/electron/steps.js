@@ -187,10 +187,16 @@ function gitOf(cmd, out, op) {
     }
     if (op.branch && op.branch.ref && (op.branch.action === 'rebased' || op.branch.action === 'merged')) ev.push({ kind: op.branch.action, ref: String(op.branch.ref) });
   }
-  if (!has('commit') && /\bgit\b[^|;&\n]*\bcommit\b/.test(cmd)) {
+  if (!has('commit') && /\bgit\b[^|;&\n]*\bcommit\b/.test(cmd) && !/nothing to commit|no changes added to commit/.test(out)) {
     const re = /^\[([^\]\s]+)(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$/gm;
     let m;
     while ((m = re.exec(out))) ev.push({ kind: 'commit', sha: m[2], branch: m[1], msg: m[3] });
+    // A quiet commit (-q) prints no summary; a "git log --oneline" after it
+    // still names it.
+    if (!has('commit')) {
+      const l = /\bgit\b[^|;&\n]*\blog\b/.test(cmd) ? /^([0-9a-f]{7,40}) (.+)$/m.exec(out) : null;
+      ev.push({ kind: 'commit', sha: l ? l[1] : '', msg: l ? l[2] : null });
+    }
   } else if (has('commit')) {
     const m = /^\[([^\]\s]+)(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$/m.exec(out);
     const c = ev.find((e) => e.kind === 'commit');
@@ -293,8 +299,8 @@ function summarize(steps, ms, prs, fresh) {
       let say;
       let link = null;
       if (e.kind === 'commit') {
-        say = `Commit ${e.sha.slice(0, 7)}${e.msg ? ' ' + clip(e.msg, 80) : ''}`;
-        if (r) link = `https://github.com/${r}/commit/${e.sha}`;
+        say = ['Commit', e.sha ? e.sha.slice(0, 7) : '', e.msg ? clip(e.msg, 80) : ''].filter(Boolean).join(' ');
+        if (r && e.sha) link = `https://github.com/${r}/commit/${e.sha}`;
       } else if (e.kind === 'push') {
         say = e.branch ? `Push ${e.branch}` : 'Push';
         if (r && e.branch) link = `https://github.com/${r}/tree/${e.branch}`;
