@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { EFFORTS, MODELS } from './api';
 
-// Quiet rows: which model, how much effort, and for a running box its mode,
-// which a click moves on as Shift+Tab does.
+// Quiet rows: what the box cost so far and how full its context is, which
+// model, how much effort, and for a running box its mode, which a click
+// moves on as Shift+Tab does.
 export function Picker({
+  meter,
   model,
   effort,
   mode,
@@ -11,6 +13,7 @@ export function Picker({
   onPick,
   onClose,
 }: {
+  meter?: string;
   model: string | null;
   effort: string | null;
   mode?: string;
@@ -20,7 +23,11 @@ export function Picker({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const away = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && onClose();
+    // Its own button closes it with its click.
+    const away = (e: MouseEvent) => {
+      const own = ref.current?.parentElement ?? ref.current;
+      if (own && !own.contains(e.target as Node)) onClose();
+    };
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), onClose());
     setTimeout(() => document.addEventListener('mousedown', away), 0);
     window.addEventListener('keydown', esc, true);
@@ -31,6 +38,7 @@ export function Picker({
   }, [onClose]);
   return (
     <div className="picker" ref={ref} role="dialog" aria-label="Model and effort">
+      {meter && <div className="picker-meter">{meter}</div>}
       <div className="picker-row">
         {MODELS.map(([id, label]) => (
           <button key={id} className={id === model ? 'on' : ''} onClick={() => onPick('model', id)}>

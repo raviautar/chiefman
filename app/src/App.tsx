@@ -1,19 +1,28 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api, Box, BoxSpec, Draft, Drill, EFFORTS, HubEvent, MODELS, PhaseInfo, PlanInfo, Result, Snapshot } from './api';
-import { Check, StateMark } from './icons';
+import { api, Box, BoxSpec, Draft, Drill, EFFORTS, HubEvent, MODELS, PhaseInfo, PlanInfo, Recent, Result, Snapshot } from './api';
+import { Avatar, Check } from './icons';
 import { Picker } from './Picker';
-import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
+import { Action, Confirm, costOf, meterOf, MoreMenu, Palette, RenameSheet } from './Actions';
 import { ChatState, ChatView, Pending, norm } from './Chat';
 import { quotesOf, quoteText } from './Quotes';
 import { TerminalView } from './Terminal';
 import { DrillPanel } from './Drill';
-import { NewBoxSheet } from './NewBox';
+import { inferName, lookFor, resumeName, ResumeList } from './NewBox';
 import { copyLink, RemoteButton } from './Remote';
 
 type Toast = { text: string; bad?: boolean; id: number };
 
 // New Box's message is kept with the drafts, under a key no box name can have.
 const NEW_BOX = 'new.box';
+
+// The new conversation has nothing in it yet.
+const NO_CHAT: ChatState = { items: [], fresh: new Set(), steps: 0, loaded: true };
+
+const Chevron = () => (
+  <svg className="pill-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
 
 // Below this width the drill-down floats over the chat instead of taking room.
 const NARROW = '(max-width: 1179px)';
@@ -64,10 +73,28 @@ function panelFor(narrow: boolean) {
   return (v ?? store.get('chiefman.panel')) === '1';
 }
 
-function money(n: number | null) {
-  if (n == null) return '';
-  return n < 10 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
+// How long ago a box last said something: now, 4m, 2h, 3d.
+function ago(at: number, now: number) {
+  const m = Math.floor((now - at) / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  if (m < 1440) return `${Math.floor(m / 60)}h`;
+  return `${Math.floor(m / 1440)}d`;
 }
+
+// The quiet grey line under a box's name in the sidebar: what it does now,
+// what it asks, or the last line it said.
+function lineOf(b: Box) {
+  if (b.status === 'starting') return 'Starting…';
+  if (b.status === 'resuming') return 'Coming back…';
+  if (b.status === 'failed') return "Didn't start";
+  if (b.ended || b.status === 'ended') return 'Ended';
+  if (b.menu) return b.menu.question.split('\n')[0] || 'Asks you';
+  if (b.status === 'working' && b.activity) return b.activity;
+  return b.said?.line || '';
+}
+
+const modelLabel = (id: string) => (MODELS.find((m) => m[0] === id) || ['', id])[1];
 
 // Time left until a plan limit resets, as the tmux status bar says it:
 // 47m, 2h 47m, 3d 15h.
@@ -78,18 +105,11 @@ function until(at: number, now: number) {
   return `${Math.floor(mins / 1440)}d ${Math.floor((mins % 1440) / 60)}h`;
 }
 
-// Every box the app starts runs in bypass permissions, so the header names
-// the mode only when it is another one. With no mode line under its prompt,
-// Claude asks before it edits.
+// Every box the app starts runs in bypass permissions, so the message box
+// names the mode only when it is another one. With no mode line under its
+// prompt, Claude asks before it edits.
 const USUAL_MODE = /bypass/i;
 const DEFAULT_MODE = 'ask before edits';
-
-function meterLine(b: Box) {
-  const parts = [];
-  if (b.cost != null && b.cost > 0) parts.push(money(b.cost));
-  if (b.context != null) parts.push(`${Math.round(b.context * 100)}% context`);
-  return parts.join(' · ');
-}
 
 export function App() {
   const [info, setInfo] = useState<PhaseInfo>({ phase: 'starting', error: null, restore: null });
@@ -110,10 +130,19 @@ export function App() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [nothing, setNothing] = useState(false);
   const [chats, setChats] = useState<Record<string, ChatState>>({});
-  const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | 'close' | null>(null);
+  const [overlay, setOverlay] = useState<'resume' | 'switch' | 'clear' | 'rename' | 'close' | null>(null);
+  // New Box: an empty conversation until his first message starts the box.
+  // name: the name that message gave it, while the box comes up.
+  const [newConv, setNewConv] = useState<{ name?: string } | null>(null);
+  const newRef = useRef(newConv);
+  newRef.current = newConv;
+  // The model and effort the new box starts with; a new key brings his words
+  // back into a fresh field.
+  const [newPick, setNewPick] = useState({ model: 'claude-opus-5-5', effort: 'xhigh' });
+  const [newSeq, setNewSeq] = useState(0);
   const [picking, setPicking] = useState(false);
+  // The menu under the box's name.
   const [more, setMore] = useState(false);
-  const [ctx, setCtx] = useState<string | null>(null);
   const [ask, setAsk] = useState<{ title: string; typed: string; answer: (yes: boolean) => void } | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [sent, setSent] = useState<Record<string, string>>({});
@@ -124,7 +153,6 @@ export function App() {
   const [linkCopied, setLinkCopied] = useState<{ pane: string; url: string } | null>(null);
   // First messages held while their box starts, by box name.
   const [held, setHeld] = useState<Record<string, string>>({});
-  const [endedOpen, setEndedOpen] = useState(false);
   // The docked drill panel while it slides shut.
   const [closing, setClosing] = useState(false);
   const pending = useRef<Record<string, Pending[]>>({});
@@ -329,20 +357,26 @@ export function App() {
     if (hit) {
       setSelected(hit.name);
       setView('chat');
+      setNewConv(null);
       wantPane.current = null;
     }
   });
 
+  // A box he just started is shown once it is in the list, unless he is
+  // writing the first message of another new box by then.
   useEffect(() => {
-    if (wantSelect.current && boxes.some((b) => b.name === wantSelect.current)) {
-      setSelected(wantSelect.current);
-      setView('chat');
-      wantSelect.current = null;
-    }
+    const w = wantSelect.current;
+    if (!w || !boxes.some((b) => b.name === w)) return;
+    wantSelect.current = null;
+    const n = newRef.current;
+    if (n && n.name !== w) return;
+    setSelected(w);
+    setView('chat');
+    setNewConv(null);
   }, [boxes]);
 
-  // Ended boxes leave the list for the quiet "Ended" line, which shows only
-  // while there are some. The chief always stays a row.
+  // Ended boxes leave the list: Cmd+K finds them by name. The chief always
+  // stays a row, and so does an ended box while he reads it.
   const hasText = (name: string) => {
     const d = saved.current[name];
     return !!d && (!!d.text.trim() || d.atts.length > 0 || quotesOf(d.bundle).length > 0);
@@ -350,8 +384,6 @@ export function App() {
   const tucked = (b: Box) => !!b.ended && b.name !== 'chief';
   const listed = boxes.filter((b) => !tucked(b));
   const endedLine = boxes.filter(tucked);
-  // The line stays open while he reads one of its boxes.
-  const endedShown = endedOpen || endedLine.some((b) => b.name === selected);
 
   const box = useMemo(() => boxes.find((b) => b.name === selected) || listed[0] || null, [boxes, selected]);
   const paneId = box ? box.paneId : null;
@@ -383,6 +415,57 @@ export function App() {
   async function clearEnded(names: string[]) {
     for (const n of names) await removeEnded(n);
   }
+
+  // A box he picks: the new conversation, if one was open, is left behind
+  // (its words stay for the next New Box).
+  function goTo(name: string, keepView = false) {
+    wantSelect.current = null;
+    setNewConv(null);
+    setMore(false);
+    setPicking(false);
+    setSelected(name);
+    if (!keepView) setView('chat');
+  }
+
+  // New Box (and Cmd+N): an empty conversation with the cursor in its field.
+  function openNew() {
+    setOverlay(null);
+    setPicking(false);
+    setMore(false);
+    if (!newConv || newConv.name) {
+      setNewPick(lastPick(config));
+      setNewConv({});
+    }
+    setView('chat');
+    setTimeout(() => document.getElementById('composer')?.focus(), 0);
+  }
+
+  // His first message starts the box, named after what it asks.
+  async function startNew(text: string) {
+    if (!newConv || newConv.name) return false;
+    const name = inferName(text, boxes.map((b) => b.name));
+    const lk = lookFor(name);
+    setNewConv({ name });
+    startBox({ name, icon: lk.icon, color: lk.color, message: text, model: newPick.model, effort: newPick.effort });
+    return true;
+  }
+
+  // Cmd+K, Resume an earlier session.
+  function resumeSession(r: Recent) {
+    const { name, note } = resumeName(r, boxes);
+    const lk = lookFor(name);
+    setNewConv(null);
+    startBox({ name, icon: lk.icon, color: lk.color, message: '', ...lastPick(config), resume: r.id }, note);
+  }
+
+  const toggleView = () => setView((v) => (v === 'chat' ? 'terminal' : 'chat'));
+
+  // Cmd+K's "Edit an earlier message" and "Search what you sent" open the
+  // message box's own lists.
+  const popIn = (kind: 'edit' | 'search') => {
+    setView('chat');
+    setTimeout(() => window.dispatchEvent(new CustomEvent('chiefman:pop', { detail: kind })), 60);
+  };
 
   useEffect(() => {
     if (box) store.set('chiefman.selected', box.name);
@@ -426,6 +509,15 @@ export function App() {
         setNothing(false);
         return;
       }
+      // Esc leaves a new conversation he has not sent yet: no box is left
+      // behind, and his words wait for the next New Box.
+      if (e.key === 'Escape' && newConv && !newConv.name && !overlay && !ask && !picking && !more) {
+        if (document.activeElement?.getAttribute('aria-expanded') === 'true') return;
+        e.preventDefault();
+        e.stopPropagation();
+        setNewConv(null);
+        return;
+      }
       // Below 1180 px the panel floats over the chat and stays while he
       // types; Esc on it, or with nothing in focus, puts it away. Esc in its
       // reply field closes only the field.
@@ -439,14 +531,14 @@ export function App() {
       }
       // Esc on a menu leaves it, as in the terminal, where Claude allows that.
       // A menu without that (the trust question) gets no Esc at all.
-      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.menu) {
+      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.menu) {
         const el = document.activeElement;
         if (el && (el.closest('.drill, .asks, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         if (box.menu.esc) api().dismiss(box.paneId).then((r) => !r.ok && r.reason && show(r.reason, true));
         return;
       }
-      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
+      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
         if (el && (el.closest('.drill, .asks, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
@@ -464,7 +556,7 @@ export function App() {
       else if (k === ']' || e.code === 'BracketRight') next = listed[(at + 1) % listed.length];
       else if (k === 'n' && !e.shiftKey) {
         e.preventDefault();
-        setOverlay('newbox');
+        openNew();
         return;
       } else if (k === 'k' && !e.shiftKey) {
         e.preventDefault();
@@ -472,16 +564,16 @@ export function App() {
         return;
       } else if (k === 't' && !e.shiftKey) {
         e.preventDefault();
-        setView((v) => (v === 'chat' ? 'terminal' : 'chat'));
+        if (!newConv) toggleView();
         return;
       } else return;
       e.preventDefault();
       e.stopPropagation();
-      if (next) setSelected(next.name);
+      if (next) goTo(next.name, true);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [boxes, box, overlay, view, picking, more, ctx, ask, full, narrow, drillShown, nothing]);
+  }, [boxes, box, overlay, view, picking, more, ask, full, narrow, drillShown, nothing, newConv, config]);
 
   // Asks once, in the app, before typed text of his is replaced.
   function askReplace(name: string, typed: string) {
@@ -655,12 +747,14 @@ export function App() {
         }
         if (r.existing && r.name) setSelected(r.name);
         if (r.renamed && r.name) setNotes((n) => ({ ...n, [r.name!]: `${r.renamed} is a different conversation, so this one is ${r.name}.` }));
-        // His first message: sent, or put in the box's field. New Box keeps
-        // it only when the box never came up.
-        if (r.sent) setDraftFor(NEW_BOX, null);
-        if (r.unsent) {
-          giveBack(r.name || spec.name, r.paneId, r.unsent);
-          setDraftFor(NEW_BOX, null);
+        // His first message: sent, or put in the box's field.
+        if (r.unsent) giveBack(r.name || spec.name, r.paneId, r.unsent);
+        // Refused before any window opened: his words go back to New Box.
+        if (!r.ok && !r.unsent && !r.paneId && !r.existing && !spec.resume && spec.message) {
+          setDraftFor(NEW_BOX, { text: spec.message, caret: spec.message.length, atts: [] });
+          if (wantSelect.current === spec.name) wantSelect.current = null;
+          setNewSeq((s) => s + 1);
+          setNewConv((n) => (n && n.name === spec.name ? {} : n));
         }
         // A box that ended as it started says why above its own ended line.
         if (!r.ok && !r.ended) show(r.reason || "Couldn't start the box.", true);
@@ -688,9 +782,22 @@ export function App() {
     if (!r.ok) show(r.reason || 'Not sent.', true);
   }
 
-  function openContext() {
-    if (!box?.paneId) return;
-    setCtx(ctx === box.paneId ? null : box.paneId);
+  // Remote Control on or off, from the name's menu or Cmd+K. A click still on
+  // its way counts as done.
+  const remoteOn = (b: Box) => {
+    const going = b.remoteAsk && (b.remoteAsk === 'on') !== b.remote ? b.remoteAsk : null;
+    return going ? going === 'on' : b.remote;
+  };
+  async function toggleRemote(b: Box) {
+    if (!b.paneId) return;
+    const r = await api().remote(b.paneId, remoteOn(b) ? 'off' : 'on');
+    if (!r.ok) show(r.reason || 'Not sent.', true);
+  }
+
+  async function interrupt(b: Box) {
+    if (!b.paneId) return;
+    const r = await api().interrupt(b.paneId);
+    if (r.ok) show(`Interrupted ${b.name}`);
   }
 
   async function rename(name: string) {
@@ -716,13 +823,17 @@ export function App() {
     if (r.session && d) keepForSession(r.session, d);
   }
 
+  const live = !!box && !!box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
+  // Compact keeps the conversation, so it runs at once; Clear and Close ask.
   const boxActions: Action[] =
-    box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed'
+    box && live
       ? [
-          { label: 'Compact', run: () => setOverlay('compact') },
-          { label: 'Clear', run: () => setOverlay('clear') },
           { label: 'Rename', run: () => setOverlay('rename') },
+          { label: 'Compact', run: () => void act('compact') },
+          { label: 'Clear', run: () => setOverlay('clear') },
           ...(box.name !== 'chief' ? [{ label: 'Close box', run: () => setOverlay('close') }] : []),
+          { label: remoteOn(box) ? 'Turn Remote Control off' : 'Turn Remote Control on', run: () => void toggleRemote(box) },
+          ...(box.remote ? [{ label: 'Copy Remote Control link', run: () => void remoteLink(box) }] : []),
         ]
       : [];
   // An ended box: Resume (and send what he typed), or Remove.
@@ -736,14 +847,8 @@ export function App() {
     : [];
   const remoteLink = (b: Box) =>
     copyLink(b, (t) => show(t, true)).then((url) => url && b.paneId && setLinkCopied({ pane: b.paneId, url }));
-  const paletteActions: Action[] = [
-    ...boxActions,
-    ...(box?.paneId && box.remote && boxActions.length ? [{ label: 'Copy Remote Control link', run: () => void remoteLink(box) }] : []),
-    ...endedActions,
-    { label: 'Model and effort', run: () => setPicking(true) },
-    { label: 'New box', run: () => setOverlay('newbox') },
-    { label: view === 'chat' ? 'Terminal' : 'Chat', run: () => setView(view === 'chat' ? 'terminal' : 'chat') },
-  ];
+  // The menu a click on the box's name opens.
+  const nameMenu: Action[] = [...boxActions, ...endedActions];
 
   // His answer to the last card: "Nothing needs you." shows for 2 s, then the
   // panel folds away. A wide window shows it again when a new item comes, if
@@ -774,15 +879,48 @@ export function App() {
     if (drill.items.length) showPanel(true);
     else if (viewing.current === 'chief') setNothing(true);
   }, [drill?.id]);
-  const title = box ? box.name : 'chiefman';
-  const meter = box ? meterLine(box) : '';
-  const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
+  const meter = box && live ? meterOf(box) : '';
   // A skill the open box cannot run has no button.
   const skills: Skill[] = live ? SKILLS.filter((s) => box!.skills?.includes(s.name)) : [];
   const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
+  const at = listed.findIndex((b) => b.name === box?.name);
+  const step = (d: number) => listed.length && goTo(listed[(at + d + listed.length) % listed.length].name, true);
 
-  // The skill buttons, as quiet words under the message box: things he asks
-  // the box, so they sit where he types.
+  // Cmd+K: every action the app has, with its shortcut. Box actions only
+  // while a box (not a new conversation) is open.
+  const onBox = !!box && !newConv;
+  const paletteActions: Action[] = [
+    { label: 'New box', hint: '⌘N', run: openNew },
+    { label: 'Resume an earlier session', run: () => setOverlay('resume') },
+    ...(onBox ? nameMenu : []),
+    ...(onBox && live && box!.modelName
+      ? [
+          {
+            label: 'Model and effort',
+            run: () => {
+              setView('chat');
+              setPicking(true);
+            },
+          },
+        ]
+      : []),
+    ...(onBox && live && box!.mode ? [{ label: 'Next mode', hint: '⇧⇥', run: () => void cycleMode() }] : []),
+    ...(onBox && live && box!.status === 'working' ? [{ label: 'Interrupt', hint: 'Esc', run: () => void interrupt(box!) }] : []),
+    ...(onBox ? skills.map((s) => ({ label: s.label, run: () => void runSkill(s) })) : []),
+    ...(onBox && box!.name === 'chief' && asks > 0 && !drillShown ? [{ label: 'Show the drill-down', run: () => showPanel(true) }] : []),
+    ...(drillShown ? [{ label: 'Hide the drill-down', run: () => showPanel(false) }] : []),
+    ...(onBox && live ? [{ label: 'Edit an earlier message', hint: 'Esc Esc', run: () => popIn('edit') }] : []),
+    ...(onBox && live ? [{ label: 'Search what you sent', hint: '⌃R', run: () => popIn('search') }] : []),
+    ...(onBox && box!.paneId ? [{ label: view === 'chat' ? 'Terminal' : 'Chat', hint: '⌘T', run: toggleView }] : []),
+    ...(listed.length > 1 ? [{ label: 'Next box', hint: '⌘]', run: () => step(1) }, { label: 'Previous box', hint: '⌘[', run: () => step(-1) }] : []),
+    ...(endedLine.length
+      ? [{ label: endedLine.length === 1 ? 'Remove the ended box' : `Remove the ${endedLine.length} ended boxes`, run: () => void clearEnded(endedLine.map((b) => b.name)) }]
+      : []),
+  ];
+  const hints = Object.fromEntries(listed.slice(0, 9).map((b, i) => [b.name, `⌘${i + 1}`]));
+
+  // The skill buttons, grey chips inside the message box: things he asks the
+  // box, so they sit where he types.
   const skillRow =
     skills.length > 0 ? (
       <span className="skills" role="group" aria-label="Skills">
@@ -831,7 +969,93 @@ export function App() {
     const lists = ((shownPane && chats[shownPane]?.items) || []).filter((i) => i.id in folds || i.id === drill.id);
     for (const i of lists.slice(0, -1)) if (i.id in folds) folds[i.id] = '';
   }
-  if (!box || (!box.paneId && box.status !== 'ended')) {
+  // Inside the message box, right of the skills: the mode when it is not the
+  // usual one, then the model and effort, whose picker also says what the
+  // box cost and how full its context is.
+  const boxTools =
+    box && live && box.modelName ? (
+      <>
+        {box.mode && !USUAL_MODE.test(box.mode) && (
+          <button className={'tool-pill mode' + (/plan/i.test(box.mode) ? ' plan' : '')} onClick={cycleMode} title="Next mode  ⇧⇥">
+            {box.mode}
+          </button>
+        )}
+        <span className="model-wrap">
+          <button className={'tool-pill' + (picking ? ' open' : '')} onClick={() => setPicking(!picking)} aria-label="Model and effort" disabled={!!box.switching}>
+            {box.switching && !box.switching.asking ? (
+              'Switching…'
+            ) : (
+              <>
+                {box.modelName}
+                {box.effort ? ` · ${box.effort}` : ''}
+                <Chevron />
+              </>
+            )}
+          </button>
+          {picking && <Picker meter={meter} model={box.model} effort={box.effort} mode={box.mode ?? DEFAULT_MODE} onMode={cycleMode} onPick={switchBox} onClose={() => setPicking(false)} />}
+        </span>
+      </>
+    ) : null;
+  // A new box starts on the model and effort he picked last; the picker
+  // changes them before his first message.
+  const newTools = (
+    <span className="model-wrap">
+      <button className={'tool-pill' + (picking ? ' open' : '')} onClick={() => setPicking(!picking)} aria-label="Model and effort">
+        {modelLabel(newPick.model)} · {newPick.effort}
+        <Chevron />
+      </button>
+      {picking && <Picker model={newPick.model} effort={newPick.effort} onPick={(k, v) => setNewPick((p) => ({ ...p, [k]: v }))} onClose={() => setPicking(false)} />}
+    </span>
+  );
+
+  if (newConv && draftsReady) {
+    const named = newConv.name;
+    const pseudo: Box = {
+      id: 'new',
+      name: named || '',
+      paneId: null,
+      icon: 'doc',
+      color: '',
+      status: named ? 'starting' : 'idle',
+      tab: null,
+      since: null,
+      activity: null,
+      menu: null,
+      cost: null,
+      context: null,
+      model: newPick.model,
+      modelName: null,
+      effort: newPick.effort,
+      remote: false,
+      skills: [],
+      mode: null,
+      switching: null,
+      tokens: null,
+    };
+    body = (
+      <ChatView
+        key={'new:' + newSeq}
+        box={pseudo}
+        chat={NO_CHAT}
+        pending={[]}
+        quiet={quiet.current}
+        folds={{}}
+        incoming={undefined}
+        initial={saved.current[NEW_BOX]}
+        attachDir={config?.attachDir ?? ''}
+        onTaken={() => {}}
+        onDraft={(d) => setDraftFor(named || NEW_BOX, d)}
+        onRemove={async () => ({ ok: false })}
+        onResume={async () => ({ ok: false })}
+        waiting={named ? held[named] : undefined}
+        onOpen={setFull}
+        onSend={startNew}
+        onLost={() => {}}
+        onError={(t) => show(t, true)}
+        tools={named ? null : newTools}
+      />
+    );
+  } else if (!box || (!box.paneId && box.status !== 'ended')) {
     body = (
       <div className="chat">
         <div className="empty">
@@ -841,10 +1065,7 @@ export function App() {
               {info.error}
             </>
           ) : (
-            <>
-              <h2>Connecting</h2>
-              Looking for the {config?.session ?? 'chief'} session in tmux.
-            </>
+            'Connecting…'
           )}
         </div>
       </div>
@@ -876,7 +1097,6 @@ export function App() {
         onDraft={(d) => setDraftFor(box.name, d)}
         onRemove={() => removeEnded(box.name)}
         onResume={() => resumeBox(box.name)}
-        underEnded={endedLine.some((b) => b.name === box.name)}
         note={notes[box.name]}
         waiting={held[box.name]}
         onOpen={setFull}
@@ -884,6 +1104,7 @@ export function App() {
         onLost={(t) => giveBack(box.name, undefined, t)}
         onError={(t) => show(t, true)}
         foot={skillRow}
+        tools={boxTools}
         onFold={(id) => {
           if (!drill || id !== drill.id || asks === 0 || drillShown) return false;
           showPanel(true);
@@ -897,227 +1118,158 @@ export function App() {
   return (
     <div className="app">
       <nav className="nav" aria-label="Sidebar">
-        <div className="nav-lights" />
+        {/* The window's lights sit here; New Box sits at the other end. */}
+        <div className="nav-top">
+          <button className={'new-btn tip' + (newConv ? ' on' : '')} onClick={openNew} aria-label="New box" data-tip="New box  ⌘N">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        </div>
         <div className="nav-list">
-          {listed.map((b, i) => {
-            const on = box?.name === b.name;
+          {(box && tucked(box) && !newConv ? [...listed, box] : listed).map((b, i) => {
+            const on = !newConv && box?.name === b.name;
+            const line = lineOf(b);
+            const when = b.status !== 'working' && b.said?.at ? ago(b.said.at, now) : '';
+            const cost = costOf(b);
+            const off = b.status === 'off' || b.status === 'failed' || b.status === 'ended' || !!b.ended;
             return (
               <button
                 key={b.id}
-                className={'row' + (on ? ' on' : '') + (b.status === 'off' || b.status === 'failed' || b.status === 'ended' ? ' off' : '')}
-                onClick={() => setSelected(b.name)}
-                title={i < 9 ? `${b.name}  ⌘${i + 1}` : b.name}
+                className={'row' + (on ? ' on' : '') + (off ? ' off' : '')}
+                onClick={() => goTo(b.name)}
+                title={i < 9 && !tucked(b) ? `${b.name}  ⌘${i + 1}` : b.name}
               >
-                <StateMark box={b} />
-                <span className="name">{b.name}</span>
-                {b.cost != null && b.cost > 0 && <span className="row-cost">{money(b.cost)}</span>}
+                <Avatar box={b} />
+                <span className="txt">
+                  <span className="top">
+                    <span className="name">{b.name}</span>
+                    {/* On hover the time gives way to what the box cost. */}
+                    {cost && <span className="row-cost">{cost}</span>}
+                    {when && <time className="when">{when}</time>}
+                  </span>
+                  {line && <span className={'pv' + (b.menu || b.tab === 'asks' ? ' need' : '')}>{line}</span>}
+                </span>
               </button>
             );
           })}
         </div>
-        {endedLine.length > 0 && (
-          <div className="ended-group">
-            <button className="ended-toggle" aria-expanded={endedShown} onClick={() => setEndedOpen(!endedShown)}>
-              <svg className={'ended-chev' + (endedShown ? ' open' : '')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M3.5 2l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Ended ({endedLine.length})
-            </button>
-            {endedShown && (
-              <div className="ended-items">
-                {/* A click opens its chat to read; only Resume there brings it back. */}
-                {endedLine.map((b) => (
-                  <div key={b.id} className={'ended-item' + (box?.name === b.name ? ' on' : '')}>
-                    <button
-                      className="ended-open"
-                      title={b.name}
-                      onClick={() => {
-                        setSelected(b.name);
-                        setView('chat');
-                      }}
-                    >
-                      {b.name}
-                    </button>
-                    <button className="text-btn" onClick={() => clearEnded([b.name])}>
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                {endedLine.length > 1 && (
-                  <button className="text-btn ended-all" onClick={() => clearEnded(endedLine.map((b) => b.name))}>
-                    Remove all
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
         {info.restore && (
           <div className="nav-quiet" role="status">
             {waiting ? `${waiting.name} needs you` : info.restore.label} · {info.restore.done} of {info.restore.total} back
           </div>
         )}
         <div style={{ flex: 1 }} />
-        <button className="row" onClick={() => setOverlay('newbox')}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5B5B59" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-            <path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 8v8 M8 12h8" />
-          </svg>
-          <span style={{ color: '#5B5B59' }}>New Box</span>
-        </button>
-        {(planInfo.plan || planInfo.workspace) && (
-          <div className="foot">
-            {planInfo.workspace && (
-              <div className="ws" title="Workspace">
-                <span className="ws-dot" style={{ background: planInfo.workspace.colour }} />
-                {planInfo.workspace.name}
+        {planInfo.plan && (
+          <div className="usage" role="group" aria-label="Plan usage">
+            {planInfo.plan.map((l) => (
+              <div key={l.label} className={'u' + (l.pct >= 80 ? ' high' : '')}>
+                <div className="u-top">
+                  <b>{l.label.charAt(0).toUpperCase() + l.label.slice(1)}</b>
+                  <span>
+                    {Math.round(l.pct)}%{l.resets != null ? ` · ${until(l.resets, now)} left` : ''}
+                  </span>
+                </div>
+                <div className="u-bar">
+                  <i style={{ width: `${Math.max(0, Math.min(100, l.pct))}%` }} />
+                </div>
               </div>
-            )}
-            {planInfo.plan && (
-              <div className="plan" role="group" aria-label="Plan usage">
-                {planInfo.plan.map((l) => (
-                  <div key={l.label} className={'plan-line' + (l.pct >= 80 ? ' high' : '')}>
-                    <div className="plan-text">
-                      <span>
-                        {l.label.charAt(0).toUpperCase() + l.label.slice(1)} {Math.round(l.pct)}% used
-                      </span>
-                      {l.resets != null && <span>resets in {until(l.resets, now)}</span>}
-                    </div>
-                    <div className="plan-track">
-                      <span className="plan-fill" style={{ width: `${Math.max(0, Math.min(100, l.pct))}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            ))}
+          </div>
+        )}
+        {planInfo.workspace && (
+          <div className="ws" title="Workspace">
+            <i>{planInfo.workspace.name.charAt(0).toUpperCase()}</i>
+            {planInfo.workspace.name}
           </div>
         )}
       </nav>
 
       <main className="main">
-        <div className="bar">
-          <div className="bar-title">
-            <h1>{title}</h1>
-            {live && (
-              <div className="bar-meta">
-                {meter && (
-                  <span className="meter-wrap">
-                    <button className="pill meter" onClick={openContext} title={meter}>
-                      {meter}
-                    </button>
-                    {ctx === box!.paneId && <ContextPop tokens={box!.tokens} onClose={() => setCtx(null)} />}
-                  </span>
+        {/* No header bar: the box's name sits quietly at the top, and only
+            what matters shows on the right. */}
+        <header className="head">
+          <div className="head-name">
+            {newConv ? (
+              <span className={'name-new' + (newConv.name ? ' set' : '')}>{newConv.name || 'New box'}</span>
+            ) : box ? (
+              <>
+                <button
+                  className={'name-btn' + (more ? ' open' : '')}
+                  onClick={() => nameMenu.length > 0 && setMore(!more)}
+                  aria-haspopup="menu"
+                  aria-expanded={more}
+                >
+                  {box.name}
+                  {nameMenu.length > 0 && <Chevron />}
+                </button>
+                {meter && !more && (
+                  <div className="meter-card" role="tooltip">
+                    {meter}
+                  </div>
                 )}
-                {box!.modelName && (
-                  <span className="keep">
-                    <button className="pill" onClick={() => setPicking(!picking)} title="Model and effort" disabled={!!box!.switching}>
-                      {box!.switching && !box!.switching.asking ? (
-                        'Switching…'
-                      ) : (
-                        <>
-                          {box!.modelName}
-                          {box!.effort ? ` · ${box!.effort}` : ''}
-                          <svg className="pill-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M6 9l6 6 6-6" />
-                          </svg>
-                        </>
-                      )}
-                    </button>
-                    {picking && <Picker model={box!.model} effort={box!.effort} mode={box!.mode ?? DEFAULT_MODE} onMode={cycleMode} onPick={switchBox} onClose={() => setPicking(false)} />}
-                  </span>
+                {more && <MoreMenu actions={nameMenu} onClose={() => setMore(false)} />}
+              </>
+            ) : null}
+          </div>
+          <div className="head-right">
+            {box && live && !newConv && (
+              <RemoteButton
+                box={box}
+                copied={linkCopied && linkCopied.pane === box.paneId ? linkCopied.url : null}
+                onCopied={(url) => setLinkCopied(url && box.paneId ? { pane: box.paneId, url } : null)}
+                onError={(t) => show(t, true)}
+              />
+            )}
+            {box && box.paneId && !newConv && (
+              <button
+                className="icon-btn tip view-btn"
+                onClick={toggleView}
+                aria-label={view === 'chat' ? 'Terminal' : 'Chat'}
+                data-tip={view === 'chat' ? 'Terminal  ⌘T' : 'Chat  ⌘T'}
+              >
+                {view === 'chat' ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="4.5" width="18" height="15" rx="3" />
+                    <path d="M7.5 9.5l3 2.5-3 2.5 M12.5 15h4" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+                  </svg>
                 )}
-                {/* The mode shows here only when it is not the boxes' usual one. */}
-                {box!.mode && !USUAL_MODE.test(box!.mode) && (
-                  <span className="keep">
-                    <button className={'pill mode' + (/plan/i.test(box!.mode) ? ' plan' : '')} onClick={cycleMode} title="Next mode (Shift+Tab)">
-                      {box!.mode}
-                    </button>
-                  </span>
-                )}
-                <RemoteButton
-                  box={box!}
-                  copied={linkCopied && linkCopied.pane === box!.paneId ? linkCopied.url : null}
-                  onCopied={(url) => setLinkCopied(url && box!.paneId ? { pane: box!.paneId, url } : null)}
-                  onError={(t) => show(t, true)}
-                />
-                <span className="keep">
-                  <button className="icon-btn tip" onClick={() => setMore(!more)} aria-label="More actions" data-tip="More actions">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <circle cx="5" cy="12" r="1.8" />
-                      <circle cx="12" cy="12" r="1.8" />
-                      <circle cx="19" cy="12" r="1.8" />
-                    </svg>
-                  </button>
-                  {more && <MoreMenu actions={boxActions} onClose={() => setMore(false)} />}
-                </span>
-              </div>
+              </button>
             )}
           </div>
-          {box && (
-            <div className="seg" role="group" aria-label="View">
-              <button className={'tip' + (view === 'chat' ? ' on' : '')} onClick={() => setView('chat')} aria-label="Chat" data-tip="Chat">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-                </svg>
-                <span className="seg-label">Chat</span>
-              </button>
-              <button className={'tip' + (view === 'terminal' ? ' on' : '')} onClick={() => setView('terminal')} aria-label="Terminal" data-tip="Terminal">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M5 7l5 5-5 5 M12 18h7" />
-                </svg>
-                <span className="seg-label">Terminal</span>
-              </button>
-            </div>
-          )}
-        </div>
+        </header>
 
         {toast && (
           <div className="toast" key={toast.id} role="status">
-            {toast.bad ? <span className="bang">!</span> : <Check color="#D1F2EE" size={14} />}
+            {toast.bad ? <span className="bang">!</span> : <Check color="#ffffff" size={14} />}
             {toast.text}
           </div>
         )}
 
         {body}
 
-        {overlay === 'newbox' && (
-          <NewBoxSheet
-            boxes={boxes}
-            {...lastPick(config)}
-            initialMessage={saved.current[NEW_BOX]?.text ?? ''}
-            onMessage={(t) => setDraftFor(NEW_BOX, t ? { text: t, caret: t.length, atts: [] } : null)}
-            onCancel={() => setOverlay(null)}
-            onStart={startBox}
-          />
-        )}
+        {overlay === 'resume' && <ResumeList boxes={boxes} onPick={resumeSession} onClose={() => setOverlay(null)} />}
         {overlay === 'switch' && (
-          <Palette
-            boxes={boxes}
-            actions={paletteActions}
-            onClose={() => setOverlay(null)}
-            onPick={(b) => {
-              setSelected(b.name);
-              setView('chat');
-            }}
-          />
+          <Palette boxes={boxes} hints={hints} actions={paletteActions} onClose={() => setOverlay(null)} onPick={(b) => goTo(b.name)} />
         )}
-        {(overlay === 'clear' || overlay === 'compact') && box && (
+        {overlay === 'clear' && box && (
           <Confirm
-            title={overlay === 'clear' ? `Clear ${box.name}?` : `Compact ${box.name}?`}
-            body={
-              overlay === 'clear'
-                ? 'It starts a fresh conversation. The old one stays on disk and can be resumed from New Box.'
-                : 'It shrinks the conversation to a summary, so the box has room again.'
-            }
-            yes={overlay === 'clear' ? 'Clear' : 'Compact'}
-            ending={overlay === 'clear'}
-            onYes={() => act(overlay)}
+            title={`Clear ${box.name}?`}
+            body="A fresh conversation starts. Cmd+K brings the old one back."
+            yes="Clear"
+            ending
+            onYes={() => void act('clear')}
             onClose={() => setOverlay(null)}
           />
         )}
         {overlay === 'close' && box && (
           <Confirm
             title={`Close ${box.name}?`}
-            body="Its Claude stops and the box goes away. The conversation stays on disk and can be resumed from New Box."
+            body="Its Claude stops and the box goes away. Cmd+K brings it back."
             yes="Close box"
             ending
             onYes={() => void closeLive(box)}

@@ -299,12 +299,12 @@ export function ChatView({
   note,
   waiting,
   onResume,
-  underEnded,
   onOpen,
   onSend,
   onLost,
   onError,
   foot,
+  tools,
   onFold,
   foldTip,
 }: {
@@ -322,15 +322,15 @@ export function ChatView({
   note?: string;
   waiting?: string;
   onResume: () => Promise<Result>;
-  // The box sits under Ended in the list, not as a row.
-  underEnded?: boolean;
   onOpen: (url: string) => void;
   onSend: (text: string, opts?: { answer?: boolean }) => Promise<boolean>;
   // A message that did not go, after this chat closed: back to the box's draft.
   onLost: (text: string) => void;
   onError: (text: string) => void;
-  // The row under the message box: the skill buttons.
+  // Inside the message box, under his text: the skill buttons on the left,
+  // the model and effort on the right, before Send.
   foot?: ReactNode;
+  tools?: ReactNode;
   // A click on a folded line: true when it was used (the drill-down panel
   // opened) instead of showing the whole message.
   onFold?: (id: string) => boolean;
@@ -573,6 +573,18 @@ export function ChatView({
     setTimeout(() => input.current?.focus(), 0);
   }, [incoming?.seq]);
 
+  // Cmd+K opens the same lists as Esc twice and Ctrl+R.
+  useEffect(() => {
+    const open = (e: Event) => {
+      const kind = (e as CustomEvent).detail;
+      if (kind === 'edit') setPop({ kind: 'edit', at: 0 });
+      else if (kind === 'search') setPop({ kind: 'search', q: '', at: 0 });
+      if (kind === 'edit') setTimeout(() => input.current?.focus(), 0);
+    };
+    window.addEventListener('chiefman:pop', open);
+    return () => window.removeEventListener('chiefman:pop', open);
+  }, []);
+
   // The @ file list follows what he types after the @.
   useEffect(() => {
     const el = input.current;
@@ -806,7 +818,7 @@ export function ChatView({
       </div>
     );
   else if (chat?.loaded && !items.length && !pending.length && !working && !menu && !resuming && !failed && !ended && !waiting && !draft.trim())
-    middle = <div className="empty">{off ? 'Nothing runs in this window.' : 'No messages yet.'}</div>;
+    middle = <div className="empty">{off ? 'Nothing runs in this window.' : ''}</div>;
   else
     middle = (
       <div className="chat-col">
@@ -1011,7 +1023,7 @@ export function ChatView({
               </div>
             )}
             <div className="ended-line">
-              <span>{box.name} ended</span>
+              <span>Ended</span>
               {box.ended?.start && (
                 <button className="text-btn" onClick={resume} disabled={endBusy}>
                   {typed ? 'Resume and send' : 'Resume'}
@@ -1021,11 +1033,7 @@ export function ChatView({
                 Remove
               </button>
             </div>
-            {box.ended?.start ? (
-              underEnded && <div className="ended-note">Kept under Ended. Resume brings it back.</div>
-            ) : (
-              typed && <div className="ended-note">Remove takes your typed text too.</div>
-            )}
+            {!box.ended?.start && typed && <div className="ended-note">Remove takes your typed text too.</div>}
           </div>
         )}
         {failed && (
@@ -1118,37 +1126,34 @@ export function ChatView({
             </div>
           </div>
         )}
-        <Tray
-          answers={menuPicks || (answers ? oneLine(answers) : '')}
-          quotes={quotes}
-          onClearAnswers={() => {
-            if (menuPicks) return setPicks([]);
-            for (const k of liveKeys) setEntry(k, null);
-          }}
-          onReply={(k, text) => setBundle((b) => (b[k] ? { ...b, [k]: { ...b[k], text } } : b))}
-          onRemove={(k) => setEntry(k, null)}
-          onDone={() => input.current?.focus()}
-        />
-        {atts.length > 0 && (
-          <div className="att-row">
-            {atts.map((a) => (
-              <span key={a.path} className="att-chip" title={a.path}>
-                {a.image ? <img src={attUrl(a.path)} alt="" /> : <span className="att-doc">{a.name}</span>}
-                <button aria-label={'Remove ' + a.name} onClick={() => setAtts((l) => l.filter((x) => x.path !== a.path))}>
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        {menu && (closed || !menu.free) && (
-          <div className="field-note" role="status">
-            {menu.esc ? 'Pick an option above, or Esc to cancel' : 'Pick an option above'}
-          </div>
-        )}
-        <div className={'composer' + (draft.includes('\n') || draft.length > 70 ? ' tall' : '') + (draft.startsWith('!') ? ' shell' : '') + (ended ? ' dim' : '')}>
+        {/* One white box: what waits to go, his text, then the skills, the
+            model and Send. A click on its empty parts puts the cursor in. */}
+        <div className={'composer' + (draft.startsWith('!') ? ' shell' : '') + (ended ? ' dim' : '')} onMouseDown={(e) => e.target === e.currentTarget && (e.preventDefault(), input.current?.focus())}>
+          <Tray
+            answers={menuPicks || (answers ? oneLine(answers) : '')}
+            quotes={quotes}
+            onClearAnswers={() => {
+              if (menuPicks) return setPicks([]);
+              for (const k of liveKeys) setEntry(k, null);
+            }}
+            onReply={(k, text) => setBundle((b) => (b[k] ? { ...b, [k]: { ...b[k], text } } : b))}
+            onRemove={(k) => setEntry(k, null)}
+            onDone={() => input.current?.focus()}
+          />
+          {atts.length > 0 && (
+            <div className="att-row">
+              {atts.map((a) => (
+                <span key={a.path} className="att-chip" title={a.path}>
+                  {a.image ? <img src={attUrl(a.path)} alt="" /> : <span className="att-doc">{a.name}</span>}
+                  <button aria-label={'Remove ' + a.name} onClick={() => setAtts((l) => l.filter((x) => x.path !== a.path))}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <label htmlFor="composer" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-            Message {box.name}
+            Message {box.name || 'a new box'}
           </label>
           <textarea
             id="composer"
@@ -1159,7 +1164,7 @@ export function ChatView({
             value={draft}
             readOnly={blocked && !typeAhead}
             aria-expanded={pop ? 'true' : 'false'}
-            placeholder={typeAhead ? 'Type, then Resume and send' : blocked ? '' : menu?.free ? 'Reply in your words' : 'Message'}
+            placeholder={menu && (closed || !menu.free) ? 'Pick an option above' : ''}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);
@@ -1210,13 +1215,15 @@ export function ChatView({
               }
             }}
           />
-          <button aria-label="Send" data-tip="Send" className={'send tip up' + (!blocked && (menu ? question && !closed && (draft.trim() || ticked.length) : draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={blocked}>
-            <Arrow />
-          </button>
+          <div className="tools">
+            {draft.startsWith('!') && box.paneId ? <span className="shell-hint">Runs in {box.name}'s shell</span> : !closed && foot}
+            <span className="tools-gap" />
+            {tools}
+            <button aria-label="Send" data-tip="Send" className={'send tip up' + (!blocked && (menu ? question && !closed && (draft.trim() || ticked.length) : draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={blocked}>
+              <Arrow />
+            </button>
+          </div>
         </div>
-        {!closed && (foot || draft.startsWith('!')) && (
-          <div className="composer-foot">{draft.startsWith('!') ? <span className="shell-hint">Runs in {box.name}'s shell</span> : foot}</div>
-        )}
       </div>
     </>
   );
