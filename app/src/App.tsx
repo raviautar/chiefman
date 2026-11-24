@@ -126,6 +126,13 @@ export function App() {
   // The panel takes room only while something needs him, and for 2 s after
   // his answer to the last item.
   const drillShown = panel && (asks > 0 || linger);
+  // A docked panel slides shut instead of vanishing, so the chat glides wide.
+  const wasShown = useRef(drillShown);
+  useLayoutEffect(() => {
+    if (wasShown.current && !drillShown && !narrow) setClosing(true);
+    if (drillShown) setClosing(false);
+    wasShown.current = drillShown;
+  }, [drillShown]);
 
   const show = (text: string, bad = false) => setToast({ text, bad, id: Date.now() });
 
@@ -978,7 +985,7 @@ export function App() {
                   </span>
                 )}
                 <span className="keep">
-                  <button className="icon-btn" onClick={() => setMore(!more)} aria-label="More" title="More">
+                  <button className="icon-btn tip" onClick={() => setMore(!more)} aria-label="More actions" data-tip="More actions">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       <circle cx="5" cy="12" r="1.8" />
                       <circle cx="12" cy="12" r="1.8" />
@@ -1007,13 +1014,13 @@ export function App() {
           </div>
           {box && (
             <div className="seg" role="group" aria-label="View">
-              <button className={view === 'chat' ? 'on' : ''} onClick={() => setView('chat')} aria-label="Chat" title="Chat">
+              <button className={'tip' + (view === 'chat' ? ' on' : '')} onClick={() => setView('chat')} aria-label="Chat" data-tip="Chat">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
                 </svg>
                 <span className="seg-label">Chat</span>
               </button>
-              <button className={view === 'terminal' ? 'on' : ''} onClick={() => setView('terminal')} aria-label="Terminal" title="Terminal">
+              <button className={'tip' + (view === 'terminal' ? ' on' : '')} onClick={() => setView('terminal')} aria-label="Terminal" data-tip="Terminal">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M5 7l5 5-5 5 M12 18h7" />
                 </svg>
@@ -1079,7 +1086,12 @@ export function App() {
         )}
       </main>
 
-      {drillShown && <DrillPanel drill={drill} sent={sent} floating={narrow} onSend={sendDrill} />}
+      {drillShown && narrow && <DrillPanel drill={drill} sent={sent} floating onSend={sendDrill} />}
+      {(drillShown || closing) && !narrow && (
+        <div className={'drill-dock' + (drillShown ? '' : ' closing')} onAnimationEnd={(e) => e.target === e.currentTarget && !drillShown && setClosing(false)}>
+          <DrillPanel drill={drill} sent={sent} floating={false} onSend={sendDrill} />
+        </div>
+      )}
     </div>
   );
 }

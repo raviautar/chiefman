@@ -29,8 +29,9 @@ function ReplyField({ n, onSend }: { n: number; onSend: (text: string) => Promis
   );
 }
 
-// One click answers once. A new card ignores clicks for its first 600 ms,
+// One click answers once. A new card ignores clicks for its first 250 ms,
 // so the second half of a double click on the last card cannot answer it.
+const WAKE = 250;
 // The big number is the chief's own, the one he answers by.
 // An item that asks something specific (a list made for his Drill down
 // click) has a widget instead: his picks wait with the others for one Send.
@@ -50,7 +51,7 @@ function Card({
   const born = useRef(Date.now());
   const once = useRef(false);
   const answer = async (text: string) => {
-    if (once.current || Date.now() - born.current < 600) return false;
+    if (once.current || Date.now() - born.current < WAKE) return false;
     once.current = true;
     setBusy(true);
     const ok = await onSend(text);
@@ -86,7 +87,7 @@ function Card({
       ) : (
         <div className="chips">
           {ask ? (
-            <Controls kind={ask.kind} options={ask.options} picks={picks} onPicks={(p) => Date.now() - born.current >= 600 && onEntry(entryFor(item.n, ask.kind, p, ''))} />
+            <Controls kind={ask.kind} options={ask.options} picks={picks} onPicks={(p) => Date.now() - born.current >= WAKE && onEntry(entryFor(item.n, ask.kind, p, ''))} />
           ) : (
             words.map((w) => (
               <button key={w.label} className="chip" disabled={busy} onClick={() => answer(w.label)}>
@@ -94,7 +95,7 @@ function Card({
               </button>
             ))
           )}
-          <button className="reply-link" disabled={busy} onClick={() => Date.now() - born.current >= 600 && setReplying(true)}>
+          <button className="reply-link" disabled={busy} onClick={() => Date.now() - born.current >= WAKE && setReplying(true)}>
             Reply in your words
           </button>
         </div>

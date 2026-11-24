@@ -1025,7 +1025,7 @@ export function ChatView({
               }
             }}
           />
-          <button aria-label="Send" className={'send' + (!closed && (draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
+          <button aria-label="Send" data-tip="Send" className={'send tip up' + (!closed && (draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
             <Arrow />
           </button>
         </div>

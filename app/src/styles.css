@@ -47,6 +47,14 @@ body {
 
 button {
   font-family: inherit;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 90ms ease;
+}
+
+/* A clear ring on whatever the keyboard is on; none for a mouse click. */
+button:focus-visible,
+[role='option']:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .app {
@@ -100,11 +108,14 @@ button {
   background: transparent;
   border: 1px solid transparent;
   -webkit-app-region: no-drag;
-  transition: background 120ms ease;
 }
 
 .row:hover {
-  background: rgba(26, 26, 26, 0.035);
+  background: rgba(26, 26, 26, 0.04);
+}
+
+.row:active {
+  background: rgba(26, 26, 26, 0.07);
 }
 
 .row.on {
@@ -310,7 +321,18 @@ button {
   cursor: pointer;
   background: transparent;
   color: var(--muted);
-  transition: background 160ms ease, color 160ms ease;
+}
+
+.seg button:hover {
+  color: var(--ink);
+}
+
+.seg button:not(.on):hover {
+  background: rgba(26, 26, 26, 0.04);
+}
+
+.seg button:active {
+  transform: scale(0.96);
 }
 
 .seg button.on {
@@ -340,6 +362,11 @@ button {
 .skill-btn.on {
   background: rgba(26, 26, 26, 0.05);
   color: var(--ink);
+}
+
+.skill-btn:active {
+  background: rgba(26, 26, 26, 0.09);
+  transform: scale(0.96);
 }
 
 .badge {
@@ -614,25 +641,23 @@ button {
   margin: 0 0 6px;
 }
 
-/* new lines (from the NewLines design) */
+/* New lines come in quickly: a short fade and lift, no blur, no bounce. */
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(10px);
-    filter: blur(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
     transform: none;
-    filter: blur(0);
   }
 }
 
 @keyframes sent {
   from {
     opacity: 0;
-    transform: translateY(22px) scale(0.94);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -660,12 +685,11 @@ button {
 }
 
 .rise {
-  animation: rise 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .sent {
-  animation: sent 460ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
-  transform-origin: right bottom;
+  animation: sent 180ms ease-out both;
 }
 
 .shimmer {
@@ -698,7 +722,9 @@ button {
   .b3,
   .b4,
   .spin,
-  .state.working {
+  .dot.working,
+  .mark.pulse svg,
+  .drill-dock {
     animation: none;
   }
   .shimmer {
@@ -730,6 +756,11 @@ button {
   border-radius: 999px;
   background: var(--ink);
   box-shadow: 0 10px 30px rgba(26, 26, 26, 0.18);
+  transition: box-shadow 160ms ease;
+}
+
+.composer:focus-within {
+  box-shadow: 0 0 0 3px var(--lilac-ring), 0 10px 30px rgba(26, 26, 26, 0.18);
 }
 
 .composer.tall {
@@ -776,12 +807,25 @@ button {
   cursor: pointer;
   background: var(--ink-2);
   color: #9d9c98;
-  transition: background 160ms ease, color 160ms ease;
+}
+
+.send:hover:not(:disabled) {
+  background: #4a4a47;
+  color: var(--paper);
 }
 
 .send.ready {
   background: var(--lilac);
   color: var(--ink);
+}
+
+.send.ready:hover {
+  background: #e6c6fa;
+  color: var(--ink);
+}
+
+.send:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
 /* ---- terminal ---- */
@@ -839,6 +883,15 @@ button {
   cursor: pointer;
 }
 
+.round:hover {
+  background: var(--white);
+  border-color: var(--line-strong);
+}
+
+.round:active {
+  transform: scale(0.92);
+}
+
 .card {
   display: flex;
   flex-direction: column;
@@ -890,14 +943,24 @@ button {
   color: var(--ink);
 }
 
-.chip:hover {
+.chip:hover:not(:disabled) {
   border-color: var(--line-strong);
+  background: var(--white);
+}
+
+.chip:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .chip.primary {
   border-color: var(--ink);
   background: var(--ink);
   color: var(--paper);
+}
+
+.chip.primary:hover:not(:disabled) {
+  border-color: #3a3a38;
+  background: #3a3a38;
 }
 
 .reply {
@@ -985,7 +1048,14 @@ button {
   font-weight: 500;
   box-shadow: 0 8px 24px rgba(26, 26, 26, 0.18);
   max-width: 80%;
-  animation: rise 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
 }
 
 .toast .bang {
@@ -1141,6 +1211,18 @@ button {
   font-weight: 600;
 }
 
+.btn:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.btn.dark:hover:not(:disabled) {
+  background: #3a3a38;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -1179,9 +1261,20 @@ button {
   white-space: nowrap;
 }
 
-.pill:hover {
+.pill:hover:not(:disabled) {
   background: var(--sand);
-  color: var(--ink-2);
+  color: var(--ink);
+}
+
+.pill:active:not(:disabled) {
+  background: #ebe8df;
+}
+
+/* A mode other than the usual one; plan mode in lilac. */
+.pill.mode.plan {
+  background: var(--lilac);
+  color: var(--lilac-ink);
+  font-weight: 600;
 }
 
 .picker {
@@ -1218,6 +1311,10 @@ button {
 .picker-row button:hover {
   background: var(--sand);
   color: var(--ink);
+}
+
+.picker-row button:active {
+  transform: scale(0.96);
 }
 
 .picker-row button.on {
@@ -1265,7 +1362,12 @@ button {
 
 .icon-btn:hover {
   background: var(--sand);
-  color: var(--muted);
+  color: var(--ink);
+}
+
+.icon-btn:active {
+  background: #ebe8df;
+  transform: scale(0.92);
 }
 
 .icon-btn.on {
@@ -1286,6 +1388,11 @@ button {
   color: var(--ink);
   text-decoration: underline;
   cursor: pointer;
+}
+
+.text-btn:hover:not(:disabled) {
+  color: var(--ink);
+  text-decoration-thickness: 2px;
 }
 
 .row-cost {
@@ -1485,8 +1592,12 @@ button {
   background: var(--sand);
 }
 
+.menu button:active {
+  background: #ebe8df;
+}
+
 .menu .hint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--forest);
 }
 
@@ -1561,6 +1672,10 @@ button {
 
 .recent button:hover {
   background: var(--sand);
+}
+
+.recent button:active {
+  background: #ebe8df;
 }
 
 .recent button.on {
@@ -1870,9 +1985,15 @@ button {
 .pop-item.on {
   background: var(--sand);
 }
+.pop-item:active {
+  background: #ebe8df;
+}
+.pop-search:focus {
+  box-shadow: 0 0 0 3px var(--lilac-ring);
+}
 .pop-none {
   padding: 6px 10px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--faint);
 }
 .att-row {
@@ -1925,6 +2046,9 @@ button {
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;
+}
+.att-chip button:hover {
+  background: var(--ink);
 }
 .btn.ending {
   color: var(--rust);
@@ -2531,4 +2655,93 @@ button {
 }
 .you-quote + .you-line {
   margin-top: 3px;
+}
+
+/* ---- names on hover, the docked panel's slide ---- */
+
+/* A button whose only label is an icon says its name on hover. */
+.tip {
+  position: relative;
+}
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.tip:hover::after {
+  opacity: 1;
+  transition-delay: 350ms;
+}
+.tip:active::after,
+.tip:disabled::after {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+.tip.up::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+/* Chat and Terminal have words, until a narrow header shows only icons. */
+.seg .tip::after {
+  display: none;
+}
+@container (max-width: 640px) {
+  .seg .tip::after {
+    display: block;
+  }
+}
+
+/* The docked panel slides open and shut; the chat beside it glides. */
+.drill-dock {
+  flex-shrink: 0;
+  width: 340px;
+  display: flex;
+  overflow: hidden;
+  animation: dock-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.drill-dock.closing {
+  animation: dock-out 220ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.drill-dock > .drill {
+  flex: none;
+}
+@keyframes dock-in {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+}
+@keyframes dock-out {
+  to {
+    width: 0;
+    opacity: 0;
+  }
+}
+
+.chip.pick.on:hover:not(:disabled) {
+  border-color: #cfa3ea;
+  background: #e8c8fb;
+}
+.ended-toggle:active,
+.ended-open:active {
+  color: var(--ink);
+}
+.work.fold:active,
+.reply-link:active,
+.menu-cancel:active {
+  opacity: 0.7;
 }
