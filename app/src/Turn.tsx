@@ -66,7 +66,7 @@ function Diff({ text }: { text: string }) {
     <pre className="turn-pre diff">
       {text.split('\n').map((l, i) => (
         <span key={i} className={l.startsWith('@@') ? 'hunk' : l[0] === '+' ? 'add' : l[0] === '-' ? 'del' : undefined}>
-          {l + '\n'}
+          {l || ' '}
         </span>
       ))}
     </pre>
@@ -152,7 +152,7 @@ function FailRow({ f, paneId, onAsk, canAsk }: { f: Turn['failed'][number]; pane
         </button>
         <button
           type="button"
-          className="wcard-btn main turn-ask"
+          className="wcard-btn turn-ask"
           disabled={!canAsk || asked}
           onClick={() => {
             setAsked(true);
@@ -194,7 +194,6 @@ export function TurnCard({ item, paneId, onAsk, canAsk }: { item: Item; paneId: 
       icon={<StepsIcon />}
       title={<Facts text={item.t} />}
       state={open ? took(t.ms) : undefined}
-      tone={t.failed.length ? 'failed' : undefined}
       hint={open ? undefined : 'What it did'}
     >
       {t.files.length > 0 && (

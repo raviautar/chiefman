@@ -68,7 +68,8 @@ export function Card({
     if (open === undefined) setOwn(v);
     onOpen?.(v);
   };
-  const cls = (base: string) => [base, tone, className].filter(Boolean).join(' ');
+  // Prefixed: the app has bare classes such as .main and .asks.
+  const cls = (base: string) => [base, tone && 'wcard-' + tone, className].filter(Boolean).join(' ');
 
   if (done && !isOpen)
     return (
@@ -105,7 +106,7 @@ export function Card({
       {(isOpen || !folds) && buttons && buttons.length > 0 && (
         <div className="wcard-buttons">
           {buttons.map((b) => (
-            <button key={b.label} type="button" className={'wcard-btn' + (b.main ? ' main' : '')} disabled={b.disabled} title={b.title} onClick={b.onClick}>
+            <button key={b.label} type="button" className={'wcard-btn' + (b.main ? ' wcard-main' : '')} disabled={b.disabled} title={b.title} onClick={b.onClick}>
               {b.label}
             </button>
           ))}

@@ -87,24 +87,19 @@
   color: var(--wcard-grey);
   font-variant-numeric: tabular-nums;
 }
-.failed > .wcard-head .wcard-state,
-.wcard-line.failed .wcard-state {
+.wcard-failed .wcard-state {
   color: var(--wcard-failed);
 }
-.passed > .wcard-head .wcard-state,
-.wcard-line.passed .wcard-state {
+.wcard-passed .wcard-state {
   color: var(--wcard-passed);
 }
-.asks > .wcard-head .wcard-state,
-.wcard-line.asks .wcard-state {
+.wcard-asks .wcard-state {
   color: var(--wcard-asks);
 }
-.working > .wcard-head .wcard-state,
-.wcard-line.working .wcard-state {
+.wcard-working .wcard-state {
   color: var(--wcard-working);
 }
-.waiting > .wcard-head .wcard-state,
-.wcard-line.waiting .wcard-state {
+.wcard-waiting .wcard-state {
   color: var(--wcard-waiting);
 }
 
@@ -152,15 +147,15 @@
   background: #efefee;
   transform: scale(0.98);
 }
-.wcard-btn.main {
+.wcard-btn.wcard-main {
   background: var(--wcard-ink);
   border-color: var(--wcard-ink);
   color: #ffffff;
 }
-.wcard-btn.main:hover:not(:disabled) {
+.wcard-btn.wcard-main:hover:not(:disabled) {
   background: #2b2b2b;
 }
-.wcard-btn.main:active:not(:disabled) {
+.wcard-btn.wcard-main:active:not(:disabled) {
   background: #000000;
 }
 .wcard-btn:disabled {
