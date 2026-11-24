@@ -8,6 +8,14 @@ const KEEP_TYPES = ['{"type":"user"', '{"type":"assistant"', '{"type":"system"',
 // Commands the app sends for its own buttons; they never show as bubbles.
 const HIDDEN = /^\/(model|effort|rename|remote-control|context|compact|clear)\b/;
 const NOT_A_MESSAGE = /^\s*(<(command-|local-command|bash-|system-reminder|task-notification|user-prompt-submit|teammate-message|tick>)|\[Request interrupted|Caveat: )/;
+// The skills the header's buttons run. A run shows as one quiet line, the
+// same words as the button, whichever plugin's copy ran ("/p:plain-english").
+const SKILL_LINES = { 'plain-english': 'Plain English', 'drill-down': 'Drill down' };
+
+function skillLine(cmd) {
+  const m = /^\/(?:[\w.-]+:)?([\w-]+)$/.exec(cmd);
+  return m && Object.prototype.hasOwnProperty.call(SKILL_LINES, m[1]) ? SKILL_LINES[m[1]] : null;
+}
 
 function userText(content) {
   if (typeof content === 'string') return content;
@@ -290,7 +298,8 @@ class Transcript extends EventEmitter {
       }
       if (cmd) {
         this.endTurn(ts);
-        this.push({ id: 'u:' + d.uuid, k: 'you', t: mask(cmd), ts });
+        const quiet = skillLine(cmd);
+        this.push(quiet ? { id: 'u:' + d.uuid, k: 'work', t: quiet, ts } : { id: 'u:' + d.uuid, k: 'you', t: mask(cmd), ts });
         this.turn = { anchor: 'u:' + d.uuid, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
         return;
       }
