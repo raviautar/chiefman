@@ -306,8 +306,8 @@ function createWindow() {
     minHeight: 600,
     title: 'chiefman',
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 22 },
-    backgroundColor: '#F5F4F0',
+    trafficLightPosition: { x: 22, y: 22 },
+    backgroundColor: '#FFFFFF',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

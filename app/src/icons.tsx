@@ -33,7 +33,7 @@ export function BoxIcon({ icon, color, size = 16 }: { icon: string; color: strin
 
 // A box's state, the same colours as its tmux tab: blue while it works,
 // orange when it asked him something, green when its task is done.
-const TAB: Record<string, string> = { working: '#3e7bfa', asks: '#f5843a', done: '#5ea83a' };
+const TAB: Record<string, string> = { working: '#0a7aff', asks: '#f57a00', done: '#1fa94d' };
 const SAID: Record<string, string> = { working: 'working', asks: 'asks you', done: 'done' };
 
 // The mark before a box's name: its state dot, or the chief's crown in the
@@ -50,12 +50,34 @@ export function StateMark({ box }: { box: Box }) {
   if (box.name === 'chief')
     return (
       <span className={'mark' + (box.tab === 'working' ? ' pulse' : '')} role="img" aria-label={said}>
-        <BoxIcon icon="crown" color={box.tab ? TAB[box.tab] : gone ? '#B3B2AD' : box.color} size={15} />
+        <BoxIcon icon="crown" color={box.tab ? TAB[box.tab] : gone ? '#B3B2AD' : '#0c0c0e'} size={15} />
       </span>
     );
   return (
     <span className="mark" role="img" aria-label={said}>
       <span className={'dot ' + (box.tab || (gone ? 'gone' : 'idle'))} />
+    </span>
+  );
+}
+
+// A sidebar row's picture: the box's icon on a grey disc (the chief's crown
+// on black), with its state as a small dot at the corner.
+export function Avatar({ box }: { box: Box }) {
+  const gone = box.status === 'off' || box.status === 'ended' || box.status === 'failed';
+  const chief = box.name === 'chief';
+  const said = box.tab ? SAID[box.tab] : gone ? 'off' : 'idle';
+  return (
+    <span className={'av' + (chief ? ' chief' : '') + (gone ? ' gone' : '')} role="img" aria-label={said}>
+      {box.status === 'resuming' && !box.tab ? (
+        <Spinner />
+      ) : chief ? (
+        <svg width="17" height="12" viewBox="28 14 44 29" aria-hidden="true">
+          <path d="M30 41 L35 21 L44 31 L50 16 L56 31 L65 21 L70 41 Z" fill="currentColor" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <BoxIcon icon={box.icon} color="currentColor" size={16} />
+      )}
+      {box.tab && <i className={'av-dot ' + box.tab} />}
     </span>
   );
 }

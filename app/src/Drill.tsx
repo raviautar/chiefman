@@ -183,8 +183,7 @@ export function DrillPanel({
       }}
     >
       <div className="drill-head">
-        <h2 className="drill-title">From the chief</h2>
-        <button className="icon-btn tip" aria-label="Hide" data-tip="Hide" onClick={onClose}>
+        <button className="icon-btn tip drill-hide" aria-label="Hide" data-tip="Hide" onClick={onClose}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
