@@ -160,6 +160,9 @@ export interface Item {
   tail?: string;
   // A turn's line of facts: what the turn did, by kind.
   turn?: Turn;
+  // Claude Code's own question or plan, once answered: each question and
+  // what it went with.
+  asked?: { q: string; a: string }[];
 }
 
 // What one turn of work did. Each row names the steps it came from (ids),
@@ -172,8 +175,12 @@ export interface Turn {
   outside: { id: string; say: string; service: string; write: 'draft' | 'sent' | 'change'; link?: string }[];
   git: { id: string; kind: 'commit' | 'push' | 'opened' | 'merged' | 'closed' | 'ready' | 'rebased' | 'branch' | 'pr'; say: string; link?: string; n?: number }[];
   failed: { id: string; say: string; tail: string[] }[];
-  // The steps that only read (missed: it failed, and the box went on).
-  other: { id: string; say: string; missed?: boolean }[];
+  // Agents it started, and commands and watches it left running on their own.
+  agents?: { id: string; say: string; running?: boolean }[];
+  background?: { id: string; say: string; kind: 'command' | 'watch' }[];
+  // The steps that only read (missed: it failed, and the box went on;
+  // running: no result yet).
+  other: { id: string; say: string; missed?: boolean; running?: boolean }[];
 }
 
 // The turn that runs now: its newest step as it reads while it runs, when
@@ -192,6 +199,9 @@ export interface StepDetail {
   out?: string;
   cut?: number;
   cmd?: string;
+  // An agent's report, as Markdown; running: it has not ended yet.
+  md?: boolean;
+  running?: boolean;
 }
 
 export interface DrillItem {

@@ -9,11 +9,28 @@ const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 // Tools whose failure is the box's own business: a missed read, a retried
 // edit. They are listed with the other steps, not counted as failed.
 const QUIET_FAILS = new Set(['Read', 'Glob', 'Grep', 'LS', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'ToolSearch', 'TaskStop', 'TaskOutput', 'AskUserQuestion', 'ExitPlanMode']);
-// A tool of another system writes when its name says so.
-const WRITES = /(^|[_-])(create|update|add|send|transition|edit|publish|draft|post|merge|delete|reply|forward|upload|assign|move|comment)([_-]|$)/i;
+// A tool of another system writes when the first verb in its name does:
+// "jira_link_to_epic" writes, "slack_read_list" reads.
+const WRITE_VERBS = new Set('create add update edit set send post reply forward publish draft delete remove trash untrash archive move transition assign merge close comment upload link label unlabel mark schedule notify submit approve restore duplicate apply insert patch put write rename spawn ask react'.split(' '));
+const READ_VERBS = new Set('get list search read fetch query find view download check investigate compare describe lookup wait guide export resolve authenticate complete'.split(' '));
+const SENDS = new Set(['send', 'post', 'reply', 'forward', 'notify', 'ask']);
 // Browser tools click and type in a page; they are steps, not writes.
 const BROWSER = /chrome|playwright|browser|computer/i;
 const PRODUCTS = { jira: 'Jira', confluence: 'Confluence', slack: 'Slack', notion: 'Notion', gmail: 'Gmail', github: 'GitHub', linear: 'Linear', calendar: 'Calendar', drive: 'Drive' };
+const NOT_VERBS = new Set([...Object.keys(PRODUCTS), 'mcp', 'claude', 'ai', 'plugin']);
+
+// How a tool of another system writes: draft, sent or change; null when it
+// only reads.
+function writeOf(tool) {
+  const words = tool.toLowerCase().split(/[_-]+/).filter((w) => w && !NOT_VERBS.has(w));
+  let verb = words.length === 1 && words[0] === 'batch' ? 'batch' : null;
+  for (const w of words) {
+    if (verb || READ_VERBS.has(w)) break;
+    if (WRITE_VERBS.has(w)) verb = w;
+  }
+  if (!verb) return null;
+  return /draft/i.test(tool) ? 'draft' : SENDS.has(verb) ? 'sent' : 'change';
+}
 const HINT_KEYS = ['issue_key', 'title', 'summary', 'subject', 'name'];
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const LINK = /https?:\/\/[^\s"'<>`)\]]+/;
@@ -53,7 +70,7 @@ function describe(name, input) {
   switch (name) {
     case 'Bash': {
       const cmd = String(i.command || '');
-      return step(i.description || cmd.split('\n')[0] || 'Run a command', { cmd });
+      return step(i.description || cmd.split('\n')[0] || 'Run a command', { cmd, ...(i.run_in_background ? { bg: 'command' } : {}) });
     }
     case 'Read':
       return step(`Read ${base(file)}`, { file });
@@ -78,7 +95,7 @@ function describe(name, input) {
       return step(`Search the web for "${clip(i.query, 60)}"`);
     case 'Agent':
     case 'Task':
-      return step(`Agent: ${i.description || 'a task'}`);
+      return step(`Agent: ${i.description || 'a task'}`, { agent: true });
     case 'Skill':
       return step(`Run the ${String(i.skill || '').replace(/^[\w.-]+:/, '') || 'a'} skill`);
     case 'ToolSearch':
@@ -96,18 +113,23 @@ function describe(name, input) {
     case 'TaskOutput':
       return step('Read a background task');
     case 'Monitor':
-      return step(i.description ? `Watch: ${i.description}` : 'Watch for an event');
+      return step(i.description ? `Watch: ${i.description}` : 'Watch for an event', { bg: 'watch' });
     case 'Artifact':
-      return step(i.action && i.action !== 'publish' ? 'Read a page' : 'Publish a page');
+      if (i.action && i.action !== 'publish') return step('Read a page');
+      return { say: mask(clip(`Publish ${i.title || 'a page'}`, 140)), kind: 'outside', service: 'Pages', write: 'published' };
+    case 'ArtifactData':
+      if (!/^(set|update|delete|batch)$/.test(String(i.action || ''))) return step('Read a page’s data');
+      return { say: 'Change a page’s data', kind: 'outside', service: 'Pages', write: 'change' };
+    case 'ArtifactComments':
+      if (!/create|reply|resolve|delete/.test(String(i.action || ''))) return step('Read a page’s comments');
+      return { say: 'Comment on a page', kind: 'outside', service: 'Pages', write: 'sent' };
   }
   const m = mcpParts(name);
   if (m) {
     const hintKey = HINT_KEYS.find((k) => typeof i[k] === 'string' && i[k].trim() && i[k].length <= 80);
     const say = `${m.service}: ${m.words}${hintKey ? ' ' + clip(i[hintKey], 60) : ''}`;
-    if (!BROWSER.test(m.server) && WRITES.test(m.tool)) {
-      const write = /draft/i.test(m.tool) ? 'draft' : /(^|[_-])(send|post|reply|forward)([_-]|$)/i.test(m.tool) ? 'sent' : 'change';
-      return { say: mask(clip(say, 140)), kind: 'outside', service: m.service, write };
-    }
+    const write = BROWSER.test(m.server) ? null : writeOf(m.tool);
+    if (write) return { say: mask(clip(say, 140)), kind: 'outside', service: m.service, write };
     return step(say, { browser: BROWSER.test(m.server) || undefined });
   }
   return step(cap(name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()));
@@ -169,8 +191,10 @@ function lineCounts(step, r) {
 }
 
 // Git work in a finished command: what Claude Code noted itself
-// (gitOperation), else read from the command and what it printed.
-function gitOf(cmd, out, op) {
+// (gitOperation), else read from the command and what it printed. A command
+// that failed counts only what it printed it did; one that ran fine in the
+// background (fine) did what it says, whatever it printed.
+function gitOf(cmd, out, op, failed, fine) {
   const ev = [];
   const has = (k) => ev.some((e) => e.kind === k);
   const repoTo = /^To (?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?\s*$/m.exec(out);
@@ -187,13 +211,13 @@ function gitOf(cmd, out, op) {
     }
     if (op.branch && op.branch.ref && (op.branch.action === 'rebased' || op.branch.action === 'merged')) ev.push({ kind: op.branch.action, ref: String(op.branch.ref) });
   }
-  if (!has('commit') && /\bgit\b[^|;&\n]*\bcommit\b/.test(cmd) && !/nothing to commit|no changes added to commit/.test(out)) {
+  if (!has('commit') && /\bgit\b[^|;&\n]*\bcommit\b(?!-)/.test(cmd) && !/nothing to commit|no changes added to commit/.test(out)) {
     const re = /^\[([^\]\s]+)(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$/gm;
     let m;
     while ((m = re.exec(out))) ev.push({ kind: 'commit', sha: m[2], branch: m[1], msg: m[3] });
     // A quiet commit (-q) prints no summary; a "git log --oneline" after it
     // still names it.
-    if (!has('commit')) {
+    if (!has('commit') && !failed) {
       const l = /\bgit\b[^|;&\n]*\blog\b/.test(cmd) ? /^([0-9a-f]{7,40}) (.+)$/m.exec(out) : null;
       ev.push({ kind: 'commit', sha: l ? l[1] : '', msg: l ? l[2] : null });
     }
@@ -202,15 +226,24 @@ function gitOf(cmd, out, op) {
     const c = ev.find((e) => e.kind === 'commit');
     if (m && c && !c.msg) c.msg = m[3];
   }
-  if (!has('push') && /\bgit\b[^|;&\n]*\bpush\b/.test(cmd)) {
+  const push = /\bgit\b[^|;&\n]*\bpush\b([^|;&\n]*)/.exec(cmd);
+  if (!has('push') && push && !/(^|\s)(-n|--dry-run)\b/.test(push[1])) {
     const m = /(?:\.\.\.?\S*|\[new branch\]|\[new tag\]|\+\s*\S+)\s+(\S+)\s+->\s+(\S+)/.exec(out);
+    // A quiet push (-q) prints nothing: a command that ran fine did it.
+    const quiet = (fine || /(^|\s)(-q|--quiet)\b/.test(push[1])) && !failed && !/\b(fatal|error):|\[(remote )?rejected\]/.test(out);
     if (m) ev.push({ kind: 'push', branch: m[2], repo });
+    else if (quiet) {
+      const b = /\bpush\b(?:\s+-\S+)*\s+(?:-u\s+)?\S+\s+(?:HEAD:)?([\w./-]+)/.exec(push[0]);
+      ev.push({ kind: 'push', branch: b ? b[1] : null, repo });
+    }
   }
+  if (failed) return ev.filter((e) => e.kind === 'commit' || e.kind === 'push');
   if (!has('opened') && /\bgh\s+pr\s+create\b/.test(cmd)) {
     const g = GH.exec(out);
     ev.push({ kind: 'opened', n: g ? Number(g[2]) : null, url: g ? g[0] : null, repo: g ? g[1] : null });
   }
-  if (!has('merged') && /\bgh\s+pr\s+merge\b/.test(cmd)) {
+  // --auto only asks GitHub to merge it later.
+  if (!has('merged') && /\bgh\s+pr\s+merge\b/.test(cmd) && !/--auto\b/.test(cmd) && !/will be automatically merged/i.test(out)) {
     const g = GH.exec(cmd) || GH.exec(out);
     const n = g ? Number(g[2]) : Number((/\bgh\s+pr\s+merge\s+#?(\d+)/.exec(cmd) || /Merged pull request (?:[\w.-]+\/[\w.-]+)?#(\d+)/.exec(out) || [])[1]) || null;
     ev.push({ kind: 'merged', n, url: g ? g[0] : null, repo: g ? g[1] : null });
@@ -223,15 +256,22 @@ function gitOf(cmd, out, op) {
 function takeResult(step, block, r) {
   const text = resultText(block);
   const failed = !!(block && block.is_error);
-  const denied = /^\s*(The user (doesn't|does not|didn't)|User rejected|Permission (for|to) .* (denied|was denied)|<tool_use_error>)/i.test(text);
+  const denied = /^\s*(\[Request interrupted|The user (doesn't|does not|didn't)|User rejected|Permission (for|to) .* (denied|was denied)|<tool_use_error>)/i.test(text);
+  step.done = true;
   if (failed && !denied && !QUIET_FAILS.has(step.tool) && !step.browser) {
     step.failed = true;
     step.tail = lastLines(text.replace(/^Exit code \d+\s*\n?/, ''), 5);
     if (!step.tail.length) step.tail = lastLines(text, 5);
   } else if (failed) step.missed = true;
-  // What failed changed nothing: it is no file change and no write.
+  // What failed changed nothing: it is no file change and no write. A
+  // command that failed late may still have committed or pushed.
   if (failed) {
     if (step.kind !== 'step') step.kind = 'step';
+    if (step.tool === 'Bash' && !denied) {
+      const out = r && typeof r === 'object' ? [r.stdout, r.stderr].filter((x) => typeof x === 'string').join('\n') : text;
+      const ev = gitOf(step.cmd || '', (out || text).replace(ANSI, ''), r && typeof r === 'object' ? r.gitOperation : null, true);
+      if (ev.length) step.git = ev;
+    }
     return;
   }
   if (step.kind === 'file') {
@@ -260,6 +300,8 @@ function summarize(steps, ms, prs, fresh) {
   const outside = [];
   const git = [];
   const failed = [];
+  const agents = [];
+  const background = [];
   const other = [];
   let repo = null;
   for (const s of steps) for (const e of s.git || []) if (e.repo && !repo) repo = e.repo;
@@ -271,7 +313,22 @@ function summarize(steps, ms, prs, fresh) {
   const seenPr = new Set();
   for (const s of steps) {
     if (s.failed) {
-      failed.push({ id: s.id, say: s.say, tail: s.tail || [] });
+      failed.push({ id: s.id, say: s.say, tail: s.tail || [], ...(s.bgNote ? { note: true } : {}) });
+      if (!(s.git || []).length) continue;
+    }
+    // Its question and his answer show in the chat on their own.
+    if (s.tool === 'AskUserQuestion' || s.tool === 'ExitPlanMode') continue;
+    if (s.agent && !s.failed) {
+      agents.push({ id: s.id, say: s.say.replace(/^Agent: /, ''), ...(s.done ? {} : { running: true }) });
+      continue;
+    }
+    if (s.bg && !s.failed) {
+      background.push({ id: s.id, say: s.say.replace(/^Watch: /, ''), kind: s.bg });
+      continue;
+    }
+    // A call with no result yet runs still: no change or write is counted.
+    if (!s.done && !s.failed) {
+      other.push({ id: s.id, say: s.say, running: true });
       continue;
     }
     if (s.kind === 'file' && s.file) {
@@ -291,7 +348,7 @@ function summarize(steps, ms, prs, fresh) {
     for (const e of (s.git || []).filter((x) => x.kind === 'commented'))
       outside.push({ id: s.id, say: `GitHub: comment on PR ${e.n}`, service: 'GitHub', write: 'change', ...(e.url ? { link: e.url } : {}) });
     if (!ev.length) {
-      if (!(s.git || []).length) other.push({ id: s.id, say: s.say, ...(s.missed ? { missed: true } : {}) });
+      if (!(s.git || []).length && !s.failed) other.push({ id: s.id, say: s.say, ...(s.missed ? { missed: true } : {}) });
       continue;
     }
     for (const e of ev) {
@@ -335,15 +392,22 @@ function summarize(steps, ms, prs, fresh) {
   if (files.size) parts.push(plural(files.size, 'file'));
   const drafts = outside.filter((o) => o.write === 'draft').length;
   const sent = outside.filter((o) => o.write === 'sent').length;
+  const published = outside.filter((o) => o.write === 'published').length;
   const changes = outside.filter((o) => o.write === 'change');
   if (drafts) parts.push(plural(drafts, 'draft'));
   if (sent) parts.push(`${sent} sent`);
+  if (published) parts.push(`${published} published`);
   if (changes.length) {
     const svc = new Set(changes.map((c) => c.service));
     parts.push(svc.size === 1 ? `${plural(changes.length, [...svc][0] + ' change')}` : `${changes.length} changes elsewhere`);
   }
+  if (agents.length) parts.push(plural(agents.length, 'agent'));
+  const cmds = background.filter((b) => b.kind === 'command').length;
+  const watches = background.length - cmds;
+  if (cmds) parts.push(plural(cmds, 'background command'));
+  if (watches) parts.push(plural(watches, 'watch', 'watches'));
   if (failed.length) parts.push(`${failed.length} failed`);
-  const turn = { ms: ms != null && ms >= 0 ? ms : null, n: steps.length, files: [...files.values()], outside, git, failed, other };
+  const turn = { ms: ms != null && ms >= 0 ? ms : null, n: steps.length, files: [...files.values()], outside, git, failed, agents, background, other };
   return { line: parts.join(' · '), turn };
 }
 
@@ -387,4 +451,8 @@ function detailOf(id, use, res) {
   return { id, out: mask(tail.length > 8000 ? '…' + tail.slice(-8000) : tail), ...(lines.length > 80 ? { cut: lines.length - 80 } : {}), ...(input && input.command ? { cmd: mask(clip(input.command, 2000)) } : {}) };
 }
 
-module.exports = { describe, doing, takeResult, summarize, detailOf, EDITS };
+// The git work of a background command that ran fine, from its command and
+// what its output file still holds.
+const gitAfter = (cmd, out) => gitOf(cmd, String(out || '').replace(ANSI, ''), null, false, true);
+
+module.exports = { describe, doing, takeResult, summarize, detailOf, gitAfter, EDITS };

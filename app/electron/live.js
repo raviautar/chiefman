@@ -460,34 +460,39 @@ function askWords(calls, seen, screen) {
   };
 }
 
-// The last line a background command printed, read from the end of its
+// The last lines a background command printed, read from the end of its
 // output file. Only a file under the system's temp folders or Claude's own
 // folder is read.
-function lastLine(out) {
-  if (typeof out !== 'string' || !path.isAbsolute(out)) return null;
+function tailOf(out, n, bytes = 4096) {
+  if (typeof out !== 'string' || !path.isAbsolute(out)) return [];
   const file = path.normalize(out);
-  if (!/\/(tmp|T|\.claude)\//.test(file)) return null;
+  if (!/\/(tmp|T|\.claude)\//.test(file)) return [];
   let fd;
   try {
     fd = fs.openSync(file, 'r');
     const size = fs.fstatSync(fd).size;
-    const len = Math.min(4096, size);
-    if (!len) return null;
+    const len = Math.min(bytes, size);
+    if (!len) return [];
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, size - len);
-    const line = buf
+    return buf
       .toString('utf8')
       .replace(ANSI, '')
       .split(/\r?\n|\r/)
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .pop();
-    return line ? mask(clip(line, 200)) : null;
+      .map((l) => l.replace(/\s+$/, ''))
+      .filter((l) => l.trim())
+      .slice(-n)
+      .map((l) => mask(clip(l, 400)));
   } catch {
-    return null;
+    return [];
   } finally {
     if (fd != null) fs.closeSync(fd);
   }
 }
 
-module.exports = { Live, askWords };
+const lastLine = (out) => {
+  const l = tailOf(out, 1)[0];
+  return l ? clip(l.trim(), 200) : null;
+};
+
+module.exports = { Live, askWords, tailOf };

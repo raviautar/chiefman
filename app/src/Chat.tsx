@@ -1030,6 +1030,19 @@ export function ChatView({
             );
           // A turn's one line of facts; a click opens what it did.
           if (m.k === 'work' && m.turn) return <div key={m.id} className="reply-group">{turnCard(m)}</div>;
+          // Claude Code's own question or plan, answered: its rows,
+          // "question · answer".
+          if (m.k === 'work' && m.asked)
+            return (
+              <div key={m.id} className={'reply-group' + (isFresh ? ' rise' : '')} data-item={m.id}>
+                <QuestionCard
+                  rows={m.asked.map((r, i) => ({ key: `${m.id}:${i}`, n: i + 1, q: r.q, kind: 'words', choices: [], picks: [], words: '', done: r.a }))}
+                  live={false}
+                  done
+                  title={m.t === 'Its plan' ? 'Its plan' : undefined}
+                />
+              </div>
+            );
           // "Interrupted", "Compacted": one small centred word.
           if (m.k === 'work')
             return (

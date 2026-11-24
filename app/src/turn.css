@@ -149,6 +149,20 @@
   padding-top: 4px;
 }
 
+/* An agent's report, as the box's replies read. */
+.turn-md {
+  margin: 2px 6px 6px;
+  padding: 8px 10px;
+  max-height: 300px;
+  overflow: auto;
+  border-radius: var(--r-control);
+  background: var(--fill);
+  user-select: text;
+  cursor: text;
+}
+.turn-md .md > :last-child {
+  margin-bottom: 0;
+}
 .turn-note {
   padding: 2px 6px 6px;
   font-size: var(--small);

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api, type Item, type StepDetail, type Turn, type TurnNow } from './api';
 import { Card } from './Card';
 import { Icon } from './icons';
+import { Markdown } from './Markdown';
 import './turn.css';
 
 // How long a turn took: "37s", "4m", "1h 5m".
@@ -99,19 +100,28 @@ export function LinkRow({ say, link, kind }: { say: string; link?: string; kind?
   );
 }
 
-function StepRow({ s, paneId }: { s: Turn['other'][number]; paneId: string | null }) {
+// A step, an agent or a background command: its words, and on a click what
+// it printed, changed or reported, read from the log then.
+function StepRow({ s, paneId, small = true, kind }: { s: { id: string; say: string; missed?: boolean; running?: boolean }; paneId: string | null; small?: boolean; kind?: string }) {
   const [open, setOpen] = useState(false);
   const d = useDetail(paneId, [s.id], open);
   const x = d && d[0];
+  const label = s.running ? 'running' : s.missed ? "didn't work" : kind;
   return (
     <>
-      <button type="button" className="turn-row small" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className={'turn-row' + (small ? ' small' : '')} aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="turn-say">{s.say}</span>
-        {s.missed && <span className="turn-kind">didn't work</span>}
+        {label && <span className="turn-kind">{label}</span>}
       </button>
       {open &&
         (!d ? (
           <Loading />
+        ) : x && x.running ? (
+          <div className="turn-note">Still running.</div>
+        ) : x && x.md && x.out ? (
+          <div className="turn-md">
+            <Markdown text={x.out} fold={false} />
+          </div>
         ) : x && (x.out || x.diff) ? (
           x.diff ? (
             <Diff text={x.diff} />
@@ -150,7 +160,17 @@ function FailRow({ f, paneId, onAsk, canAsk }: { f: Turn['failed'][number]; pane
         </button>
       </div>
       {all && x?.cmd && <pre className="turn-pre cmd">{x.cmd}</pre>}
-      {all ? x ? <pre className="turn-pre">{(x.cut ? `… ${x.cut} lines above\n` : '') + (x.out || '')}</pre> : <Loading /> : f.tail.length > 0 && <pre className="turn-pre">{f.tail.join('\n')}</pre>}
+      {all ? (
+        !d ? (
+          <Loading />
+        ) : x?.out ? (
+          <pre className="turn-pre">{(x.cut ? `… ${x.cut} lines above\n` : '') + x.out}</pre>
+        ) : (
+          <div className="turn-note">Nothing more in the log.</div>
+        )
+      ) : (
+        f.tail.length > 0 && <pre className="turn-pre">{f.tail.join('\n')}</pre>
+      )}
     </div>
   );
 }
@@ -208,6 +228,20 @@ export function TurnCard({ item, paneId, onAsk, canAsk }: { item: Item; paneId: 
         <Section title="Failed">
           {t.failed.map((f) => (
             <FailRow key={f.id} f={f} paneId={paneId} onAsk={onAsk} canAsk={canAsk} />
+          ))}
+        </Section>
+      )}
+      {!!t.agents?.length && (
+        <Section title="Agents">
+          {t.agents.map((a) => (
+            <StepRow key={a.id} s={a} paneId={paneId} small={false} />
+          ))}
+        </Section>
+      )}
+      {!!t.background?.length && (
+        <Section title="In the background">
+          {t.background.map((b) => (
+            <StepRow key={b.id} s={b} paneId={paneId} small={false} kind={b.kind === 'watch' ? 'watch' : undefined} />
           ))}
         </Section>
       )}

@@ -4,7 +4,8 @@ const { StringDecoder } = require('string_decoder');
 const { mask } = require('./mask');
 const { unmark } = require('./mark');
 const { readBlocks } = require('./blocks');
-const { describe, doing, takeResult, summarize, detailOf } = require('./steps');
+const { describe, doing, takeResult, summarize, detailOf, gitAfter } = require('./steps');
+const { tailOf } = require('./live');
 
 const CHUNK = 16 * 1024 * 1024;
 const KEEP_TYPES = ['{"type":"user"', '{"type":"assistant"', '{"type":"system"', '{"type":"attachment"', '{"type":"pr-link"'];
@@ -60,24 +61,44 @@ function shellOutput(s) {
   return t.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\s+$/, '');
 }
 
-// His own words in an answer to Claude Code's question menu: what is not one
-// of the options. Several picks come joined with ", ".
-function typedAnswers(r) {
-  if (!r || typeof r !== 'object' || !r.answers || typeof r.answers !== 'object' || !Array.isArray(r.questions)) return null;
-  const out = [];
-  for (const q of r.questions) {
-    const a = q && r.answers[q.question];
-    if (typeof a !== 'string' || !a.trim()) continue;
-    const labels = Array.isArray(q.options) ? q.options.map((o) => o && o.label) : [];
-    const rest = q.multiSelect ? a.split(', ').filter((p) => !labels.includes(p)).join(', ') : labels.includes(a) ? '' : a;
-    if (rest.trim()) out.push(rest.trim());
-  }
-  return out.length ? out.join('\n') : null;
+// Claude Code's own question menu once he answered it: each question with
+// the answer it went with, his own words included ("skipped" when it got
+// none). Its plan approval: the plan's title, approved or not.
+function askedRows(step, block, r) {
+  const res = r && typeof r === 'object' ? r : {};
+  if (step.tool === 'ExitPlanMode') return [{ q: step.plan || 'Its plan', a: block && block.is_error ? 'not approved' : 'approved' }];
+  const qs = Array.isArray(res.questions) && res.questions.length ? res.questions : step.ask || [];
+  const answers = res.answers && typeof res.answers === 'object' ? res.answers : {};
+  return qs
+    .filter((q) => q && typeof q.question === 'string')
+    .map((q) => {
+      const a = answers[q.question];
+      return { q: mask(q.question), a: typeof a === 'string' && a.trim() ? mask(a.trim()) : 'skipped' };
+    });
 }
+
+// Claude Code's notes that something it ran on its own ended, by the id of
+// the call that started it.
+function notesIn(text) {
+  const out = [];
+  for (const m of String(text).matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)) {
+    const tag = (t) => (new RegExp(`<${t}>([\\s\\S]*?)</${t}>`).exec(m[1]) || [])[1];
+    const use = tag('tool-use-id');
+    if (use) out.push({ use: use.trim(), task: (tag('task-id') || '').trim(), status: (tag('status') || '').trim(), summary: (tag('summary') || '').trim(), result: tag('result') || '', file: (tag('output-file') || '').trim() });
+  }
+  return out;
+}
+
+// The words of a parsed log line he (or Claude Code) sent.
+const textOfLine = (d) => {
+  const c = d && d.message && d.message.content;
+  return typeof c === 'string' ? c : userText(c) || '';
+};
+const clipEnd = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 const near = (a, b, ms) => Math.abs(Date.parse(a) - Date.parse(b)) < ms;
 
-const newTurn = (anchor, ts) => ({ anchor, steps: [], open: new Map(), fresh: [], startTs: ts, lastTs: ts, durationMs: null });
+const newTurn = (anchor, ts, fresh = []) => ({ anchor, steps: [], open: new Map(), fresh, startTs: ts, lastTs: ts, durationMs: null });
 
 // Skips the big log lines (API requests, file snapshots) without parsing them.
 function worthParsing(line) {
@@ -111,8 +132,13 @@ class Transcript extends EventEmitter {
     this.pos = 0;
     this.dec = new StringDecoder('utf8');
     this.where = new Map();
-    // PR links Claude Code noted for this session: link -> number, repo.
+    // PR links Claude Code noted for this session: link -> number, repo;
+    // loose: those noted outside a turn, for the next one.
     this.prs = new Map();
+    this.loose = [];
+    // Agents and background commands it started, by call id, for the note
+    // that says they ended.
+    this.bgs = new Map();
     this.added = [];
     this.loaded = false;
     this.watcher = null;
@@ -185,11 +211,24 @@ class Transcript extends EventEmitter {
       }
     };
     try {
-      for (const id of ids.slice(0, 50)) {
+      for (const raw of ids.slice(0, 50)) {
+        // "bg:<id>": a background command that failed after its turn.
+        const id = raw.startsWith('bg:') ? raw.slice(3) : raw;
         const w = this.where.get(id);
         if (!w) continue;
+        // An agent's report, or what a background command printed, from
+        // the note that it ended.
+        const n = w.note ? notesIn(textOfLine(line(w.note, id))).find((x) => x.use === id) : null;
         const d = detailOf(id, line(w.use, id), line(w.res, id));
-        if (d) out.push(d);
+        const cmd = d && d.cmd ? { cmd: d.cmd } : {};
+        if (n && w.agent && n.result.trim()) out.push({ id: raw, out: mask(clipEnd(n.result.trim(), 8000)), md: true });
+        else if (n && !w.agent) {
+          const tail = tailOf(n.file, 80, 64 * 1024);
+          out.push({ id: raw, out: tail.length ? tail.join('\n') : mask(n.summary), ...cmd });
+        } else if (!d) continue;
+        // Started on its own and not ended yet: nothing to show but that.
+        else if ((w.bg || w.async) && !n) out.push({ id: raw, out: '', running: true, ...cmd });
+        else out.push({ ...d, id: raw, ...(w.agent ? { md: true } : {}) });
       }
     } catch {
     } finally {
@@ -239,6 +278,8 @@ class Transcript extends EventEmitter {
       this.dec = new StringDecoder('utf8');
       this.where.clear();
       this.prs.clear();
+      this.loose = [];
+      this.bgs.clear();
       this.loaded = false;
       this.start();
       return;
@@ -356,13 +397,31 @@ class Transcript extends EventEmitter {
     this.insert(item, at);
   }
 
+  // A turn starts; PR links noted between turns are its own.
+  begin(anchor, ts) {
+    const t = newTurn(anchor, ts, this.loose);
+    this.loose = [];
+    return t;
+  }
+
   // A tool call becomes a step of the turn; its result fills it in.
   step(b, ts, spot) {
-    if (!this.turn) this.turn = newTurn(null, ts);
-    const s = { id: typeof b.id === 'string' ? b.id : `s${this.turn.steps.length}`, tool: b.name, ...describe(String(b.name || ''), b.input) };
+    if (!this.turn) this.turn = this.begin(null, ts);
+    const name = String(b.name || '');
+    const input = b.input && typeof b.input === 'object' ? b.input : {};
+    const s = { id: typeof b.id === 'string' ? b.id : `s${this.turn.steps.length}`, tool: b.name, ...describe(name, input) };
+    if (name === 'AskUserQuestion' && Array.isArray(input.questions)) s.ask = input.questions;
+    if (name === 'ExitPlanMode' && typeof input.plan === 'string') {
+      const head = input.plan.split('\n').find((l) => l.trim()) || '';
+      s.plan = mask(head.replace(/^#+\s*/, '').replace(/^plan:\s*/i, '').trim().slice(0, 120)) || null;
+    }
     this.turn.steps.push(s);
     this.turn.open.set(s.id, s);
-    this.where.set(s.id, { use: spot });
+    this.where.set(s.id, { use: spot, ...(s.agent ? { agent: true } : {}), ...(s.bg ? { bg: true } : {}) });
+    if (s.agent || s.bg) {
+      this.bgs.set(s.id, { say: s.say.replace(/^(Agent|Watch): /, ''), cmd: s.cmd || '' });
+      if (this.bgs.size > 5000) this.bgs.delete(this.bgs.keys().next().value);
+    }
   }
 
   results(d, spot) {
@@ -376,6 +435,38 @@ class Transcript extends EventEmitter {
       takeResult(s, b, d.toolUseResult);
       const w = this.where.get(s.id);
       if (w) w.res = spot;
+      const r = d.toolUseResult;
+      if (w && s.agent && r && typeof r === 'object' && r.status === 'async_launched') w.async = true;
+      // His answer to Claude Code's question or plan: a card with each
+      // question and what it went with.
+      if (s.tool === 'AskUserQuestion' || s.tool === 'ExitPlanMode') {
+        const rows = askedRows(s, b, r);
+        if (rows.length) this.push({ id: 'ask:' + s.id, k: 'work', t: s.tool === 'ExitPlanMode' ? 'Its plan' : 'Asked you', ts: d.timestamp, asked: rows });
+      }
+    }
+  }
+
+  // A background command or watch that ended badly counts as a failure of
+  // the turn it ends in, and the git work of one that ran fine as that
+  // turn's; an agent's or command's end is kept for its report.
+  notes(text, ts, spot) {
+    for (const n of notesIn(text)) {
+      const w = this.where.get(n.use);
+      if (w && n.status) w.note = spot;
+      const bg = this.bgs.get(n.use);
+      if (!w || !w.bg || !bg || this.seen.has('bg:' + n.use)) continue;
+      if (n.status === 'failed') {
+        this.seen.add('bg:' + n.use);
+        if (!this.turn) this.turn = this.begin(null, ts);
+        const why = n.summary.replace(/^.*?(?=(exit code|failed|timed out))/i, '');
+        this.turn.steps.push({ id: 'bg:' + n.use, tool: 'Background', say: bg.say, kind: 'step', done: true, failed: true, bgNote: true, tail: why ? [mask(why.slice(0, 200))] : [] });
+      } else if (n.status === 'completed' && /\b(git|gh)\b/.test(bg.cmd)) {
+        this.seen.add('bg:' + n.use);
+        const git = gitAfter(bg.cmd, tailOf(n.file, 40, 16384).join('\n'));
+        if (!git.length) continue;
+        if (!this.turn) this.turn = this.begin(null, ts);
+        this.turn.steps.push({ id: n.use, tool: 'Bash', say: bg.say, kind: 'step', done: true, git });
+      }
     }
   }
 
@@ -388,18 +479,17 @@ class Transcript extends EventEmitter {
       if (!u || this.prs.has(u)) return;
       this.prs.set(u, { n: Number(d.prNumber) || null, repo: typeof d.prRepository === 'string' ? d.prRepository : null });
       if (this.turn) this.turn.fresh.push(u);
+      else this.loose.push(u);
       return;
     }
     if (d.type === 'user') {
       this.results(d, spot);
-      if (d.isMeta || d.isCompactSummary || d.isVisibleInTranscriptOnly) return;
-      // Words he typed into Claude Code's question show as his message.
-      const typed = typedAnswers(d.toolUseResult);
-      if (typed) {
-        this.push({ id: 'w:' + d.uuid, k: 'you', t: mask(typed), ts });
+      const raw = userText(d.message && d.message.content);
+      if (typeof raw === 'string' && raw.includes('<task-notification>')) {
+        this.notes(raw, ts, spot);
         return;
       }
-      const raw = userText(d.message && d.message.content);
+      if (d.isMeta || d.isCompactSummary || d.isVisibleInTranscriptOnly) return;
       if (typeof raw === 'string' && /^\s*\[Request interrupted/.test(raw)) {
         this.endTurn(ts);
         this.push({ id: 'i:' + d.uuid, k: 'work', t: 'Interrupted', ts });
@@ -430,7 +520,7 @@ class Transcript extends EventEmitter {
         const quiet = skillLine(cmd);
         const app = cu.app ? { app: true } : {};
         this.push(quiet ? { id: 'u:' + d.uuid, k: 'work', t: quiet, ts, ...app } : { id: 'u:' + d.uuid, k: 'you', t: mask(cmd), ts, ...app });
-        this.turn = newTurn('u:' + d.uuid, ts);
+        this.turn = this.begin('u:' + d.uuid, ts);
         return;
       }
       // Newer Claude versions log a command's output as a user line.
@@ -451,7 +541,7 @@ class Transcript extends EventEmitter {
       this.lastApp = u.app;
       const id = 'u:' + d.uuid;
       this.push({ id, k: 'you', t: mask(u.text), ts, ...(u.app ? { app: true } : {}) });
-      this.turn = newTurn(id, ts);
+      this.turn = this.begin(id, ts);
       return;
     }
     if (d.type === 'attachment') {
