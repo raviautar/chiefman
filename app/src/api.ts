@@ -57,7 +57,7 @@ export interface Menu {
   button?: string | null;
 }
 
-// A question a box asks in chiefman's reply shape. yesno: a check mark;
+// A question a box asks in chiefman's reply shape. yesno: Yes and No;
 // one: pick one option; any: pick several; words: only his own words.
 export interface Ask {
   n: number;

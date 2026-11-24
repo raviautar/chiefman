@@ -30,8 +30,7 @@ export const oneLine = (text: string) => text.split('\n').filter(Boolean).join('
 export function answerText(kind: Ask['kind'], picks: string[], words: string) {
   const w = words.replace(/\s+/g, ' ').trim();
   if (w) return w;
-  if (kind === 'yesno') return picks.includes('yes') ? 'yes' : '';
-  if (kind === 'one') return picks[0] || '';
+  if (kind === 'yesno' || kind === 'one') return picks[0] || '';
   if (kind === 'any') return picks.join(', ');
   return '';
 }
@@ -41,17 +40,22 @@ export function entryFor(n: number, kind: Ask['kind'], picks: string[], words: s
   return text || words ? { n, text, picks, words } : null;
 }
 
-// A check mark for yes; choices to pick one; check boxes to pick several.
+// Yes and No, one click each; choices to pick one; check boxes to pick several.
+// A second click on a pick takes it back.
 export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind']; options: string[]; picks: string[]; onPicks: (p: string[]) => void }) {
-  if (kind === 'yesno') {
-    const on = picks.includes('yes');
+  if (kind === 'yesno')
     return (
-      <button className={'chip pick' + (on ? ' on' : '')} aria-pressed={on} onClick={() => onPicks(on ? [] : ['yes'])}>
-        <span className="tick" aria-hidden="true">{on && <Check size={11} />}</span>
-        Yes
-      </button>
+      <>
+        {['yes', 'no'].map((v) => {
+          const on = picks.includes(v);
+          return (
+            <button key={v} className={'chip pick' + (on ? ' on' : '')} aria-pressed={on} onClick={() => onPicks(on ? [] : [v])}>
+              {v === 'yes' ? 'Yes' : 'No'}
+            </button>
+          );
+        })}
+      </>
     );
-  }
   if (kind !== 'one' && kind !== 'any') return null;
   return (
     <>
