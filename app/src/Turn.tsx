@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api, type Item, type StepDetail, type Turn, type TurnNow } from './api';
 import { Card } from './Card';
+import { Icon } from './icons';
 import './turn.css';
 
 // How long a turn took: "37s", "4m", "1h 5m".
@@ -12,21 +13,7 @@ export function took(ms: number | null | undefined) {
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-function StepsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 6h11 M9 12h11 M9 18h11 M4.5 6h.01 M4.5 12h.01 M4.5 18h.01" />
-    </svg>
-  );
-}
-
-function Out() {
-  return (
-    <svg className="turn-out" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7 17L17 7 M9 7h8v8" />
-    </svg>
-  );
-}
+const Out = () => <Icon name="out" className="turn-out" />;
 
 // The facts of the line; a failure count in red.
 function Facts({ text }: { text: string }) {
@@ -191,7 +178,7 @@ export function TurnCard({ item, paneId, onAsk, canAsk }: { item: Item; paneId: 
       bare
       open={open}
       onOpen={setOpen}
-      icon={<StepsIcon />}
+      icon={<Icon name="steps" />}
       title={<Facts text={item.t} />}
       state={open ? took(t.ms) : undefined}
       hint={open ? undefined : 'What it did'}
@@ -230,9 +217,7 @@ export function TurnCard({ item, paneId, onAsk, canAsk }: { item: Item; paneId: 
             <span className="turn-say">
               {t.other.length} other {t.other.length === 1 ? 'step' : 'steps'}
             </span>
-            <svg className={'wcard-fold' + (rest ? ' open' : '')} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9 5l7 7-7 7" />
-            </svg>
+            <Icon name="right" className={'wcard-fold' + (rest ? ' open' : '')} />
           </button>
           {rest && t.other.map((s) => <StepRow key={s.id} s={s} paneId={paneId} />)}
         </div>

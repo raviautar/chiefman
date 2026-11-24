@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { Item } from './api';
+import { Icon } from './icons';
 
 // The newest reply he has seen in each box, kept on this computer only.
 const KEY = 'chiefman.seen.';
@@ -147,13 +148,7 @@ export function usePlace({
   };
 }
 
-function Down() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 5v14 M6 13l6 6l6-6" />
-    </svg>
-  );
-}
+const Down = () => <Icon name="jump" />;
 
 // The round ↓ with a count, at the foot of the chat while he reads higher up.
 export function Jump({ n, onClick }: { n: number; onClick: () => void }) {

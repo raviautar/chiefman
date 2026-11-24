@@ -638,7 +638,7 @@ function ListView({ l, fold }: { l: List; fold: boolean }) {
       <li key={i} className={t ? 'task' + (done ? ' done' : '') : undefined}>
         {t && (
           <span className="task-box" role="img" aria-label={done ? 'Done' : 'To do'}>
-            {done && <Check size={11} />}
+            {done && <Check />}
           </span>
         )}
         {t ? <span className="task-t">{inline(it.text.slice(t[0].length))}</span> : inline(it.text)}

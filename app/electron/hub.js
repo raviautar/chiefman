@@ -1800,7 +1800,7 @@ class Hub {
   async newBox(spec) {
     const name = String((spec && spec.name) || '').trim();
     const icon = ICONS.includes(spec && spec.icon) ? spec.icon : 'doc';
-    const color = PALETTE.includes(spec && spec.color) ? spec.color : PALETTE[0];
+    const color = PALETTE.includes(spec && spec.color) ? spec.color : look(name).color;
     const message = String((spec && spec.message) || '').replace(/\r\n?/g, '\n').trim();
     const model = MODELS.includes(spec && spec.model) ? spec.model : this.cfg.model;
     const effort = EFFORTS.includes(spec && spec.effort) ? spec.effort : this.cfg.effort;

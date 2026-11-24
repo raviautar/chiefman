@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 import { api, Box, Recent } from './api';
-import { PALETTE, SYMBOLS } from './icons';
+import { SYMBOLS } from './icons';
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 // "Release Notes 2" becomes "release-notes-2".
 const slug = (s: string) => s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+/, '').slice(0, 32);
 
-// A box's icon and colour come from its name. The crown stays the chief's.
+// A box's icon comes from its name. The crown stays the chief's. Its tab
+// colour the hub picks from the name too; the app draws none.
 const AUTO = SYMBOLS.filter((s) => s !== 'crown');
 export function lookFor(name: string) {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return { icon: AUTO[h % AUTO.length], color: PALETTE[(h >>> 8) % PALETTE.length][1] };
+  return { icon: AUTO[h % AUTO.length], color: '' };
 }
 
 // What he typed as a name, as the name field keeps it: lowercase, spaces as

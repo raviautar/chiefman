@@ -1,5 +1,6 @@
 import { type MouseEvent } from 'react';
 import { api, Box } from './api';
+import { Phone } from './icons';
 
 // Copies the box's Remote Control link: the link, or null with the reason said.
 export async function copyLink(box: Box, onError: (text: string) => void) {
@@ -64,11 +65,7 @@ export function RemoteButton({
         aria-pressed={filled}
         data-tip={tip}
       >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="5" y="2.5" width="10" height="19" rx="2.6" />
-          <path d="M9 18.3h2" />
-          {filled ? <path d="M18.2 8.6a4.6 4.6 0 0 1 0 6.8 M20.9 6.2a8.2 8.2 0 0 1 0 11.6" /> : <path d="M3 3l18 18" />}
-        </svg>
+        <Phone on={filled} />
       </button>
       {copied && (
         <span className="copied" role="status" key={copied}>
