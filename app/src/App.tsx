@@ -8,7 +8,7 @@ import { quotesOf, quoteText } from './Quotes';
 import { TerminalView } from './Terminal';
 import { DrillPanel } from './Drill';
 import { NewBoxSheet } from './NewBox';
-import { RemoteButton } from './Remote';
+import { copyLink, RemoteButton } from './Remote';
 
 type Toast = { text: string; bad?: boolean; id: number };
 
@@ -107,6 +107,8 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const [, setTick] = useState(0);
   const [incoming, setIncoming] = useState<Record<string, { text: string; seq: number }>>({});
+  // The Remote Control link just copied, shown under its icon for 4 s.
+  const [linkCopied, setLinkCopied] = useState<{ pane: string; url: string } | null>(null);
   // First messages held while their box starts, by box name.
   const [held, setHeld] = useState<Record<string, string>>({});
   const [endedOpen, setEndedOpen] = useState(false);
@@ -295,6 +297,12 @@ export function App() {
       clearTimeout(t);
     };
   }, [nothing]);
+
+  useEffect(() => {
+    if (!linkCopied) return;
+    const t = setTimeout(() => setLinkCopied(null), 4000);
+    return () => clearTimeout(t);
+  }, [linkCopied]);
 
   useEffect(() => {
     if (!toast) return;
@@ -679,8 +687,11 @@ export function App() {
         { label: 'Remove', run: () => void removeEnded(box.name).then((r) => !r.ok && show(r.reason || "Couldn't remove it.", true)) },
       ]
     : [];
+  const remoteLink = (b: Box) =>
+    copyLink(b, (t) => show(t, true)).then((url) => url && b.paneId && setLinkCopied({ pane: b.paneId, url }));
   const paletteActions: Action[] = [
     ...boxActions,
+    ...(box?.paneId && box.remote && boxActions.length ? [{ label: 'Copy Remote Control link', run: () => void remoteLink(box) }] : []),
     ...endedActions,
     { label: 'Model and effort', run: () => setPicking(true) },
     { label: 'New box', run: () => setOverlay('newbox') },
@@ -974,7 +985,12 @@ export function App() {
                     </button>
                   </span>
                 )}
-                <RemoteButton box={box!} onError={(t) => show(t, true)} />
+                <RemoteButton
+                  box={box!}
+                  copied={linkCopied && linkCopied.pane === box!.paneId ? linkCopied.url : null}
+                  onCopied={(url) => setLinkCopied(url && box!.paneId ? { pane: box!.paneId, url } : null)}
+                  onError={(t) => show(t, true)}
+                />
                 <span className="keep">
                   <button className="icon-btn tip" onClick={() => setMore(!more)} aria-label="More actions" data-tip="More actions">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

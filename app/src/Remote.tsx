@@ -1,17 +1,32 @@
-import { useEffect, useState, type MouseEvent } from 'react';
+import { type MouseEvent } from 'react';
 import { api, Box } from './api';
 
-// Remote Control in the box's header: a phone, filled when on, outline when
-// off. A click turns it off or on; a right-click copies its link.
-export function RemoteButton({ box, onError }: { box: Box; onError: (text: string) => void }) {
-  const [copied, setCopied] = useState<string | null>(null);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(null), 4000);
-    return () => clearTimeout(t);
-  }, [copied]);
-  useEffect(() => setCopied(null), [box.paneId]);
+// Copies the box's Remote Control link: the link, or null with the reason said.
+export async function copyLink(box: Box, onError: (text: string) => void) {
+  if (!box.paneId || !box.remote) return null;
+  const r = await api().remote(box.paneId, 'link');
+  if (!r.url) {
+    onError(r.reason || 'No link yet.');
+    return null;
+  }
+  api().copy(r.url);
+  return r.url;
+}
 
+// Remote Control in the box's header: a phone, filled when on, outline when
+// off. A click turns it off or on; a right-click copies its link, as Cmd+K
+// does. copied: the link just copied, shown under the icon with Open.
+export function RemoteButton({
+  box,
+  copied,
+  onCopied,
+  onError,
+}: {
+  box: Box;
+  copied: string | null;
+  onCopied: (url: string | null) => void;
+  onError: (text: string) => void;
+}) {
   const on = box.remote;
   // His click shows at once; the box does it once it is idle.
   const going = box.remoteAsk && (box.remoteAsk === 'on') !== on ? box.remoteAsk : null;
@@ -33,11 +48,8 @@ export function RemoteButton({ box, onError }: { box: Box; onError: (text: strin
 
   async function copy(e: MouseEvent) {
     e.preventDefault();
-    if (!box.paneId || !on) return;
-    const r = await api().remote(box.paneId, 'link');
-    if (!r.url) return onError(r.reason || 'No link yet.');
-    api().copy(r.url);
-    setCopied(r.url);
+    const url = await copyLink(box, onError);
+    if (url) onCopied(url);
   }
 
   return (
@@ -57,13 +69,13 @@ export function RemoteButton({ box, onError }: { box: Box; onError: (text: strin
         </svg>
       </button>
       {copied && (
-        <span className="copied" role="status">
+        <span className="copied" role="status" key={copied}>
           Link copied ·{' '}
           <button
             className="text-btn"
             onClick={() => {
               api().openUrl(copied);
-              setCopied(null);
+              onCopied(null);
             }}
           >
             Open
