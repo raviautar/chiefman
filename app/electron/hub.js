@@ -6,7 +6,7 @@ const { Transcript } = require('./transcript');
 const { newestDrill } = require('./drilldown');
 const { State } = require('./state');
 const { mask } = require('./mask');
-const { promptState, parseActivity, parseMenu, parseMode, promptText, SEND_ALL } = require('./screen');
+const { promptState, parseActivity, parseMenu, parseMode, promptText, strip, SEND_ALL } = require('./screen');
 const { DefaultKeeper } = require('./defaults');
 const { Usage, modelName } = require('./usage');
 const { readPlan, readWorkspace } = require('./plan');
@@ -26,6 +26,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const READY = (s) => /(?:⏵⏵|⏸) .+ on\b/.test(s) && /❯/.test(s) && !parseMenu(s);
 // CHIEFMAN_START_LIMIT_MS shortens the limit for a test run.
 const START_LIMIT = Number(process.env.CHIEFMAN_START_LIMIT_MS) || 90000;
+// The longest message the app types into a box (the page checks it too).
+const MAX_SEND = 50000;
+const tooLong = (n) => `Messages can be up to ${MAX_SEND.toLocaleString('en-US')} characters. This one has ${n.toLocaleString('en-US')}.`;
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -46,6 +49,21 @@ class Refused extends Error {
     this.result = result;
   }
 }
+// What Claude says when a /model or /effort took, or did not.
+const SAID = { model: /Set model to/, effort: /Set effort level to/ };
+const KEPT = { model: /Kept model as/, effort: /Kept effort/ };
+
+// The note Claude shows just above its prompt box ("Kept model as Haiku"),
+// as plain lines of the screen.
+function noteAbovePrompt(lines) {
+  let p = lines.length - 1;
+  while (p >= 0 && !/^\s*❯/.test(lines[p])) p--;
+  let rule = p - 1;
+  while (rule >= 0 && rule >= p - 3 && !/^\s*[─━═]{3,}/.test(lines[rule])) rule--;
+  if (p < 0 || rule < 0 || rule < p - 3) return '';
+  return lines.slice(Math.max(0, rule - 2), rule).join('\n');
+}
+
 // Text compared without its spacing or quote style.
 const same = (s) => String(s || '').replace(/[“”„‟]/g, '"').replace(/[‘’‚‛]/g, "'").replace(/\s+/g, '');
 const argsOf = (pid) =>
@@ -112,6 +130,8 @@ class Hub {
     this.screens = new Map();
     this.resumedAt = new Map();
     this.starting = new Set();
+    // Boxes brought back with a message of his that has not gone in yet.
+    this.firstOut = new Set();
     this.usage = new Map();
     this.launch = new Map();
     this.switched = new Map();
@@ -211,6 +231,7 @@ class Hub {
     this.timers = [];
     if (this.quitting) return;
     this.setPhase('starting');
+    this.emitBoxes();
     setTimeout(() => this.boot(), 600);
   }
 
@@ -351,6 +372,8 @@ class Hub {
   }
 
   status(b) {
+    // The session went away under the app: its boxes are coming back.
+    if (!this.ctl && !this.quitting) return 'resuming';
     const r = this.resuming.get(b.name);
     if (r && r.paneId === b.paneId && !(r.state === 'failed' && b.claude)) return r.state === 'failed' ? 'failed' : 'resuming';
     if (this.starting.has(b.name)) return 'starting';
@@ -590,6 +613,8 @@ class Hub {
     this.switching.set(paneId, sw);
     this.touch(paneId);
     this.emitBoxes();
+    // A note already by the prompt is an older one.
+    sw.note = noteAbovePrompt(strip(await run(['capture-pane', '-p', '-t', paneId]).catch(() => '')).split('\n'));
     this.keeper.guard(keys, 180000);
     const r = await this.sendText(paneId, `/${kind} ${value}`, { app: true });
     if (!r.ok) {
@@ -621,22 +646,23 @@ class Hub {
         this.recordState();
       }
       this.log(ok ? 'switch' : 'switch not taken', { box: box.name, kind: sw.kind, value: sw.value, why });
-      if (!ok && why !== 'kept') this.out({ type: 'notice', text: `${box.name} did not switch ${sw.kind}.`, bad: true });
+      if (!ok && why !== 'kept' && this.panes.has(paneId)) this.out({ type: 'notice', text: `${box.name} did not switch ${sw.kind}.`, bad: true });
       this.emitBoxes();
     };
-    const said = sw.kind === 'model' ? /Set model to/ : /Set effort level to/;
+    const said = SAID[sw.kind];
     const kept = sw.kind === 'model' ? /Kept model as|cancell?ed/i : /Kept effort|cancell?ed/i;
     const end = sw.at + 180000;
     let quietSince = 0;
+    let shutAt = 0;
     while (Date.now() < end && this.panes.has(paneId)) {
-      await sleep(400);
-      let text;
+      await sleep(300);
+      let raw;
       try {
-        text = await run(['capture-pane', '-p', '-t', paneId, '-S', '-60']);
+        raw = await run(['capture-pane', '-p', '-e', '-t', paneId, '-S', '-60']);
       } catch {
         return done(false, 'gone');
       }
-      const lines = text.split('\n');
+      const lines = strip(raw).split('\n');
       let at = -1;
       for (let i = lines.length - 1; i >= 0; i--) {
         if (lines[i].includes(`/${sw.kind} ${sw.value}`)) {
@@ -647,13 +673,28 @@ class Hub {
       const after = at >= 0 ? lines.slice(at + 1).join('\n') : '';
       if (said.test(after)) return done(true, 'said');
       if (kept.test(after)) return done(false, 'kept');
-      if (parseMenu(text)) {
+      if (parseMenu(raw)) {
+        sw.asked = true;
         quietSince = 0;
         continue;
       }
-      if (promptState(text) === 'empty') {
+      // While the box writes, Claude answers in a note by the prompt, not
+      // under the command.
+      const note = noteAbovePrompt(lines);
+      if (note !== sw.note && said.test(note)) return done(true, 'said');
+      if (note !== sw.note && KEPT[sw.kind].test(note)) return done(false, 'kept');
+      // His No or Esc on Claude's "Switch model?" in the app ends it at once.
+      if (sw.no) return done(false, 'kept');
+      if (sw.yes) {
+        shutAt = shutAt || Date.now();
+        if (Date.now() - shutAt > 4000) return done(true, 'yes');
+        continue;
+      }
+      // The dim suggestion Claude shows in its prompt is not typed text, so
+      // the colours are read too.
+      if (promptState(raw) === 'empty') {
         quietSince = quietSince || Date.now();
-        if (Date.now() - quietSince > 6000) return done(false, 'no answer');
+        if (Date.now() - quietSince > (sw.asked ? 1500 : 6000)) return done(false, sw.asked ? 'kept' : 'no answer');
       } else quietSince = 0;
     }
     return done(false, 'timeout');
@@ -1311,7 +1352,7 @@ class Hub {
   sendText(paneId, raw, opts = {}) {
     const text = String(raw || '').replace(/\r\n?/g, '\n').replace(/^\s+|\s+$/g, '');
     if (!text) return Promise.resolve({ ok: false, reason: 'Nothing to send.' });
-    if (text.length > 50000) return Promise.resolve({ ok: false, reason: 'That message is too long.' });
+    if (text.length > MAX_SEND) return Promise.resolve({ ok: false, reason: tooLong(text.length) });
     const last = this.lastSend.get(paneId);
     if (!opts.replace && last && last.text === text && Date.now() - last.at < 3000) {
       this.log('duplicate dropped', { pane: paneId, chars: text.length });
@@ -1330,18 +1371,43 @@ class Hub {
     });
   }
 
-  async sendNow(paneId, text, opts) {
-    const box = this.boxes.find((b) => b.paneId === paneId);
+  async sendNow(asked, text, opts) {
+    let paneId = asked;
+    let box = this.boxes.find((b) => b.paneId === paneId);
+    // A box that is starting, or coming back after its session went away,
+    // takes the message once it is up: in its new window, when it got one.
+    const name = box ? box.name : opts.name;
+    const waited = !!name && this.comingUp(name);
+    if (waited) {
+      await this.whenUp(name);
+      box = this.boxes.find((b) => b.name === name);
+      if (box && box.paneId !== paneId) {
+        paneId = box.paneId;
+        this.log('sent to new window', { box: name });
+      }
+      // Just up, its prompt may still be loading: as with a first message.
+      if (box && box.claude && this.panes.has(paneId)) {
+        await sleep(600);
+        await this.promptEmpty(paneId, 8000);
+      }
+    }
     if (!box || !this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
     // Before Claude registers it can already be asking (the trust question).
     const asking = !!(this.screens.get(paneId) || {}).menu;
-    if (!box.claude) return { ok: false, reason: asking ? 'Answer the question above first.' : `${box.name} has no Claude running.` };
+    if (!box.claude) return { ok: false, reason: asking ? 'Answer the question above first.' : waited ? `${box.name} did not start.` : `${box.name} has no Claude running.` };
     // Claude may have died since the last scan; text must never reach a shell.
     if (await this.onShell(box)) return { ok: false, reason: `${box.name} ended.` };
     let screen;
     try {
       screen = await run(['capture-pane', '-p', '-e', '-t', paneId]);
     } catch {
+      // Its session went away before the app saw it: once the box is back,
+      // the message goes there.
+      if (!opts.again && !(await hasSession(this.cfg.session))) {
+        const t = Date.now();
+        while (this.ctl && Date.now() - t < 5000) await sleep(200);
+        return this.sendNow(asked, text, { ...opts, again: true, name: box.name });
+      }
       return { ok: false, reason: `Could not read ${box.name}.` };
     }
     let st = promptState(screen);
@@ -1367,12 +1433,27 @@ class Hub {
     this.touch(paneId);
     // The app's own commands (/model, /rename ...) go bare; all else is marked.
     const out = opts.app ? text : markText(text);
-    if (text.startsWith('!')) await this.deliverChecked(paneId, out);
+    if (text.startsWith('!') || waited) await this.deliverChecked(paneId, out);
     else await this.deliver(paneId, out);
     const mine = (this.typedByApp.get(paneId) || []).concat(out).slice(-20);
     this.typedByApp.set(paneId, mine);
     this.log('sent', { box: box.name, chars: text.length, slash: text.startsWith('/'), queued, app: !!opts.app });
-    return { ok: true, queued };
+    return { ok: true, queued, ...(paneId !== asked ? { paneId } : {}) };
+  }
+
+  // Still on its way up: starting, coming back, waiting for its first
+  // message, or its whole session is gone and being brought back.
+  comingUp(name) {
+    if (this.quitting) return false;
+    if (!this.ctl) return true;
+    const r = this.resuming.get(name);
+    return this.starting.has(name) || this.firstOut.has(name) || (!!r && r.state === 'resuming');
+  }
+
+  // Waits for that, as long as a start may take with a question in it.
+  async whenUp(name) {
+    const end = Date.now() + START_LIMIT + 600000;
+    while (this.comingUp(name) && Date.now() < end) await sleep(400);
   }
 
   // Ctrl+U takes one line at a time and never stops the box. Ctrl+C clears
@@ -1502,9 +1583,14 @@ class Hub {
     }
     const keys = moves(menu, n);
     this.touch(paneId);
+    // His answer to Claude's "Switch model?" ends the header's switch.
+    const sw = this.switching.get(paneId);
+    const label = (menu.options.find((o) => o.n === n) || {}).label || '';
     // In the model menu, "s" applies the pick to this session only, so his
     // default stays as it was (the guard above still watches it).
     await this.keys(paneId, [...keys, menu.sessionKey ? 's' : 'Enter']);
+    if (sw && /^\s*(no\b|go back|cancel|keep)/i.test(label)) sw.no = true;
+    else if (sw && /^\s*yes\b/i.test(label)) sw.yes = true;
     this.log('choose', { pane: paneId, n, session: !!menu.sessionKey });
     const rw = this.rewinding.get(paneId);
     if (rw && Date.now() - rw.at < 120000) this.afterRewind(paneId, rw, (menu.options.find((o) => o.n === n) || {}).label || '');
@@ -1526,6 +1612,8 @@ class Hub {
     if (!menu.esc) return { ok: false, reason: 'Pick an option above.' };
     this.touch(paneId);
     await this.keys(paneId, ['Escape']);
+    const sw = this.switching.get(paneId);
+    if (sw) sw.no = true;
     this.log('dismiss', { pane: paneId });
     this.soon('poll', 300, () => this.pollScreens());
     return { ok: true };
@@ -1923,13 +2011,19 @@ class Hub {
   // Resume, or Resume and send: his message goes in once the prompt is
   // ready, as New Box's first message does, or waits in the field.
   async resumeWith(name, message) {
-    const r = await this.startAgain(name);
-    const keep = message ? { unsent: message } : {};
-    if (!r.ok || !message) return { ...r, ...keep };
-    const seen = {};
-    const ready = await this.waitReady(r.paneId, START_LIMIT, seen);
-    if (ready !== true) return { ...r, ...keep };
-    return { ...r, ...(await this.sendFirst(r.paneId, name, message, seen.asked)) };
+    // A message sent while it comes back goes after this one.
+    if (message) this.firstOut.add(name);
+    try {
+      const r = await this.startAgain(name);
+      const keep = message ? { unsent: message } : {};
+      if (!r.ok || !message) return { ...r, ...keep };
+      const seen = {};
+      const ready = await this.waitReady(r.paneId, START_LIMIT, seen);
+      if (ready !== true) return { ...r, ...keep };
+      return { ...r, ...(await this.sendFirst(r.paneId, name, message, seen.asked)) };
+    } finally {
+      this.firstOut.delete(name);
+    }
   }
 
   async startAgain(name) {
@@ -2009,6 +2103,39 @@ class Hub {
     this.recordState();
     this.emitBoxes();
     // The app keeps his typed text with the session, for a resume from New Box.
+    return kept ? { ok: true, session: sid } : { ok: true };
+  }
+
+  // Closes a running box: its Claude stops and its window closes. As with an
+  // ended box, its conversation stays on disk and New Box offers it first.
+  // The chief stays.
+  async closeBox(paneId) {
+    const box = this.boxes.find((b) => b.paneId === paneId);
+    if (!box) return { ok: false, reason: 'That box is gone.' };
+    if (box.name === 'chief') return { ok: false, reason: 'The chief stays open.' };
+    if (this.comingUp(box.name)) return { ok: false, reason: `${box.name} is still starting. Close it once it is up.` };
+    // As before removing an ended box: only Claude or a shell may run there.
+    const now = (await run(['display', '-p', '-t', paneId, '#{pane_current_command}']).catch(() => '')).trim();
+    if (now && !CLAUDE_CMD.test(now) && !SHELLS.test(now)) return { ok: false, reason: `Something else runs in ${box.name}'s window.` };
+    const saved = this.state.boxes.find((s) => s.name === box.name) || {};
+    const sid = (box.claude && box.claude.sessionId) || saved.sessionId || null;
+    this.closing.add(box.name);
+    try {
+      await run(['kill-window', '-t', box.windowId]);
+    } catch (e) {
+      this.closing.delete(box.name);
+      return { ok: false, reason: `Couldn't close ${box.name}: ${String((e && e.message) || e).slice(0, 100)}` };
+    }
+    const kept = this.resumable(sid);
+    if (kept) this.removed = [{ id: sid, name: box.name, at: Date.now() }, ...this.removed.filter((e) => e.id !== sid)].slice(0, 6);
+    this.ended.delete(box.name);
+    this.resuming.delete(box.name);
+    this.endWhy.delete(box.name);
+    this.state.boxes = this.state.boxes.filter((b) => b.name !== box.name);
+    this.log('closed box', { name: box.name, kept });
+    await this.scan();
+    this.recordState();
+    this.emitBoxes();
     return kept ? { ok: true, session: sid } : { ok: true };
   }
 
