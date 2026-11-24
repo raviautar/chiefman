@@ -208,7 +208,7 @@
   z-index: 60;
   width: 290px;
   pointer-events: none;
-  animation: fade 120ms ease both;
+  animation: fade var(--move) ease both;
 }
 .peek-lines {
   display: flex;
@@ -257,7 +257,7 @@
   max-height: calc(100% - 112px);
   display: flex;
   flex-direction: column;
-  animation: sheet 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: sheet var(--move) cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 /* The sheet scrolls inside its card, its title row staying put. */
 .made-sheet .wcard {

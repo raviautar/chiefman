@@ -218,7 +218,7 @@
   height: 7px;
   border-radius: var(--r-full);
   background: var(--t3);
-  animation: now-pulse 1.6s ease-in-out infinite;
+  animation: now-pulse var(--pulse) ease-in-out infinite;
 }
 @keyframes now-pulse {
   0%,
@@ -289,7 +289,7 @@
   justify-content: center;
   cursor: pointer;
   pointer-events: auto;
-  animation: rise 160ms ease-out both;
+  animation: rise var(--move) ease-out both;
 }
 .jump:hover {
   background: var(--fill);
