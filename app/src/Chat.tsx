@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, Ask, Box, Draft, Item, MAX_SEND, Menu, Result, tooLong } from './api';
 import { Arrow, Check } from './icons';
-import { Markdown } from './Markdown';
+import { Markdown, More, useFold } from './Markdown';
 import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
 import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
 
@@ -126,15 +126,16 @@ const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 // A picture he attached, served by the app from its attachments folder.
 export const attUrl = (p: string) => 'cm-att://f/' + encodeURIComponent(p.slice(p.lastIndexOf('/') + 1));
 
-// His message with any attachment path shown as its picture, or its name.
-// A long paste folds as the terminal folds it: the first lines and a count
-// of the rest, which a click opens.
-const FOLD_OVER = 12;
-const FOLD_SHOW = 3;
+// His words read as the box's do (Markdown); a command or a shell line stays
+// as he typed it.
+function Words({ text }: { text: string }) {
+  if (/^\s*[/!]/.test(text)) return <>{text}</>;
+  return <Markdown text={text} fold={false} />;
+}
 
 // His quote replies: each quoted piece as a quiet line, his words under it.
 function Quoted({ text }: { text: string }) {
-  if (!/^> /m.test(text)) return <>{text}</>;
+  if (!/^> /m.test(text)) return <Words text={text} />;
   const parts: { q: boolean; t: string[] }[] = [];
   for (const l of text.split('\n')) {
     const q = l.startsWith('> ');
@@ -146,45 +147,47 @@ function Quoted({ text }: { text: string }) {
     <>
       {parts.map((p, i) => {
         const t = p.t.join('\n').replace(/^\n+|\n+$/g, '');
-        return t ? (
-          <span key={i} className={p.q ? 'you-quote' : 'you-line'}>
+        if (!t) return null;
+        return p.q ? (
+          <span key={i} className="you-quote">
             {t}
           </span>
-        ) : null;
+        ) : (
+          <div key={i} className="you-line">
+            <Words text={t} />
+          </div>
+        );
       })}
     </>
   );
 }
 
-function Folded({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const lines = text.split('\n');
-  // Quoted lines do not count toward the fold.
-  if (open || lines.filter((l) => !l.startsWith('> ')).length <= FOLD_OVER) return <Quoted text={text} />;
+// His whole message as he sent it. A long one shows its first lines, with
+// Show all.
+const CLIP_OVER = 10;
+
+function Clip({ text }: { text: string }) {
+  const f = useFold();
+  const long = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 64)), 0) > CLIP_OVER;
   return (
     <>
-      <Quoted text={lines.slice(0, FOLD_SHOW).join('\n')} />
-      {'\n'}
-      <button className="paste-fold" onClick={() => setOpen(true)} title="Show all of it">
-        [Pasted text +{lines.length - FOLD_SHOW} lines]
-      </button>
+      <div ref={f.ref} className={'you-text' + (long ? (f.open ? ' open' : ' cut') : '')}>
+        <Quoted text={text} />
+      </div>
+      {long && <More open={f.open} onClick={f.toggle} />}
     </>
   );
 }
 
 export function YouText({ text, attachDir, onOpen }: { text: string; attachDir: string; onOpen: (url: string) => void }) {
-  if (!attachDir || !text.includes(attachDir + '/')) return <Folded text={text} />;
+  if (!attachDir || !text.includes(attachDir + '/')) return <Clip text={text} />;
   const esc = attachDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const parts = text.split(new RegExp(`(${esc}/[A-Za-z0-9._-]+)`));
   const words = parts.filter((_p, i) => i % 2 === 0).join(' ').trim();
   const files = parts.filter((_p, i) => i % 2 === 1);
   return (
     <>
-      {words && (
-        <span>
-          <Folded text={words} />
-        </span>
-      )}
+      {words && <Clip text={words} />}
       <span className="you-atts">
         {files.map((f) =>
           IMAGE.test(f) ? (
