@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, Result, Snapshot } from './api';
+import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, PlanInfo, Result, Snapshot } from './api';
 import { BoxIcon, Check, Spinner } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
@@ -44,6 +44,15 @@ function money(n: number | null) {
   return n < 10 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
 }
 
+// Time left until a plan limit resets, as the tmux status bar says it:
+// 47m, 2h 47m, 3d 15h.
+function until(at: number, now: number) {
+  const mins = Math.max(0, Math.floor((at - now) / 60000));
+  if (mins < 60) return `${mins}m`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return `${Math.floor(mins / 1440)}d ${Math.floor((mins % 1440) / 60)}h`;
+}
+
 function meterLine(b: Box) {
   const parts = [];
   if (b.cost != null && b.cost > 0) parts.push(money(b.cost));
@@ -56,6 +65,7 @@ export function App() {
   const [config, setConfig] = useState<Snapshot['config'] | null>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [drill, setDrill] = useState<Drill | null>(null);
+  const [planInfo, setPlanInfo] = useState<PlanInfo>({ plan: null, workspace: null });
   const [selected, setSelected] = useState<string | null>(store.get('chiefman.selected'));
   const [view, setView] = useState<'chat' | 'terminal'>('chat');
   const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
@@ -115,6 +125,9 @@ export function App() {
         case 'drill':
           setDrill(ev.drill);
           break;
+        case 'plan':
+          setPlanInfo({ plan: ev.plan, workspace: ev.workspace });
+          break;
         case 'notice':
           show(ev.text, !!ev.bad);
           break;
@@ -155,6 +168,7 @@ export function App() {
         setConfig(s.config);
         setBoxes(s.boxes);
         setDrill(s.drill);
+        setPlanInfo({ plan: s.plan, workspace: s.workspace });
       });
     api()
       .drafts()
@@ -798,6 +812,20 @@ export function App() {
           </svg>
           <span style={{ color: '#5B5B59' }}>New Box</span>
         </button>
+        {planInfo.plan && (
+          <div className="plan" role="group" aria-label="Plan usage">
+            {planInfo.plan.map((l) => (
+              <div key={l.label} className={'plan-bar' + (l.pct >= 80 ? ' high' : l.pct >= 50 ? ' mid' : '')}>
+                <span className="plan-fill" style={{ width: `${Math.max(0, Math.min(100, l.pct))}%` }} />
+                <span className="plan-text">
+                  {l.label}
+                  {l.resets != null ? ` ${until(l.resets, now)}` : ''}
+                </span>
+                <span className="plan-text">{Math.round(l.pct)}%</span>
+              </div>
+            ))}
+          </div>
+        )}
       </nav>
 
       <main className="main">

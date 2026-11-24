@@ -170,6 +170,47 @@ button {
   }
 }
 
+/* The plan's usage at the foot of the sidebar, as on the tmux status bar:
+   one bar per limit, blue, amber from 50%, rose from 80%. */
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.plan-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(26, 26, 26, 0.04);
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plan-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(62, 123, 250, 0.16);
+}
+.plan-bar.mid .plan-fill {
+  background: rgba(224, 160, 64, 0.26);
+}
+.plan-bar.high .plan-fill {
+  background: rgba(232, 86, 112, 0.24);
+}
+.plan-text {
+  position: relative;
+}
+
 .spin {
   animation: spin 900ms steps(8) infinite;
 }

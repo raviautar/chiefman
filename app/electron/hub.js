@@ -9,6 +9,7 @@ const { mask } = require('./mask');
 const { promptState, parseActivity, parseMenu, parseMode, promptText } = require('./screen');
 const { DefaultKeeper } = require('./defaults');
 const { Usage, modelName } = require('./usage');
+const { readPlan, readWorkspace } = require('./plan');
 const { execFile } = require('child_process');
 
 const PALETTE = ['#6C358C', '#0052B4', '#C2410C', '#034F46', '#A3398F', '#496E2D', '#5B5B59'];
@@ -179,6 +180,7 @@ class Hub {
     this.timers.push(setInterval(() => this.scan(), 5000));
     this.timers.push(setInterval(() => this.pollScreens(), 1500));
     this.timers.push(setInterval(() => this.pollUsage(), 3000));
+    this.timers.push(setInterval(() => this.pollPlan(), 15000));
     try {
       const w = fs.watch(path.join(this.cfg.claudeHome, 'sessions'), () => this.soon('scan', 400, () => this.scan()));
       this.timers.push({ close: () => w.close() });
@@ -280,11 +282,28 @@ class Hub {
     };
   }
 
+  // The plan's usage bars and the machine's workspace name, read from disk
+  // every 15 seconds; sent only when they change.
+  readPlanInfo() {
+    return { plan: readPlan(this.cfg.claudeHome), workspace: readWorkspace(this.cfg.claudeHome) };
+  }
+
+  pollPlan() {
+    const info = this.readPlanInfo();
+    const text = JSON.stringify(info);
+    if (text === this.planText) return;
+    this.planText = text;
+    this.out({ type: 'plan', ...info });
+  }
+
   snapshot() {
     const home = this.cfg.home;
     const tilde = (p) => (p.startsWith(home) ? '~' + p.slice(home.length) : p);
+    const info = this.readPlanInfo();
+    this.planText = JSON.stringify(info);
     return {
       ...this.phaseInfo(),
+      ...info,
       boxes: this.publicBoxes(),
       drill: this.drill,
       config: {

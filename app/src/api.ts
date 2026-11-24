@@ -82,7 +82,26 @@ export interface PhaseInfo {
   restore: { total: number; done: number; label: string } | null;
 }
 
-export interface Snapshot extends PhaseInfo {
+// One of the plan's usage limits: session, week, or a model's own (Fable).
+// resets: when it resets, in ms.
+export interface Limit {
+  label: string;
+  pct: number;
+  resets: number | null;
+}
+
+// The machine's workspace name, where one is set.
+export interface Workspace {
+  name: string;
+  colour: string;
+}
+
+export interface PlanInfo {
+  plan: Limit[] | null;
+  workspace: Workspace | null;
+}
+
+export interface Snapshot extends PhaseInfo, PlanInfo {
   boxes: Box[];
   drill: Drill | null;
   config: { session: string; workdir: string; stateFile: string; attachDir: string; model: string; effort: string };
@@ -105,6 +124,7 @@ export type HubEvent =
   | { type: 'chat-reset'; paneId: string; items: Item[]; steps: number }
   | { type: 'chat-add'; paneId: string; added: { item: Item; after: string | null }[]; steps: number }
   | { type: 'drill'; drill: Drill | null }
+  | ({ type: 'plan' } & PlanInfo)
   | { type: 'term'; paneId: string; data: string }
   | { type: 'term-reset'; paneId: string; cols: number; rows: number; data: string };
 
