@@ -1,0 +1,314 @@
+/* ---- what a turn did (Turn.tsx), the live line, his place ---- */
+
+.turn-bad {
+  color: var(--wcard-failed, #cf222e);
+}
+
+.wcard.turn .wcard-title {
+  font-weight: 500;
+}
+.wcard.turn .wcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.turn-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.turn-h {
+  font-size: 11.5px;
+  color: var(--wcard-grey, #7a7a78);
+  padding: 0 6px 3px;
+}
+
+.turn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--wcard-ink, #111);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.turn-row:hover {
+  background: var(--wcard-hover, #f6f6f5);
+}
+.turn-row:active {
+  background: #efefee;
+}
+.turn-row.still {
+  cursor: text;
+  user-select: text;
+}
+.turn-row.still:hover {
+  background: transparent;
+}
+.turn-row.small {
+  min-height: 24px;
+  font-size: 12.5px;
+  color: #3d3d3b;
+}
+.turn-row:focus-visible {
+  outline: 2px solid var(--focus, #a77bc4);
+  outline-offset: -2px;
+}
+
+.turn-say {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-say.mono,
+.turn-pre {
+  font-family: var(--mono);
+}
+.turn-say.mono {
+  flex: 0 1 auto;
+  font-size: 12.5px;
+}
+.turn-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--wcard-grey, #7a7a78);
+}
+.turn-count,
+.turn-kind {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--wcard-grey, #7a7a78);
+  font-variant-numeric: tabular-nums;
+}
+.turn-out {
+  flex-shrink: 0;
+  color: var(--wcard-grey, #7a7a78);
+}
+.turn-row:hover .turn-out {
+  color: var(--wcard-ink, #111);
+}
+
+.turn-rest {
+  color: var(--wcard-grey, #7a7a78);
+  font-size: 12.5px;
+}
+.turn-rest .turn-say {
+  flex: 0 1 auto;
+}
+
+.turn-pre {
+  margin: 2px 6px 6px;
+  padding: 8px 10px;
+  max-height: 300px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #f7f7f6;
+  color: #3d3d3b;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.turn-pre.cmd {
+  margin-bottom: 0;
+  color: var(--wcard-ink, #111);
+}
+.turn-pre.diff span {
+  display: block;
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+/* Removed lines quiet, added lines in ink: no colour, only weight. */
+.turn-pre.diff .add {
+  color: var(--wcard-ink, #111);
+  background: rgba(17, 17, 17, 0.045);
+}
+.turn-pre.diff .del {
+  color: #9a9996;
+}
+.turn-pre.diff .hunk {
+  color: #a9a8a4;
+  padding-top: 4px;
+}
+
+.turn-note {
+  padding: 2px 6px 6px;
+  font-size: 12px;
+  color: var(--wcard-grey, #7a7a78);
+}
+
+.turn-fail {
+  display: flex;
+  flex-direction: column;
+}
+.turn-fail-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.turn-fail-top .turn-row {
+  flex: 1;
+  min-width: 0;
+}
+.turn-ask {
+  flex-shrink: 0;
+  height: 26px;
+  font-size: 12px;
+}
+.turn-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wcard-failed, #cf222e);
+}
+
+/* ---- while it works: the newest step in grey, a quiet pulse ---- */
+
+.now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  font-size: 13px;
+  color: #6f6f6c;
+}
+.now-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.now-time {
+  flex-shrink: 0;
+  color: #9a9996;
+  font-variant-numeric: tabular-nums;
+}
+.now-pulse {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8f8f8c;
+  animation: now-pulse 1.6s ease-in-out infinite;
+}
+@keyframes now-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+.now-failed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--wcard-failed, #cf222e);
+}
+
+/* "Interrupted", "Compacted": one small centred grey word. */
+.mark-word {
+  align-self: center;
+  font-size: 11.5px;
+  color: #9a9996;
+  letter-spacing: 0.01em;
+}
+
+/* ---- his place: a thin New line, and a round ↓ with a count ---- */
+
+.new-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #111111;
+}
+.new-line::before,
+.new-line::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(17, 17, 17, 0.16);
+}
+
+.jump-dock {
+  position: sticky;
+  bottom: 4px;
+  height: 0;
+  display: flex;
+  justify-content: center;
+  overflow: visible;
+  pointer-events: none;
+}
+.jump {
+  position: relative;
+  top: -46px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  background: #ffffff;
+  color: #111111;
+  box-shadow: 0 4px 14px rgba(17, 17, 17, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: rise 160ms ease-out both;
+}
+.jump:hover {
+  background: #f6f6f5;
+}
+.jump:active {
+  transform: scale(0.95);
+}
+.jump-n {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .now-pulse,
+  .jump {
+    animation: none;
+  }
+}
