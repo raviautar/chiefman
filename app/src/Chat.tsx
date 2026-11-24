@@ -275,6 +275,7 @@ export function ChatView({
   const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
+  const scrolled = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keep = useRef<{ h: number; top: number } | null>(null);
   const lastEsc = useRef(0);
   const shut = useRef<string | null>(null);
@@ -669,6 +670,13 @@ export function ChatView({
                 <YouText text={m.t} attachDir={attachDir} onOpen={onOpen} />
               </div>
             );
+          // A skill button he pressed: a small tag on his side.
+          if (m.k === 'work' && m.id.startsWith('u:'))
+            return (
+              <div key={m.id} className={'tag' + (isFresh && !quiet.has(m.id) ? ' rise' : '')}>
+                {m.t}
+              </div>
+            );
           if (m.k === 'work')
             return (
               <div key={m.id} className={'work' + (isFresh && !quiet.has(m.id) ? ' rise' : '')}>
@@ -682,26 +690,35 @@ export function ChatView({
                 {m.t}
               </pre>
             );
+          // The box's reply sits in a soft bubble; its questions' widgets sit
+          // under it, outside the bubble.
+          if (!m.asks?.length)
+            return (
+              <div key={m.id} className={'say' + (isFresh ? ' rise' : '')} data-quote="">
+                <Markdown text={m.t} />
+              </div>
+            );
           return (
-            <div key={m.id} className={'say' + (isFresh ? ' rise' : '')} data-quote="">
-              <Markdown text={m.t} />
-              {m.asks && m.asks.length > 0 && (
-                <AskList
-                  id={m.id}
-                  asks={m.asks}
-                  live={m.id === asked.live && !closed}
-                  bundle={bundle}
-                  onEntry={setEntry}
-                  onSend={() => submit()}
-                />
+            <div key={m.id} className={'reply-group' + (isFresh ? ' rise' : '')}>
+              {m.t.trim() && (
+                <div className="say" data-quote="">
+                  <Markdown text={m.t} />
+                </div>
               )}
+              <AskList
+                id={m.id}
+                asks={m.asks}
+                live={m.id === asked.live && !closed}
+                bundle={bundle}
+                onEntry={setEntry}
+                onSend={() => submit()}
+              />
             </div>
           );
         })}
         {pending.map((p) =>
           p.skill ? (
-            <div key={p.id} className="work rise">
-              <Chevron />
+            <div key={p.id} className="tag rise">
               {p.t}
               {p.queued && <span className="queued">queued</span>}
             </div>
@@ -853,6 +870,15 @@ export function ChatView({
       <div
         className="chat"
         ref={scroller}
+        onWheel={(e) => {
+          // The thin scrollbar shows only while he scrolls, not when a new
+          // message moves the chat down.
+          const el = e.currentTarget;
+          if (el.scrollHeight <= el.clientHeight) return;
+          el.classList.add('scrolling');
+          if (scrolled.current) clearTimeout(scrolled.current);
+          scrolled.current = setTimeout(() => el.classList.remove('scrolling'), 800);
+        }}
         onScroll={(e) => {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;

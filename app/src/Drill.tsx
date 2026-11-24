@@ -103,7 +103,8 @@ function Card({
   );
 }
 
-// Only what needs him now, one card at a time. A sent answer folds its card
+// Only what needs him now: up to three cards stacked, more one at a time. A
+// sent answer folds its card
 // to one line that says what was sent; the chief's own log then keeps it away.
 // Picks made with widgets wait under the cards until one Send sends them all.
 export function DrillPanel({
@@ -130,7 +131,10 @@ export function DrillPanel({
     const t = setTimeout(() => setDone(null), 10000);
     return () => clearTimeout(t);
   }, [done?.id]);
+  // Three items or fewer show all at once; more page one at a time.
+  const stack = open.length <= 3;
   const item = open[at];
+  const cards = stack ? open : item ? [item] : [];
   const keyOf = (n: number) => `${drill?.id}:${n}`;
   const picked = open.filter((i) => i.ask && bundle[keyOf(i.n)]?.text).map((i) => ({ n: i.n, text: bundle[keyOf(i.n)].text }));
   const preview = picked.map((a) => `${a.n}. ${a.text}`).join('\n');
@@ -155,35 +159,40 @@ export function DrillPanel({
     <aside className={'drill' + (floating ? ' float' : '')} aria-label="From the chief">
       <div className="drill-head">
         <h2 className="drill-title">From the chief</h2>
-        {open.length > 1 && (
+        {!stack && (
           <span className="pager">
-            <button className="round" aria-label="Previous" onClick={() => setAt((at - 1 + open.length) % open.length)}>
+            <span className="pager-count">
+              {Math.min(at, open.length - 1) + 1} of {open.length}
+            </span>
+            <button className="round tip" aria-label="Previous" data-tip="Previous" onClick={() => setAt((at - 1 + open.length) % open.length)}>
               <Arrow size={12} dir="left" />
             </button>
-            <button className="round" aria-label="Next" onClick={() => setAt((at + 1) % open.length)}>
+            <button className="round tip" aria-label="Next" data-tip="Next" onClick={() => setAt((at + 1) % open.length)}>
               <Arrow size={12} dir="right" />
             </button>
           </span>
         )}
       </div>
-      {item ? (
-        <Card
-          key={`${drill!.id}:${item.n}`}
-          item={item}
-          entry={bundle[keyOf(item.n)]}
-          onEntry={(e) =>
-            setBundle((b) => {
-              const next = { ...b };
-              if (e) next[keyOf(item.n)] = e;
-              else delete next[keyOf(item.n)];
-              return next;
-            })
-          }
-          onSend={(t) => {
-            if (!item.ask) return send([{ n: item.n, text: t }]);
-            return send([...picked.filter((a) => a.n !== item.n), { n: item.n, text: t }].sort((x, y) => x.n - y.n));
-          }}
-        />
+      {cards.length ? (
+        cards.map((it) => (
+          <Card
+            key={`${drill!.id}:${it.n}`}
+            item={it}
+            entry={bundle[keyOf(it.n)]}
+            onEntry={(e) =>
+              setBundle((b) => {
+                const next = { ...b };
+                if (e) next[keyOf(it.n)] = e;
+                else delete next[keyOf(it.n)];
+                return next;
+              })
+            }
+            onSend={(t) => {
+              if (!it.ask) return send([{ n: it.n, text: t }]);
+              return send([...picked.filter((a) => a.n !== it.n), { n: it.n, text: t }].sort((x, y) => x.n - y.n));
+            }}
+          />
+        ))
       ) : (
         <div className="drill-empty">Nothing needs you.</div>
       )}
