@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, Ask, Box, Draft, Item, MAX_SEND, Menu, Result, tooLong, type TurnNow } from './api';
 import { Arrow, Check } from './icons';
-import { Markdown, More, useFold } from './Markdown';
+import { Markdown, More, PictureOpen, useFold } from './Markdown';
 import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
 import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
 import { NowFailed, NowLine, nowText, TurnCard } from './Turn';
 import { Jump, NEW_LINE, usePlace } from './Place';
+import { CardData, CardKeys, Cards, inferActions, isDismissed } from './Blocks';
 
 export interface ChatState {
   items: Item[];
@@ -122,6 +123,39 @@ function askState(items: Item[], next?: Pending) {
     }
   }
   return { live, answered, words, skipped };
+}
+
+// How each of the box's replies shows: its text, and the cards under it.
+// The cards are open (live) until he sends something after the reply; a
+// waiting card also closes when the box says more. A last line shaped
+// 'Reply "X" to …' on the newest reply becomes a button. A block not closed
+// yet shows only once the box is done. owner: the reply whose newest open
+// card takes the keys.
+function replyViews(items: Item[], open: boolean, busy: boolean) {
+  let lastTurn = -1;
+  let lastReply = -1;
+  items.forEach((x, i) => {
+    if (x.k === 'you' || (x.k === 'work' && x.id.startsWith('u:'))) lastTurn = i;
+    if (x.k === 'box' && !x.mono && !x.id.startsWith('o:')) lastReply = i;
+  });
+  const views = new Map<string, { text: string; cards: CardData[]; live: boolean; waitLive: boolean }>();
+  let owner: string | null = null;
+  items.forEach((m, i) => {
+    if (m.k !== 'box' || m.mono) return;
+    const live = open && i > lastTurn;
+    const cards: CardData[] = [...(m.cards ?? [])];
+    let text = m.t;
+    const inferred = live && i === lastReply && !m.asks?.length && !cards.some((c) => c.kind === 'actions') && !isDismissed(`${m.id}:${cards.length}`) ? inferActions(m.t) : null;
+    if (inferred) {
+      text = inferred.text;
+      cards.push({ kind: 'actions', buttons: inferred.buttons, hint: inferred.line });
+    }
+    if (m.tail && !(busy && i === items.length - 1)) text = [text, m.tail].filter(Boolean).join('\n\n');
+    if (!cards.length && text === m.t) return;
+    views.set(m.id, { text, cards, live, waitLive: live && i === lastReply });
+    if (live && cards.length) owner = m.id;
+  });
+  return { views, owner };
 }
 
 type Attachment = Draft['atts'][number];
@@ -382,6 +416,10 @@ export function ChatView({
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
   const asked = askState(items, pending[0]);
+  // The cards under the replies; the newest open one takes the keys.
+  const cardKeys = useRef<CardKeys | null>(null);
+  const [, setCardTick] = useState(0);
+  const replies = replyViews(items, !pending.length && !closed, box.status === 'working');
   const liveItem = asked.live ? items.find((i) => i.id === asked.live) : undefined;
   const liveKeys = liveItem?.asks ? liveItem.asks.map((a) => `${liveItem.id}:${a.n}`) : [];
   const answers = compose(bundle, liveKeys);
@@ -411,6 +449,17 @@ export function ChatView({
 
   function keepQuote(quote: string, reply: string) {
     setBundle((b) => ({ ...b, [quoteKey()]: { text: reply, quote } }));
+  }
+
+  // A card's button sends its words as his message; Change on a draft
+  // quotes it, and his words go in the message field.
+  function sendCard(text: string) {
+    stick.current = true;
+    return onSend(text);
+  }
+  function quoteCard(quote: string) {
+    keepQuote(quote, '');
+    input.current?.focus();
   }
 
   // The chat closes (another box) with words in the reply bubble: they join
@@ -897,24 +946,27 @@ export function ChatView({
                 {m.t}
               </pre>
             );
-          // The box's reply sits in a soft bubble; its questions' widgets sit
-          // under it, outside the bubble.
-          if (!m.asks?.length)
+          // The box's reply sits in a soft bubble; its questions' widgets and
+          // its cards sit under it, outside the bubble.
+          const view = replies.views.get(m.id);
+          const text = view ? view.text : m.t;
+          const cards = view && view.cards.length ? view : null;
+          if (!m.asks?.length && !cards)
             return (
               <div key={m.id} className={'say' + (isFresh ? ' rise' : '')} data-quote="">
-                <Markdown text={m.t} />
+                <Markdown text={text} />
               </div>
             );
           return (
-            <div key={m.id} className={'reply-group' + (isFresh ? ' rise' : '')}>
-              {m.t.trim() && (
+            <div key={m.id} className={'reply-group' + (cards ? ' has-cards' : '') + (isFresh ? ' rise' : '')}>
+              {text.trim() && (
                 <div className="say" data-quote="">
-                  <Markdown text={m.t} />
+                  <Markdown text={text} />
                 </div>
               )}
               {/* Questions he answered in his words, or skipped, fold to one
                   quiet line; a click shows them. */}
-              {(asked.words.has(m.id) || asked.skipped.has(m.id)) && !unfolded.has(m.id + ':q') ? (
+              {!m.asks?.length ? null : (asked.words.has(m.id) || asked.skipped.has(m.id)) && !unfolded.has(m.id + ':q') ? (
                 <button
                   className="work fold q-fold"
                   onClick={() => setUnfolded((s) => new Set(s).add(m.id + ':q'))}
@@ -935,6 +987,19 @@ export function ChatView({
                   bundle={bundle}
                   onEntry={setEntry}
                   onSend={() => submit()}
+                />
+              )}
+              {cards && (
+                <Cards
+                  id={m.id}
+                  cards={cards.cards}
+                  live={cards.live}
+                  waitLive={cards.waitLive}
+                  since={m.ts ? Date.parse(m.ts) : null}
+                  keys={m.id === replies.owner ? cardKeys : undefined}
+                  onSend={sendCard}
+                  onQuote={quoteCard}
+                  onDismiss={() => setCardTick((t) => t + 1)}
                 />
               )}
             </div>
@@ -1101,7 +1166,7 @@ export function ChatView({
           }
         }}
       >
-        {middle}
+        <PictureOpen.Provider value={onOpen}>{middle}</PictureOpen.Provider>
         <Jump n={place.below} onClick={place.jump} />
         <Quoter scroller={scroller} on={!closed || typeAhead} onKeep={keepQuote} onLeave={leaveQuote} onDone={() => input.current?.focus()} />
       </div>
@@ -1207,6 +1272,20 @@ export function ChatView({
                 return;
               }
               if (popKey(e)) return;
+              // The newest open card takes the keys while the field is empty:
+              // 1 to 9 pick, Enter its main button, Esc puts it away.
+              const ck = cardKeys.current;
+              if (ck && !draft && !atts.length && !quotes.length && !answers && !menu && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+                if (/^[1-9]$/.test(e.key) && ck.pick?.(Number(e.key))) return e.preventDefault();
+                if (e.key === 'Enter' && ck.main) {
+                  e.preventDefault();
+                  return ck.main();
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  return ck.dismiss();
+                }
+              }
               if (e.key === 'Escape') {
                 // Esc twice in an empty field: edit an earlier message.
                 if (draft || working || menu || early || box.status === 'working') return;
