@@ -3,6 +3,7 @@ import { api, Ask, Box, Draft, Item, Menu, Result } from './api';
 import { Arrow, Check } from './icons';
 import { Markdown } from './Markdown';
 import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
+import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
 
 export interface ChatState {
   items: Item[];
@@ -69,13 +70,39 @@ export const attUrl = (p: string) => 'cm-att://f/' + encodeURIComponent(p.slice(
 // of the rest, which a click opens.
 const FOLD_OVER = 12;
 const FOLD_SHOW = 3;
+
+// His quote replies: each quoted piece as a quiet line, his words under it.
+function Quoted({ text }: { text: string }) {
+  if (!/^> /m.test(text)) return <>{text}</>;
+  const parts: { q: boolean; t: string[] }[] = [];
+  for (const l of text.split('\n')) {
+    const q = l.startsWith('> ');
+    const last = parts[parts.length - 1];
+    if (last && last.q === q) last.t.push(q ? l.slice(2) : l);
+    else parts.push({ q, t: [q ? l.slice(2) : l] });
+  }
+  return (
+    <>
+      {parts.map((p, i) => {
+        const t = p.t.join('\n').replace(/^\n+|\n+$/g, '');
+        return t ? (
+          <span key={i} className={p.q ? 'you-quote' : 'you-line'}>
+            {t}
+          </span>
+        ) : null;
+      })}
+    </>
+  );
+}
+
 function Folded({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const lines = text.split('\n');
-  if (open || lines.length <= FOLD_OVER) return <>{text}</>;
+  // Quoted lines do not count toward the fold.
+  if (open || lines.filter((l) => !l.startsWith('> ')).length <= FOLD_OVER) return <Quoted text={text} />;
   return (
     <>
-      {lines.slice(0, FOLD_SHOW).join('\n')}
+      <Quoted text={lines.slice(0, FOLD_SHOW).join('\n')} />
       {'\n'}
       <button className="paste-fold" onClick={() => setOpen(true)} title="Show all of it">
         [Pasted text +{lines.length - FOLD_SHOW} lines]
@@ -235,9 +262,9 @@ export function ChatView({
   const [retrying, setRetrying] = useState(false);
   const [endBusy, setEndBusy] = useState(false);
   const [endWhy, setEndWhy] = useState<string | null>(null);
-  // His answers to a reply's questions, waiting for Send.
-  const [bundle, setBundle] = useState<Bundle>({});
-  const [answering, setAnswering] = useState(false);
+  // His answers to a reply's questions and his quote replies, waiting for
+  // Send. Kept with the box's draft, so each box keeps its own.
+  const [bundle, setBundle] = useState<Bundle>(initial?.bundle ?? {});
   // His ticks on Claude's own question with check boxes, for that question.
   const [ticks, setTicks] = useState<{ key: string; on: number[] } | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
@@ -258,7 +285,8 @@ export function ChatView({
   const off = box.status === 'off';
   const ended = box.status === 'ended' || !!box.ended;
   const closed = off || starting || resuming || failed || ended;
-  const typed = !!draft.trim() || atts.length > 0;
+  const quotes = quotesOf(bundle);
+  const typed = !!draft.trim() || atts.length > 0 || quotes.length > 0;
   // An ended box takes text for Resume and send; it does not send itself.
   const typeAhead = !!ended && !!box.ended?.start;
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.filter((p) => !p.skill).map((p) => p.t)];
@@ -267,6 +295,7 @@ export function ChatView({
   const asked = askState(items, pending.length > 0);
   const liveItem = asked.live ? items.find((i) => i.id === asked.live) : undefined;
   const liveKeys = liveItem?.asks ? liveItem.asks.map((a) => `${liveItem.id}:${a.n}`) : [];
+  const answers = compose(bundle, liveKeys);
   // Claude's own question with check boxes: what is ticked, his ticks first.
   const menuKey = menu ? menu.question + '|' + menu.options.map((o) => `${o.n}.${o.label}`).join('|') : '';
   const ticked = menu?.multi
@@ -284,15 +313,17 @@ export function ChatView({
     });
   }
 
-  // One Send: every answer waiting, in one message, by number.
-  async function sendAnswers() {
-    const text = compose(bundle, liveKeys);
-    if (!text || answering || closed) return;
-    setAnswering(true);
-    stick.current = true;
-    const ok = await onSend(text, { answer: true });
-    setAnswering(false);
-    if (ok) setBundle({});
+  function keepQuote(quote: string, reply: string) {
+    setBundle((b) => ({ ...b, [quoteKey()]: { text: reply, quote } }));
+  }
+
+  // The chat closes (another box) with words in the reply bubble: they join
+  // this box's saved draft.
+  const now = useRef({ draft, atts, bundle, onDraft });
+  now.current = { draft, atts, bundle, onDraft };
+  function leaveQuote(quote: string, reply: string) {
+    const n = now.current;
+    n.onDraft({ text: n.draft, caret: n.draft.length, atts: n.atts, bundle: { ...n.bundle, [quoteKey()]: { text: reply, quote } } });
   }
 
   async function submitTicks(words?: string) {
@@ -364,10 +395,11 @@ export function ChatView({
 
   function report() {
     const caret = input.current ? input.current.selectionStart ?? draft.length : draft.length;
-    onDraft(draft || atts.length ? { text: draft, caret, atts } : null);
+    const held = Object.keys(bundle).length > 0;
+    onDraft(draft || atts.length || held ? { text: draft, caret, atts, ...(held ? { bundle } : {}) } : null);
   }
 
-  useEffect(report, [draft, atts]);
+  useEffect(report, [draft, atts, bundle]);
 
   // His message, back from an edit, goes in the field.
   useEffect(() => {
@@ -399,10 +431,14 @@ export function ChatView({
     return () => clearTimeout(t);
   }, [draft]);
 
+  // One Send: widget answers by number, then each quote with his reply, then
+  // what he typed, all in one message. A question menu takes only his words.
   async function submit(textIn?: string) {
     const typed = (textIn ?? draft).trim();
     const paths = atts.map((a) => a.path);
-    const text = [typed, ...paths].filter(Boolean).join(' ');
+    const quoted = quoteText(bundle);
+    const body = menu ? typed : [answers, quoted, typed].filter(Boolean).join('\n\n');
+    const text = [body, ...paths].filter(Boolean).join(' ');
     if (!text || sending || closed) return;
     // While a question shows, the field answers it in his own words where
     // Claude offers that; otherwise the note above the field says what to do.
@@ -415,12 +451,13 @@ export function ChatView({
       const r = await api().answer(box.paneId!, typed);
       if (!r.ok) onError(r.reason || 'Not sent.');
       ok = r.ok;
-    } else ok = await onSend(text);
+    } else ok = await onSend(text, { answer: !!answers && !quoted && !typed && !paths.length });
     setSending(false);
     if (ok) {
       setDraft('');
       setAtts([]);
       setHist(null);
+      if (!menu) setBundle({});
     }
   }
 
@@ -454,15 +491,18 @@ export function ChatView({
     // What he typed goes with it: out of the field now, back if it did not start.
     const text = draft;
     const files = atts;
+    const held = bundle;
     const p = onResume();
     setDraft('');
     setAtts([]);
+    setBundle({});
     const r = await p;
     setEndBusy(false);
     if (!r.ok) {
       setEndWhy(r.reason || "Couldn't resume it.");
       setDraft(text);
       setAtts(files);
+      setBundle(held);
     }
   }
 
@@ -638,7 +678,7 @@ export function ChatView({
               </pre>
             );
           return (
-            <div key={m.id} className={'say' + (isFresh ? ' rise' : '')}>
+            <div key={m.id} className={'say' + (isFresh ? ' rise' : '')} data-quote="">
               <Markdown text={m.t} />
               {m.asks && m.asks.length > 0 && (
                 <AskList
@@ -646,9 +686,8 @@ export function ChatView({
                   asks={m.asks}
                   live={m.id === asked.live && !closed}
                   bundle={bundle}
-                  sending={answering}
                   onEntry={setEntry}
-                  onSend={sendAnswers}
+                  onSend={() => submit()}
                 />
               )}
             </div>
@@ -825,6 +864,7 @@ export function ChatView({
         }}
       >
         {middle}
+        <Quoter scroller={scroller} on={!closed || typeAhead} onKeep={keepQuote} onLeave={leaveQuote} onDone={() => input.current?.focus()} />
       </div>
       <div
         className="composer-wrap"
@@ -869,6 +909,16 @@ export function ChatView({
             </div>
           </div>
         )}
+        <Tray
+          answers={answers ? oneLine(answers) : ''}
+          quotes={quotes}
+          onClearAnswers={() => {
+            for (const k of liveKeys) setEntry(k, null);
+          }}
+          onReply={(k, text) => setBundle((b) => (b[k] ? { ...b, [k]: { ...b[k], text } } : b))}
+          onRemove={(k) => setEntry(k, null)}
+          onDone={() => input.current?.focus()}
+        />
         {atts.length > 0 && (
           <div className="att-row">
             {atts.map((a) => (
@@ -950,7 +1000,7 @@ export function ChatView({
               }
             }}
           />
-          <button aria-label="Send" className={'send' + (!closed && (draft.trim() || atts.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
+          <button aria-label="Send" className={'send' + (!closed && (draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
             <Arrow />
           </button>
         </div>

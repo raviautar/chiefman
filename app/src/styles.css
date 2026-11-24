@@ -2363,3 +2363,221 @@ button {
 .ask > .say {
   white-space: pre-line;
 }
+
+/* ---- quote replies: a Reply button at his selection, a bubble for his
+   words, and one tray above the field for everything waiting to go ---- */
+
+.chat {
+  position: relative;
+}
+::highlight(cm-quote) {
+  background-color: var(--lilac);
+  color: var(--lilac-ink);
+}
+@keyframes quote-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.quote-btn {
+  position: absolute;
+  z-index: 12;
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 4px 14px rgba(26, 26, 26, 0.12), 0 0 0 0.5px rgba(26, 26, 26, 0.14);
+  cursor: pointer;
+  animation: quote-in 120ms ease-out;
+}
+.quote-btn:hover {
+  background: var(--sand);
+}
+.quote-bubble {
+  position: absolute;
+  z-index: 12;
+  width: min(320px, calc(100% - 24px));
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 5px 5px 5px 13px;
+  border-radius: 17px;
+  background: var(--white);
+  box-shadow: 0 10px 32px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
+  animation: quote-in 140ms ease-out;
+}
+.quote-bubble textarea,
+.qt-line.editing textarea {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 26px;
+  max-height: 120px;
+  padding: 3px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--ink);
+  overflow-y: auto;
+}
+.quote-bubble textarea::placeholder,
+.qt-line.editing textarea::placeholder {
+  color: var(--faint);
+}
+.qb-add {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+.qb-add:hover {
+  background: var(--ink-2);
+}
+.quote-tray {
+  width: 100%;
+  max-width: 560px;
+  max-height: 140px;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+.qt-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+.qt-line:hover {
+  background: rgba(26, 26, 26, 0.035);
+}
+.qt-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.qt-quote {
+  flex: 0 1 auto;
+  max-width: 45%;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qt-main .qt-quote:last-child {
+  max-width: none;
+}
+.qt-reply {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qt-answers {
+  gap: 7px;
+  color: var(--forest);
+  font-weight: 500;
+  cursor: default;
+}
+.qt-answers svg {
+  flex-shrink: 0;
+}
+.qt-x {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.qt-line:hover .qt-x,
+.qt-x:focus-visible {
+  opacity: 1;
+}
+.qt-x:hover {
+  color: var(--ink);
+  background: rgba(26, 26, 26, 0.06);
+}
+.qt-line.editing {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 5px 10px 3px;
+  background: var(--white);
+  box-shadow: 0 0 0 0.5px rgba(26, 26, 26, 0.14);
+}
+.qt-line.editing .qt-quote {
+  max-width: none;
+  font-size: 12px;
+}
+/* His sent quote replies: the quote quiet and cut short, his words under it. */
+.you-quote,
+.you-line {
+  display: block;
+}
+.you-quote {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  padding-left: 9px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 13px;
+}
+.you-line + .you-quote {
+  margin-top: 10px;
+}
+.you-quote + .you-line {
+  margin-top: 3px;
+}

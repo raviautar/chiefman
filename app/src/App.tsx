@@ -4,6 +4,7 @@ import { BoxIcon, Check, Spinner } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
 import { ChatState, ChatView, Pending, norm } from './Chat';
+import { quotesOf, quoteText } from './Quotes';
 import { TerminalView } from './Terminal';
 import { DrillPanel } from './Drill';
 import { NewBoxSheet } from './NewBox';
@@ -333,7 +334,7 @@ export function App() {
   // his typed text stays a row. The chief always stays a row.
   const hasText = (name: string) => {
     const d = saved.current[name];
-    return !!d && (!!d.text.trim() || d.atts.length > 0);
+    return !!d && (!!d.text.trim() || d.atts.length > 0 || quotesOf(d.bundle).length > 0);
   };
   const tucked = (b: Box) => !!b.ended && b.name !== 'chief' && b.name !== stay && !hasText(b.name);
   const listed = boxes.filter((b) => !tucked(b));
@@ -362,7 +363,8 @@ export function App() {
   // sent; if it is not, it goes back to the field.
   async function resumeBox(name: string): Promise<Result> {
     const d = saved.current[name];
-    const text = d ? [d.text.trim(), ...d.atts.map((a) => a.path)].filter(Boolean).join(' ') : '';
+    const words = d ? [quoteText(d.bundle), d.text.trim()].filter(Boolean).join('\n\n') : '';
+    const text = d ? [words, ...d.atts.map((a) => a.path)].filter(Boolean).join(' ') : '';
     if (text) {
       setDraftFor(name, null);
       setHeld((w) => ({ ...w, [name]: text }));
@@ -421,14 +423,14 @@ export function App() {
       // A menu without that (the trust question) gets no Esc at all.
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.menu) {
         const el = document.activeElement;
-        if (el && (el.closest('.drill, .asks') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .asks, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         if (box.menu.esc) api().dismiss(box.paneId).then((r) => !r.ok && r.reason && show(r.reason, true));
         return;
       }
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
-        if (el && (el.closest('.drill, .asks') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .asks, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         api()
           .interrupt(box.paneId)
@@ -589,7 +591,7 @@ export function App() {
   function giveBack(name: string, paneId: string | undefined, text: string) {
     const cur = saved.current[name];
     const full = cur?.text ? `${cur.text}\n${text}` : text;
-    setDraftFor(name, { text: full, caret: full.length, atts: cur?.atts ?? [] });
+    setDraftFor(name, { text: full, caret: full.length, atts: cur?.atts ?? [], ...(cur?.bundle ? { bundle: cur.bundle } : {}) });
     const p = paneId ?? boxesRef.current.find((b) => b.name === name)?.paneId;
     if (p) setIncoming((d) => ({ ...d, [p]: { text: full, seq: Date.now() } }));
   }

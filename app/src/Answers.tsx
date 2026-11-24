@@ -3,14 +3,16 @@ import { Ask } from './api';
 import { Check } from './icons';
 import { Markdown } from './Markdown';
 
-// His answers waiting to go, by key: a widget's answer to question n, or
-// (later) any other kind of reply. One Send sends them all in one message:
-// numbered answers first, as "n. text", by number; the rest after.
+// His answers waiting to go, by key: a widget's answer to question n, or a
+// quote reply (quote: the piece of the box's text, text: his words). One
+// Send sends them all in one message: numbered answers first, as "n. text",
+// by number; the rest after.
 export interface Entry {
   n?: number;
   text: string;
   picks?: string[];
   words?: string;
+  quote?: string;
 }
 export type Bundle = Record<string, Entry>;
 
@@ -93,15 +95,14 @@ export function Words({ label, value, onChange, onEnter, onClose }: { label: str
   );
 }
 
-// The questions under a box's reply. Live: a widget under each, and Send
-// once something is picked. Answered: the questions only; the line of
-// what was sent shows where his answer is.
+// The questions under a box's reply. Live: a widget under each; what he
+// picks waits above the message field for its Send. Answered: the questions
+// only; the line of what was sent shows where his answer is.
 export function AskList({
   id,
   asks,
   live,
   bundle,
-  sending,
   onEntry,
   onSend,
 }: {
@@ -109,13 +110,10 @@ export function AskList({
   asks: Ask[];
   live: boolean;
   bundle: Bundle;
-  sending: boolean;
   onEntry: (key: string, e: Entry | null) => void;
   onSend: () => void;
 }) {
   const [writing, setWriting] = useState<Set<number>>(() => new Set());
-  const keys = asks.map((a) => `${id}:${a.n}`);
-  const text = live ? compose(bundle, keys) : '';
   return (
     <div className="asks">
       {asks.map((a) => {
@@ -162,16 +160,6 @@ export function AskList({
           </div>
         );
       })}
-      {live && text && (
-        <div className="q-send">
-          <button className="chip primary" disabled={sending} onClick={onSend}>
-            Send
-          </button>
-          <span className="q-preview" title={text}>
-            {oneLine(text)}
-          </span>
-        </div>
-      )}
     </div>
   );
 }
