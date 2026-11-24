@@ -151,8 +151,8 @@ export function AskList({
                   value={words}
                   onChange={(w) => set(picks, w)}
                   onEnter={onSend}
+                  // Escape closes the field; his words stay with the answer.
                   onClose={() => {
-                    set(picks, '');
                     setWriting((s) => {
                       const next = new Set(s);
                       next.delete(a.n);

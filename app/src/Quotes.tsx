@@ -59,8 +59,8 @@ function endOf(range: Range, root: HTMLElement) {
   return { x: last.right - o.left + root.scrollLeft, y: last.bottom - o.top + root.scrollTop };
 }
 
-// A small text field: Enter keeps, Escape drops, Shift or Option+Enter makes
-// a new line.
+// A small text field: Enter keeps, Escape closes, Shift or Option+Enter
+// makes a new line.
 function Field({
   value,
   label,
@@ -243,7 +243,8 @@ export function Quoter({
       )}
       {open && (
         <div ref={bubble} className="quote-bubble">
-          <Field value={reply} label="Your reply to the quote" placeholder="Reply" onChange={setReply} onKeep={() => finish(true)} onDrop={() => finish(false)} />
+          {/* Escape closes it; his words, if any, go in the tray as with Enter. */}
+          <Field value={reply} label="Your reply to the quote" placeholder="Reply" onChange={setReply} onKeep={() => finish(true)} onDrop={() => finish(!!now.current.reply.trim())} />
           <button className="qb-add tip up" aria-label="Add this reply" data-tip="Add this reply" onClick={() => finish(true)}>
             <Check size={12} />
           </button>
@@ -271,7 +272,7 @@ export function Tray({
   onDone: () => void;
 }) {
   const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
-  // Leaving the field saves, unless Enter or Escape already closed it.
+  // Leaving the field saves, and so do Enter and Escape: his words are kept.
   const cur = useRef(editing);
   cur.current = editing;
   if (!answers && !quotes.length) return null;
@@ -280,10 +281,6 @@ export function Tray({
     if (!e) return;
     cur.current = null;
     onReply(e.key, e.text.trim());
-    setEditing(null);
-  };
-  const drop = () => {
-    cur.current = null;
     setEditing(null);
   };
   return (
@@ -313,7 +310,7 @@ export function Tray({
                 onDone();
               }}
               onDrop={() => {
-                drop();
+                save();
                 onDone();
               }}
               onBlur={save}
