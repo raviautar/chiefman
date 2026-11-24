@@ -1,0 +1,228 @@
+/* ---- the widget card (Card.tsx): every widget is one of these ---- */
+
+.wcard,
+.wcard-line {
+  --wcard-line: rgba(17, 17, 17, 0.1);
+  --wcard-ink: #111111;
+  --wcard-grey: #7a7a78;
+  --wcard-hover: #f6f6f5;
+  --wcard-failed: #cf222e;
+  --wcard-passed: #1a7f37;
+  --wcard-asks: #d4610f;
+  --wcard-working: #3e7bfa;
+  --wcard-waiting: #c4307c;
+}
+
+.wcard {
+  align-self: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 92%;
+  background: #ffffff;
+  border: 1px solid var(--wcard-line);
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--wcard-ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.wcard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wcard-head.still {
+  cursor: default;
+}
+.wcard-head:not(.still):hover {
+  background: var(--wcard-hover);
+}
+.wcard-head:not(.still):active {
+  background: #efefee;
+}
+.wcard-head:focus-visible {
+  outline: 2px solid var(--focus, #a77bc4);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+
+.wcard-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--wcard-ink);
+}
+.wcard-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wcard-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wcard-state {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--wcard-grey);
+  font-variant-numeric: tabular-nums;
+}
+.failed > .wcard-head .wcard-state,
+.wcard-line.failed .wcard-state {
+  color: var(--wcard-failed);
+}
+.passed > .wcard-head .wcard-state,
+.wcard-line.passed .wcard-state {
+  color: var(--wcard-passed);
+}
+.asks > .wcard-head .wcard-state,
+.wcard-line.asks .wcard-state {
+  color: var(--wcard-asks);
+}
+.working > .wcard-head .wcard-state,
+.wcard-line.working .wcard-state {
+  color: var(--wcard-working);
+}
+.waiting > .wcard-head .wcard-state,
+.wcard-line.waiting .wcard-state {
+  color: var(--wcard-waiting);
+}
+
+.wcard-fold {
+  flex-shrink: 0;
+  color: var(--wcard-grey);
+  transition: transform 120ms ease;
+}
+.wcard-fold.open {
+  transform: rotate(90deg);
+}
+
+.wcard-body {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--wcard-line);
+  animation: wcard-in 120ms ease-out both;
+}
+
+.wcard-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.wcard-head.still + .wcard-buttons {
+  padding-top: 2px;
+}
+
+.wcard-btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--wcard-line);
+  background: #ffffff;
+  color: var(--wcard-ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wcard-btn:hover:not(:disabled) {
+  background: var(--wcard-hover);
+}
+.wcard-btn:active:not(:disabled) {
+  background: #efefee;
+  transform: scale(0.98);
+}
+.wcard-btn.main {
+  background: var(--wcard-ink);
+  border-color: var(--wcard-ink);
+  color: #ffffff;
+}
+.wcard-btn.main:hover:not(:disabled) {
+  background: #2b2b2b;
+}
+.wcard-btn.main:active:not(:disabled) {
+  background: #000000;
+}
+.wcard-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A finished card: one grey line in place. */
+.wcard-line {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 92%;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--wcard-grey);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+.wcard-line:hover {
+  color: var(--wcard-ink);
+  background: rgba(17, 17, 17, 0.04);
+}
+.wcard-line:active {
+  background: rgba(17, 17, 17, 0.07);
+}
+.wcard-line .wcard-icon {
+  width: 14px;
+  height: 14px;
+  color: inherit;
+}
+.wcard-line .wcard-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.wcard-line-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes wcard-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wcard-body,
+  .wcard-fold {
+    animation: none;
+    transition: none;
+  }
+}
