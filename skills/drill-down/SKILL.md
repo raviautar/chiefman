@@ -58,7 +58,11 @@ chiefman, the Mac app in this repo, reads the chief's newest list and shows each
 
 **R7. A line names the work, never a box or a ticket key alone**: "the login fix (PROJ-123)", never "PROJ-123" (`plain-english` R12).
 
-**R8. A link goes on its own line under its item**, as the bare URL. No bold, tables or code blocks in the list. When the message came from chiefman, its rules ask for a questions block at the end of the reply: it goes after the list, and each line that waits on the operator keeps its own number there.
+**R8. A link goes on its own line under its item**, as the bare URL. No bold, tables or code blocks in the list. When the message came from chiefman, the reply ends with chiefman's blocks, after the list and the "Also:" line:
+- `questions`: each numbered line keeps its own number, its answer words as the choices (`3. Merge the login fix? [one: merge* | hold]`).
+- `your turn`: the steps only the operator can do, such as a sign-in, each with its link.
+- `draft <where>`: one per draft that waits for the operator to post it, with its exact text.
+No other block, and none when nothing needs the operator.
 
 **R9. At most one line after the numbers, starting "Also:"**, for what changed that the operator should know: work that waits on someone else, an item that left the list because someone else finished it. Nothing that is only idle or unchanged, and nothing about how the list was read. A list the operator stops reading has failed.
 

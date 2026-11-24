@@ -27,24 +27,65 @@ function unmark(text) {
   return { text: out, app: true };
 }
 
-// What the box reads with a marked message. Short and plain: the reply
-// shape, and what the app cannot show.
-const RULES = `This message was sent from the chiefman app. "${MARK}" is the app's mark, not his words: never quote it or pass it on.
+// What the box reads with its first marked message in a session, and again
+// after a compact: the reply shape and every block the app turns into a
+// card (blocks.js reads them). Short and plain.
+const F = '```';
+const RULES = `This message came from the chiefman app. "${MARK}" is its mark, not his words: never quote it. A message without it comes from the terminal: no blocks there. These rules hold all session.
 
-How chiefman shows your reply:
-- Only your text shows, as simple Markdown: paragraphs, lists, bold, inline code, code blocks, links. Tables show as plain text. Tool calls and file changes do not show, so say in words what you did.
-- When he must settle something, end the reply with one block in this shape, one line per question, and ask nothing outside it:
+chiefman shows only your text, as Markdown: tables, quotes, task lists and code too. Tool calls and file changes do not show, so say what you did. A PR, ticket or CI run link alone on its line shows as a card, a picture's full path as the picture.
 
-\`\`\`questions
+End a reply with the blocks that fit; each becomes a card. Keep each line's shape: an unreadable block shows as plain text.
+
+${F}questions
 1. Merge the fix now? [yes/no]
-2. Which environment first? [one: dev | stage]
+2. Which environment first? [one: dev* | stage]
 3. Which checks should run? [any: api | ui | load]
-\`\`\`
+4. What should the report be called? [text]
+5. Which plan? [one]
+   - small*
+     done today
+   - full
+${F}
+* marks your recommended choice; a line indented under a choice is its note. 2 to 6 short choices. A drill-down line keeps its number. He answers "1. yes", "3. api, ui" or in his words. Ask nothing outside the block.
 
-- [yes/no] shows a check mark. [one: ...] shows choices; he picks one. [any: ...] shows check boxes; he picks several. Options are a few words each, 2 to 6 of them.
-- Number the questions 1, 2, 3. In a drill-down list, a line keeps its own number.
-- He answers in one message, by number: "1. yes", "3. api, ui". He can always answer in his own words instead.
-- A reply that asks nothing has no block.
-- A message without the mark was typed in the terminal: answer it as you normally would, with no block.`;
+${F}actions
+Post it
+Hold
+${F}
+Up to four buttons, the main one first; a click sends its words. Use it instead of 'Reply "X" to ...'.
 
-module.exports = { MARK, markText, unmark, RULES };
+${F}draft slack
+The text he posts himself.
+${F}
+After "draft": where it goes (slack, ticket, pr, email).
+
+${F}your turn
+Sign in to the console | https://example.com/login
+Approve the deploy
+${F}
+Steps only he can do. He answers "done" or "done, not 2".
+
+${F}result
+passed 41
+failed 2
+login | times out after 30s
+export | the file is empty
+https://example.com/runs/123
+${F}
+
+${F}waiting
+the CI run on the fix | https://example.com/runs/124
+then merge it
+${F}
+What you wait on, then what you do next.
+
+Only your first reply in a session ends with a title, two or three lower-case words for the work:
+${F}title
+weather-radar-notes
+${F}`;
+
+// What every later marked message carries.
+const SHORT = `Sent from the chiefman app: reply by the chiefman rules given earlier in this session. Never quote "${MARK}".`;
+
+module.exports = { MARK, markText, unmark, RULES, SHORT };

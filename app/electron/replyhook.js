@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { MARK, RULES } = require('./mark');
+const crypto = require('crypto');
+const { MARK, RULES, SHORT } = require('./mark');
 const { rawValue, withValue } = require('./defaults');
 
 // One UserPromptSubmit hook in the user's Claude settings, for every box,
@@ -10,25 +11,44 @@ const { rawValue, withValue } = require('./defaults');
 // "replyHook": false in config.json takes both away again.
 const SCRIPT = 'chiefman-reply.sh';
 
-function scriptText() {
+const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
+
+// The full rules go to a session once, and again after each compact or a
+// change of the rules: a file per session in seenDir holds the rules'
+// version and how many compacts its log had then. Every other marked
+// message gets the one short line.
+function scriptText(seenDir) {
+  const version = crypto.createHash('sha1').update(RULES + SHORT).digest('hex').slice(0, 10);
   return [
     '#!/bin/sh',
     '# Added by the chiefman app. For a message sent from chiefman (it carries the',
-    '# mark below), it prints how chiefman shows replies. Any other message: nothing.',
+    '# mark below), it prints how chiefman shows replies: in full the first time in',
+    '# a session and after a compact, else one line. Any other message: nothing.',
     '# To take it away, set "replyHook": false in ~/.chiefman/config.json.',
     'input=$(cat)',
     'case "$input" in',
     `  *"${MARK}"*) ;;`,
     '  *) exit 0 ;;',
     'esac',
+    String.raw`field() { printf '%s\n' "$input" | sed -n "s/.*\"$1\" *: *\"\([^\"]*\)\".*/\1/p" | head -n 1; }`,
+    "sid=$(field session_id | tr -cd 'A-Za-z0-9-')",
+    'log=$(field transcript_path)',
+    `seen=${quote(seenDir)}`,
+    `now=${quote(version)}`,
+    `if [ -f "$log" ]; then now="$now $(grep -c '"subtype":"compact_boundary"' "$log")"; fi`,
+    'if [ -n "$sid" ] && [ "$(cat "$seen/$sid" 2>/dev/null)" = "$now" ]; then',
+    "  cat <<'CHIEFMAN_SHORT'",
+    SHORT,
+    'CHIEFMAN_SHORT',
+    '  exit 0',
+    'fi',
+    `if [ -n "$sid" ]; then mkdir -p "$seen" && printf '%s' "$now" > "$seen/$sid"; fi`,
     "cat <<'CHIEFMAN_RULES'",
     RULES,
     'CHIEFMAN_RULES',
     '',
   ].join('\n');
 }
-
-const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 
 function entryFor(file) {
   return { hooks: [{ type: 'command', command: `sh ${quote(file)} 2>/dev/null; true`, timeout: 5 }] };
@@ -106,11 +126,11 @@ function currentList(settings) {
   }
 }
 
-function ensureReplyHook(claudeHome, log) {
+function ensureReplyHook(claudeHome, seenDir, log) {
   const file = path.join(claudeHome, 'hooks', SCRIPT);
   const settings = path.join(claudeHome, 'settings.json');
   try {
-    const body = scriptText();
+    const body = scriptText(seenDir);
     if (readText(file) !== body) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, body, { mode: 0o755 });
