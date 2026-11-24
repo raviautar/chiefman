@@ -35,11 +35,14 @@ function answerLine(text: string, asks: Ask[]) {
   return ok ? oneLine(lines.join('\n')) : null;
 }
 
-// Which reply's questions are still open (live), and which of his messages
-// answered questions and fold to one line. A reply's questions close at his
-// next message, or a skill run, or one waiting to go.
-function askState(items: Item[], waiting: boolean) {
+// Which reply's questions are still open (live), which of his messages
+// answered questions and fold to one line, and which replies' questions he
+// skipped. A reply's questions close at his next message, or a skill run, or
+// one waiting to go; a newer reply with questions of its own skips them too.
+// answering: what waits to go is his answers from the widgets.
+function askState(items: Item[], waiting: boolean, answering: boolean) {
   const answered: Record<string, string> = {};
+  const skipped = new Set<string>();
   let live: string | null = null;
   const turn = (i: Item) => i.k === 'you' || (i.k === 'work' && i.id.startsWith('u:'));
   for (let i = 0; i < items.length; i++) {
@@ -47,15 +50,17 @@ function askState(items: Item[], waiting: boolean) {
     if (it.k !== 'box' || !it.asks?.length) continue;
     const next = items.slice(i + 1).find(turn);
     if (!next) {
-      live = waiting ? null : it.id;
+      if (live) skipped.add(live);
+      live = null;
+      if (!waiting) live = it.id;
+      else if (!answering) skipped.add(it.id);
       continue;
     }
-    if (next.k === 'you') {
-      const line = answerLine(next.t, it.asks);
-      if (line) answered[next.id] = line;
-    }
+    const line = next.k === 'you' ? answerLine(next.t, it.asks) : null;
+    if (line) answered[next.id] = line;
+    else skipped.add(it.id);
   }
-  return { live, answered };
+  return { live, answered, skipped };
 }
 
 type Attachment = Draft['atts'][number];
@@ -306,7 +311,7 @@ export function ChatView({
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.filter((p) => !p.skill).map((p) => p.t)];
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
-  const asked = askState(items, pending.length > 0);
+  const asked = askState(items, pending.length > 0, pending.some((p) => p.answer));
   const liveItem = asked.live ? items.find((i) => i.id === asked.live) : undefined;
   const liveKeys = liveItem?.asks ? liveItem.asks.map((a) => `${liveItem.id}:${a.n}`) : [];
   const answers = compose(bundle, liveKeys);
@@ -766,14 +771,26 @@ export function ChatView({
                   <Markdown text={m.t} />
                 </div>
               )}
-              <AskList
-                id={m.id}
-                asks={m.asks}
-                live={m.id === asked.live && !closed}
-                bundle={bundle}
-                onEntry={setEntry}
-                onSend={() => submit()}
-              />
+              {/* Questions he skipped fold to one quiet line; a click shows them. */}
+              {asked.skipped.has(m.id) && !unfolded.has(m.id + ':q') ? (
+                <button
+                  className="work fold skipped"
+                  onClick={() => setUnfolded((s) => new Set(s).add(m.id + ':q'))}
+                  title={m.asks.map((a) => `${a.n}. ${a.q}`).join('\n')}
+                >
+                  <Chevron />
+                  {m.asks.length === 1 ? 'Question skipped' : `${m.asks.length} questions skipped`}
+                </button>
+              ) : (
+                <AskList
+                  id={m.id}
+                  asks={m.asks}
+                  live={m.id === asked.live && !closed}
+                  bundle={bundle}
+                  onEntry={setEntry}
+                  onSend={() => submit()}
+                />
+              )}
             </div>
           );
         })}

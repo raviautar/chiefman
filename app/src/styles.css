@@ -2753,3 +2753,10 @@ button:focus-visible,
   background: var(--white);
   box-shadow: 0 8px 28px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
 }
+
+/* ---- skipped questions, tables, the compact drill-down list ---- */
+
+/* Questions he skipped: one quiet line under the reply. */
+.reply-group > .fold.skipped {
+  margin-top: 8px;
+}
