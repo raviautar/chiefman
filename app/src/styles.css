@@ -2732,3 +2732,23 @@ button:focus-visible,
 .qt-answers:active {
   background: transparent;
 }
+
+/* Remote Control in the header: a phone, filled in the accent when on,
+   an outline when off, breathing while the box turns it on or off. */
+.icon-btn.remote.going svg {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.remote-wrap:has(.copied) .tip::after {
+  display: none;
+}
+.remote-wrap .copied {
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--white);
+  box-shadow: 0 8px 28px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
+}

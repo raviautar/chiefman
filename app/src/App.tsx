@@ -8,6 +8,7 @@ import { quotesOf, quoteText } from './Quotes';
 import { TerminalView } from './Terminal';
 import { DrillPanel } from './Drill';
 import { NewBoxSheet } from './NewBox';
+import { RemoteButton } from './Remote';
 
 type Toast = { text: string; bad?: boolean; id: number };
 
@@ -105,7 +106,6 @@ export function App() {
   const [sent, setSent] = useState<Record<string, string>>({});
   const [now, setNow] = useState(Date.now());
   const [, setTick] = useState(0);
-  const [linkFor, setLinkFor] = useState<string | null>(null);
   const [incoming, setIncoming] = useState<Record<string, { text: string; seq: number }>>({});
   // First messages held while their box starts, by box name.
   const [held, setHeld] = useState<Record<string, string>>({});
@@ -279,12 +279,6 @@ export function App() {
     saved.current = next;
     keepDrafts();
   }, [boxes, info.phase, draftsReady]);
-
-  useEffect(() => {
-    if (!linkFor) return;
-    const t = setTimeout(() => setLinkFor(null), 4000);
-    return () => clearTimeout(t);
-  }, [linkFor]);
 
   // Below 1180 px the panel floats over the chat; a click outside closes it.
   useEffect(() => {
@@ -649,16 +643,6 @@ export function App() {
     if (!r.ok) show(r.reason || 'Not changed.', true);
   }
 
-  async function remote() {
-    if (!box?.paneId) return;
-    const r = await api().remote(box.paneId);
-    if (!r.ok) return show(r.reason || 'Not sent.', true);
-    if (r.url) {
-      api().copy(r.url);
-      setLinkFor(box.paneId);
-    }
-  }
-
   async function act(kind: 'compact' | 'clear') {
     if (!box?.paneId) return;
     const r = await api().action(box.paneId, kind);
@@ -689,7 +673,6 @@ export function App() {
           { label: 'Compact', run: () => setOverlay('compact') },
           { label: 'Clear', run: () => setOverlay('clear') },
           { label: 'Rename', run: () => setOverlay('rename') },
-          { label: box.remote ? 'Copy Remote Control link' : 'Turn on Remote Control', hint: box.remote ? 'on' : '', run: remote },
         ]
       : [];
   // An ended box: Resume (and send what he typed), or Remove.
@@ -984,6 +967,7 @@ export function App() {
                     </button>
                   </span>
                 )}
+                <RemoteButton box={box!} onError={(t) => show(t, true)} />
                 <span className="keep">
                   <button className="icon-btn tip" onClick={() => setMore(!more)} aria-label="More actions" data-tip="More actions">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -994,21 +978,6 @@ export function App() {
                   </button>
                   {more && <MoreMenu actions={boxActions} onClose={() => setMore(false)} />}
                 </span>
-                {linkFor === box!.paneId && box!.remote && (
-                  <span className="copied keep" key={linkFor}>
-                    Link copied ·{' '}
-                    <button
-                      className="text-btn"
-                      onClick={async () => {
-                        const r = await api().remote(box!.paneId!);
-                        if (r.url) api().openUrl(r.url);
-                        setLinkFor(null);
-                      }}
-                    >
-                      Open
-                    </button>
-                  </span>
-                )}
               </div>
             )}
           </div>
