@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { api, Box, Draft, Item, Menu, Result } from './api';
+import { api, Ask, Box, Draft, Item, Menu, Result } from './api';
 import { Arrow, Check } from './icons';
 import { Markdown } from './Markdown';
+import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
 
 export interface ChatState {
   items: Item[];
@@ -18,6 +19,42 @@ export interface Pending {
   queued: boolean;
   // A skill button's run: a quiet line, not his bubble.
   skill?: boolean;
+  // His answers from the widgets: one folded line, not his bubble.
+  answer?: boolean;
+}
+
+// A message of his that answers a reply's questions by number, every line
+// "n. ...": the one line it folds to, or null.
+function answerLine(text: string, asks: Ask[]) {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const ok = lines.length > 0 && lines.every((l) => {
+    const m = /^(\d{1,2})[.)]\s+\S/.exec(l);
+    return !!m && asks.some((a) => a.n === Number(m[1]));
+  });
+  return ok ? oneLine(lines.join('\n')) : null;
+}
+
+// Which reply's questions are still open (live), and which of his messages
+// answered questions and fold to one line. A reply's questions close at his
+// next message, or a skill run, or one waiting to go.
+function askState(items: Item[], waiting: boolean) {
+  const answered: Record<string, string> = {};
+  let live: string | null = null;
+  const turn = (i: Item) => i.k === 'you' || (i.k === 'work' && i.id.startsWith('u:'));
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it.k !== 'box' || !it.asks?.length) continue;
+    const next = items.slice(i + 1).find(turn);
+    if (!next) {
+      live = waiting ? null : it.id;
+      continue;
+    }
+    if (next.k === 'you') {
+      const line = answerLine(next.t, it.asks);
+      if (line) answered[next.id] = line;
+    }
+  }
+  return { live, answered };
 }
 
 type Attachment = Draft['atts'][number];
@@ -185,7 +222,7 @@ export function ChatView({
   // The box sits under Ended in the list, not as a row.
   underEnded?: boolean;
   onOpen: (url: string) => void;
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, opts?: { answer?: boolean }) => Promise<boolean>;
   onError: (text: string) => void;
 }) {
   const [draft, setDraft] = useState(initial?.text ?? '');
@@ -198,6 +235,12 @@ export function ChatView({
   const [retrying, setRetrying] = useState(false);
   const [endBusy, setEndBusy] = useState(false);
   const [endWhy, setEndWhy] = useState<string | null>(null);
+  // His answers to a reply's questions, waiting for Send.
+  const [bundle, setBundle] = useState<Bundle>({});
+  const [answering, setAnswering] = useState(false);
+  // His ticks on Claude's own question with check boxes, for that question.
+  const [ticks, setTicks] = useState<{ key: string; on: number[] } | null>(null);
+  const [menuBusy, setMenuBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -221,6 +264,53 @@ export function ChatView({
   const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.filter((p) => !p.skill).map((p) => p.t)];
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
+  const asked = askState(items, pending.length > 0);
+  const liveItem = asked.live ? items.find((i) => i.id === asked.live) : undefined;
+  const liveKeys = liveItem?.asks ? liveItem.asks.map((a) => `${liveItem.id}:${a.n}`) : [];
+  // Claude's own question with check boxes: what is ticked, his ticks first.
+  const menuKey = menu ? menu.question + '|' + menu.options.map((o) => `${o.n}.${o.label}`).join('|') : '';
+  const ticked = menu?.multi
+    ? ticks?.key === menuKey
+      ? ticks.on
+      : menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n)
+    : [];
+
+  function setEntry(key: string, e: Entry | null) {
+    setBundle((b) => {
+      const next = { ...b };
+      if (e) next[key] = e;
+      else delete next[key];
+      return next;
+    });
+  }
+
+  // One Send: every answer waiting, in one message, by number.
+  async function sendAnswers() {
+    const text = compose(bundle, liveKeys);
+    if (!text || answering || closed) return;
+    setAnswering(true);
+    stick.current = true;
+    const ok = await onSend(text, { answer: true });
+    setAnswering(false);
+    if (ok) setBundle({});
+  }
+
+  async function submitTicks(words?: string) {
+    if (!box.paneId || !menu?.multi || menuBusy) return false;
+    setMenuBusy(true);
+    const r = await api().submitMenu(box.paneId, ticked, words);
+    setMenuBusy(false);
+    if (!r.ok) onError(r.reason || 'Not sent.');
+    else setTicks(null);
+    return r.ok;
+  }
+
+  // Ticks belong to the question on screen: the same question asked again
+  // later starts from what the box shows.
+  const multiUp = !!menu?.multi;
+  useEffect(() => {
+    if (!multiUp) setTicks(null);
+  }, [multiUp]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -320,7 +410,8 @@ export function ChatView({
     setSending(true);
     stick.current = true;
     let ok: boolean;
-    if (menu) {
+    if (menu?.multi) ok = await submitTicks(typed);
+    else if (menu) {
       const r = await api().answer(box.paneId!, typed);
       if (!r.ok) onError(r.reason || 'Not sent.');
       ok = r.ok;
@@ -519,6 +610,14 @@ export function ChatView({
                 {folded}
               </button>
             );
+          // His answers from the widgets: the one line they folded to.
+          if (m.k === 'you' && asked.answered[m.id])
+            return (
+              <div key={m.id} className={'work answered' + (isFresh && !quiet.has(m.id) ? ' rise' : '')} title={m.t}>
+                <Check />
+                {asked.answered[m.id]}
+              </div>
+            );
           if (m.k === 'you')
             return (
               <div key={m.id} className={'you' + (isFresh && !quiet.has(m.id) ? ' sent' : '')}>
@@ -541,6 +640,17 @@ export function ChatView({
           return (
             <div key={m.id} className={'say' + (isFresh ? ' rise' : '')}>
               <Markdown text={m.t} />
+              {m.asks && m.asks.length > 0 && (
+                <AskList
+                  id={m.id}
+                  asks={m.asks}
+                  live={m.id === asked.live && !closed}
+                  bundle={bundle}
+                  sending={answering}
+                  onEntry={setEntry}
+                  onSend={sendAnswers}
+                />
+              )}
             </div>
           );
         })}
@@ -549,6 +659,12 @@ export function ChatView({
             <div key={p.id} className="work rise">
               <Chevron />
               {p.t}
+              {p.queued && <span className="queued">queued</span>}
+            </div>
+          ) : p.answer ? (
+            <div key={p.id} className="work answered rise" title={p.t}>
+              <Check />
+              {oneLine(p.t)}
               {p.queued && <span className="queued">queued</span>}
             </div>
           ) : (
@@ -560,7 +676,54 @@ export function ChatView({
             </div>
           ),
         )}
-        {menu && (
+        {menu?.multi && (
+          // Several picks: check boxes, then Submit, as the terminal's menu.
+          <div className="ask rise" key={menuKey}>
+            {menu.question && <div className="say">{menu.question}</div>}
+            <div className="choices">
+              {menu.options
+                .filter((o) => o.box && o.n !== menu.free)
+                .map((o) => {
+                  const on = ticked.includes(o.n);
+                  return (
+                    <button
+                      key={o.n}
+                      className={'chip pick' + (on ? ' on' : '')}
+                      aria-pressed={on}
+                      disabled={menuBusy}
+                      onClick={() => setTicks({ key: menuKey, on: on ? ticked.filter((n) => n !== o.n) : [...ticked, o.n] })}
+                    >
+                      <span className="tick" aria-hidden="true">{on && <Check size={11} />}</span>
+                      <OptionLabel label={o.label} />
+                    </button>
+                  );
+                })}
+            </div>
+            <div className="choices">
+              <button className="chip primary" disabled={menuBusy} onClick={() => submitTicks()}>
+                {menu.button === 'Next' ? 'Next' : 'Submit'}
+              </button>
+              {menu.free != null && (
+                <button className="chip" onClick={() => input.current?.focus()} title="Type it in the field below">
+                  Your own answer…
+                </button>
+              )}
+              {menu.options
+                .filter((o) => !o.box)
+                .map((o) => (
+                  <button key={o.n} className="chip" disabled={menuBusy} onClick={() => choose(o.n)}>
+                    <OptionLabel label={o.label} />
+                  </button>
+                ))}
+              {canCancel(menu) && (
+                <button className="menu-cancel" onClick={dismiss}>
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {menu && !menu.multi && (
           <div className="ask rise" key={menu.question + menu.options.length}>
             {menu.question && <div className="say">{menu.question}</div>}
             <div className="choices">

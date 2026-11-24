@@ -421,14 +421,14 @@ export function App() {
       // A menu without that (the trust question) gets no Esc at all.
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.menu) {
         const el = document.activeElement;
-        if (el && (el.closest('.drill') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .asks') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         if (box.menu.esc) api().dismiss(box.paneId).then((r) => !r.ok && r.reason && show(r.reason, true));
         return;
       }
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !ctx && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
-        if (el && (el.closest('.drill') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .asks') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         api()
           .interrupt(box.paneId)
@@ -478,10 +478,12 @@ export function App() {
   }
 
   // skill: the quiet line a skill button's run shows until the log has it.
-  async function sendToBox(text: string, skill?: string) {
+  // answer: his answers from the widgets, shown as one folded line.
+  async function sendToBox(text: string, opts: { skill?: string; answer?: boolean } = {}) {
     if (!box || !box.paneId) return false;
     const p = box.paneId;
     const name = box.name;
+    const skill = opts.skill;
     // A command gets no bubble: the log shows it, or it is one the app hides.
     // A message gets its bubble before delivery ends, and keeps it until the
     // log holds one more copy of the same text than it did now.
@@ -497,7 +499,7 @@ export function App() {
       const n = norm(shown);
       const list = pending.current[p] || [];
       const base = youCount(p, n) + list.filter((x) => !x.skill && x.n === n).length;
-      pending.current[p] = [...list, { id, t: shown, n, base, queued: box.status === 'working' }];
+      pending.current[p] = [...list, { id, t: shown, n, base, queued: box.status === 'working', ...(opts.answer ? { answer: true } : {}) }];
       setTick((t) => t + 1);
     }
     const drop = () => {
@@ -530,20 +532,24 @@ export function App() {
     return true;
   }
 
-  async function sendDrill(n: number, text: string) {
+  // Answers to the chief's list, one or several, in one message by number.
+  async function sendDrill(list: { n: number; text: string }[]) {
+    if (!list.length) return false;
     const chief = boxes.find((b) => b.name === 'chief');
-    let r = await api().sendChief(`${n}. ${text}`);
+    const msg = list.map((a) => `${a.n}. ${a.text}`).join('\n');
+    let r = await api().sendChief(msg);
     if (!r.ok && r.ask === 'replace') {
       if (!(await askReplace(chief ? chief.name : 'chief', r.typed || ''))) return false;
-      r = await api().sendChief(`${n}. ${text}`, true);
+      r = await api().sendChief(msg, true);
     }
     if (!r.ok) {
       show(r.reason || 'Not sent.', true);
       return false;
     }
-    setSent((s) => ({ ...s, [`${drill?.id}:${n}`]: text }));
+    setSent((s) => ({ ...s, ...Object.fromEntries(list.map((a) => [`${drill?.id}:${a.n}`, a.text])) }));
     // The last answer keeps the panel up, in the same render, for 2 s.
-    if (drill && !drill.items.some((i) => i.n !== n && !sent[`${drill.id}:${i.n}`])) setLinger(true);
+    const done = new Set(list.map((a) => a.n));
+    if (drill && !drill.items.some((i) => !done.has(i.n) && !sent[`${drill.id}:${i.n}`])) setLinger(true);
     return true;
   }
 
@@ -556,7 +562,7 @@ export function App() {
       setNothing(false);
       drillAsked.current = { id: drill ? drill.id : null, at: Date.now() };
     }
-    const ok = await sendToBox('/' + s.name, s.label);
+    const ok = await sendToBox('/' + s.name, { skill: s.label });
     if (!ok && chiefList) drillAsked.current = null;
   }
 

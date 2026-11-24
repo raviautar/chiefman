@@ -2259,3 +2259,107 @@ button {
   top: auto;
   bottom: calc(var(--field-h, 100px) + 8px);
 }
+
+/* ---- answer widgets: right under each question, gone once answered ---- */
+
+.asks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.q {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.q-n {
+  min-width: 16px;
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.35;
+  color: var(--faint);
+}
+.q-body {
+  flex: 1;
+  min-width: 0;
+}
+.q-text p {
+  margin: 0;
+}
+.q-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+.reply.q-words {
+  padding-left: 0;
+  margin-top: 7px;
+  max-width: 440px;
+}
+.q-send {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-left: 26px;
+}
+.drill-send {
+  padding-left: 0;
+  margin-top: 2px;
+}
+.q-preview {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip.pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.chip.pick.on {
+  border-color: #dcb6f2;
+  background: var(--lilac);
+  color: var(--lilac-ink);
+}
+.chip.primary:disabled,
+.chip.pick:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.tick {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chip.pick.on .tick {
+  border-color: var(--lilac-ink);
+  background: var(--lilac-ink);
+  color: var(--white);
+}
+.choices .chip .tick svg {
+  margin: 0;
+  vertical-align: 0;
+}
+.work.answered {
+  color: var(--forest);
+  font-weight: 500;
+}
+.work.answered svg {
+  flex-shrink: 0;
+}
+.ask > .say {
+  white-space: pre-line;
+}

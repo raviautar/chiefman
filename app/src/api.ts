@@ -43,10 +43,23 @@ export interface Recent {
 export interface Menu {
   question: string;
   selected: number;
-  options: { n: number; label: string; current?: boolean }[];
+  // box: a check box (a question with several picks), ticked when checked.
+  options: { n: number; label: string; current?: boolean; box?: boolean; checked?: boolean }[];
   // Esc leaves it (the app shows Cancel); free is the "Type something." option.
   esc?: boolean;
   free?: number | null;
+  // Several picks allowed; button is the line that sends them (Submit, Next).
+  multi?: boolean;
+  button?: string | null;
+}
+
+// A question a box asks in chiefman's reply shape. yesno: a check mark;
+// one: pick one option; any: pick several; words: only his own words.
+export interface Ask {
+  n: number;
+  q: string;
+  kind: 'yesno' | 'one' | 'any' | 'words';
+  options: string[];
 }
 
 export interface Item {
@@ -55,6 +68,10 @@ export interface Item {
   t: string;
   ts?: string;
   mono?: boolean;
+  // His message came from the app (it carried the mark).
+  app?: boolean;
+  // The questions at the end of a reply to a message from the app.
+  asks?: Ask[];
 }
 
 export interface DrillItem {
@@ -62,6 +79,7 @@ export interface DrillItem {
   text: string;
   full: string;
   words: string[];
+  ask?: { kind: 'yesno' | 'one' | 'any'; options: string[] };
 }
 
 export interface Drill {
@@ -176,6 +194,8 @@ interface Bridge {
   choose(paneId: string, n: number): Promise<Result>;
   dismiss(paneId: string): Promise<Result>;
   answer(paneId: string, text: string): Promise<Result>;
+  // Ticks exactly these check boxes, adds his words if any, and submits.
+  submitMenu(paneId: string, picks: number[], text?: string): Promise<Result>;
   retry(paneId: string): Promise<Result>;
   // With a message: Resume and send.
   startAgain(name: string, message?: string): Promise<Result>;
