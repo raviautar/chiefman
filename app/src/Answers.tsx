@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Ask } from './api';
+import { Ask, Choice } from './api';
 import { Check } from './icons';
 import { Markdown } from './Markdown';
 
@@ -43,7 +43,7 @@ export function entryFor(n: number, kind: Ask['kind'], picks: string[], words: s
 // Yes and No, one click each; choices to pick one; check boxes to pick several.
 // A second click on a pick takes it back; the second half of a double click
 // does not.
-export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind']; options: string[]; picks: string[]; onPicks: (p: string[]) => void }) {
+export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind']; options: Choice[]; picks: string[]; onPicks: (p: string[]) => void }) {
   if (kind === 'yesno')
     return (
       <>
@@ -60,7 +60,7 @@ export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind'];
   if (kind !== 'one' && kind !== 'any') return null;
   return (
     <>
-      {options.map((o) => {
+      {options.map(({ label: o }) => {
         const on = picks.includes(o);
         const next = kind === 'one' ? (on ? [] : [o]) : on ? picks.filter((p) => p !== o) : [...picks, o];
         return (
@@ -75,11 +75,11 @@ export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind'];
 }
 
 // His own words for one question. Enter sends everything picked so far.
-export function Words({ label, value, onChange, onEnter, onClose }: { label: string; value: string; onChange: (t: string) => void; onEnter: () => void; onClose: () => void }) {
+export function Words({ label, value, onChange, onEnter, onClose, focus = true }: { label: string; value: string; onChange: (t: string) => void; onEnter: () => void; onClose: () => void; focus?: boolean }) {
   return (
     <div className="reply q-words">
       <input
-        autoFocus
+        autoFocus={focus}
         aria-label={label}
         value={value}
         placeholder="Your words"
@@ -126,7 +126,8 @@ export function AskList({
         const e = bundle[key];
         const picks = e?.picks ?? [];
         const words = e?.words ?? '';
-        const open = writing.has(a.n);
+        // A question that asks for a line of text has its field open.
+        const open = writing.has(a.n) || a.kind === 'text';
         const set = (p: string[], w: string) => onEntry(key, entryFor(a.n, a.kind, p, w));
         return (
           <div key={a.n} className="q">
@@ -147,6 +148,7 @@ export function AskList({
               )}
               {live && open && (
                 <Words
+                  focus={a.kind !== 'text'}
                   label={`Your words for ${a.n}`}
                   value={words}
                   onChange={(w) => set(picks, w)}

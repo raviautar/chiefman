@@ -60,14 +60,34 @@ export interface Menu {
   button?: string | null;
 }
 
-// A question a box asks in chiefman's reply shape. yesno: Yes and No;
-// one: pick one option; any: pick several; words: only his own words.
+// One choice of a question: recommended when the box marked it with a *,
+// note: the line under it.
+export interface Choice {
+  label: string;
+  recommended?: true;
+  note?: string;
+}
+
+// A question a box asks in chiefman's reply shape. yesno: Yes and No (its
+// options are yes and no); one: pick one option; any: pick several; text: a
+// one-line field; words: only his own words.
 export interface Ask {
   n: number;
   q: string;
-  kind: 'yesno' | 'one' | 'any' | 'words';
-  options: string[];
+  kind: 'yesno' | 'one' | 'any' | 'text' | 'words';
+  options: Choice[];
 }
+
+// The other blocks a box writes under a reply (electron/blocks.js), each a
+// card. actions: buttons, the first the main one; draft: text he posts
+// himself, where: where it goes; turn: steps only he can do; result: a test
+// run; waiting: what the box waits on, then what it does next.
+export type Widget =
+  | { kind: 'actions'; buttons: string[] }
+  | { kind: 'draft'; where: string; text: string }
+  | { kind: 'turn'; steps: { text: string; url?: string }[] }
+  | { kind: 'result'; label: string; passed: number | null; failed: number | null; fails: { name: string; why?: string }[]; url?: string }
+  | { kind: 'waiting'; on: string; then?: string; url?: string };
 
 export interface Item {
   id: string;
@@ -79,6 +99,10 @@ export interface Item {
   app?: boolean;
   // The questions at the end of a reply to a message from the app.
   asks?: Ask[];
+  // Its other blocks, as cards under it.
+  cards?: Widget[];
+  // A block not closed yet: shown as text only once the reply is done.
+  tail?: string;
   // A turn's line of facts: what the turn did, by kind.
   turn?: Turn;
 }
@@ -120,7 +144,7 @@ export interface DrillItem {
   text: string;
   full: string;
   words: string[];
-  ask?: { kind: 'yesno' | 'one' | 'any'; options: string[] };
+  ask?: { kind: 'yesno' | 'one' | 'any'; options: Choice[] };
 }
 
 export interface Drill {
@@ -254,6 +278,8 @@ interface Bridge {
   drafts(): Promise<Record<string, Draft>>;
   saveDrafts(d: Record<string, Draft>): void;
   openUrl(url: string): void;
+  // A full local path: opens in the Mac's default app.
+  openPath(path: string): void;
   onEvent(cb: (ev: HubEvent) => void): () => void;
 }
 
@@ -273,6 +299,9 @@ export interface BoxSpec {
   model: string;
   effort: string;
   resume?: string;
+  // The app made the name from his first message: the box's first reply may
+  // name it better, once (a title block).
+  auto?: boolean;
 }
 
 // The longest message the app sends (the hub checks it too).

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { mask } = require('./mask');
-const { splitAsks } = require('./asks');
+const { readBlocks } = require('./blocks');
 
 // Dollars per million tokens: input, output, cache read; then the context
 // window. Read on 2026-11-20 from the claude-api skill (its table is cached
@@ -69,10 +69,9 @@ function plainLine(l) {
 
 // The one line a box's sidebar row shows from its last reply: its first
 // question when it asks him something, else its last line.
-function sayLine(text) {
-  const split = splitAsks(text);
-  if (split && split.asks.length) return mask(plainLine(split.asks[0].q)).slice(0, 160);
-  const lines = String(text || '')
+function sayLine(text, b) {
+  if (b && b.asks) return mask(plainLine(b.asks[0].q)).slice(0, 160);
+  const lines = String((b ? b.t : text) || '')
     .replace(/```[\s\S]*?(```|$)/g, '\n')
     .split('\n')
     .map(plainLine)
@@ -82,7 +81,7 @@ function sayLine(text) {
 
 // Follows one session log and its subagent logs for what they cost, which
 // model answered last, how full the context is, model or effort switches,
-// and the last line the box said.
+// the last line the box said, and the name a title block gives it.
 class Usage {
   constructor(file) {
     this.file = file;
@@ -93,6 +92,7 @@ class Usage {
     this.modelSet = null;
     this.effortSet = null;
     this.said = null;
+    this.title = null;
     this.busy = false;
   }
 
@@ -185,8 +185,11 @@ class Usage {
         .filter((c) => c && c.type === 'text' && typeof c.text === 'string')
         .map((c) => c.text)
         .join('\n');
-      const line = text.trim() ? sayLine(text) : '';
+      const b = readBlocks(text);
+      const line = text.trim() ? sayLine(text, b) : '';
       if (line) this.said = { line, at: Date.parse(d.timestamp) || 0 };
+      // The first name a reply gives itself in a title block.
+      if (b && b.title && !this.title) this.title = b.title;
     }
   }
 

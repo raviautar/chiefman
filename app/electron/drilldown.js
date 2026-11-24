@@ -151,7 +151,7 @@ function listOf(it) {
   if (list && Array.isArray(it.asks)) {
     for (const x of list) {
       const a = it.asks.find((q) => q.n === x.n);
-      if (a && a.kind !== 'words') x.ask = { kind: a.kind, options: a.options };
+      if (a && a.kind !== 'words' && a.kind !== 'text') x.ask = { kind: a.kind, options: a.options };
     }
   }
   if (parsed.size > 5000) parsed.clear();

@@ -3,7 +3,7 @@ const { EventEmitter } = require('events');
 const { StringDecoder } = require('string_decoder');
 const { mask } = require('./mask');
 const { unmark } = require('./mark');
-const { splitAsks } = require('./asks');
+const { readBlocks } = require('./blocks');
 const { describe, doing, takeResult, summarize, detailOf } = require('./steps');
 
 const CHUNK = 16 * 1024 * 1024;
@@ -92,7 +92,7 @@ function worthParsing(line) {
 // Emits 'reset' once loaded, then 'add' with each new item and where it goes,
 // and `now`: the turn that runs, its newest step and its failures.
 // A message the app sent carries its mark: the mark is taken out, the item
-// says app, and the box's replies to it bring their questions as `asks`.
+// says app, and the box's replies to it bring the blocks they hold (blocks.js).
 class Transcript extends EventEmitter {
   // marks: times the app's own Esc stopped this box. cuts: [from, to] times
   // a rewind took back; what was logged between them is hidden.
@@ -473,9 +473,10 @@ class Transcript extends EventEmitter {
           const t = b.text.trim();
           if (!t || t === '(no content)') return;
           const id = `a:${d.uuid}:${i}`;
-          // Only a reply to a message from the app is read for questions.
-          const q = this.lastApp ? splitAsks(mask(t)) : null;
-          this.push(q ? { id, k: 'box', t: q.text, ts, asks: q.asks } : { id, k: 'box', t: mask(t), ts });
+          // Only a reply to a message from the app is read for its blocks.
+          const read = this.lastApp ? readBlocks(mask(t)) : null;
+          if (read && !read.t && !read.asks && !read.cards && !read.tail) return;
+          this.push(read ? { id, k: 'box', ts, ...read } : { id, k: 'box', t: mask(t), ts });
         } else if (b.type === 'tool_use') {
           this.step(b, ts, spot);
         }
