@@ -1,6 +1,8 @@
 const fs = require('fs');
 const { EventEmitter } = require('events');
 const { mask } = require('./mask');
+const { unmark } = require('./mark');
+const { splitAsks } = require('./asks');
 
 const CHUNK = 16 * 1024 * 1024;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -76,6 +78,8 @@ function worthParsing(line) {
 // Follows one session log, start to end, and keeps what is worth showing:
 // his messages, each text block the box writes, and one line per turn of work.
 // Emits 'reset' once loaded, then 'add' with each new item and where it goes.
+// A message the app sent carries its mark: the mark is taken out, the item
+// says app, and the box's replies to it bring their questions as `asks`.
 class Transcript extends EventEmitter {
   // marks: times the app's own Esc stopped this box. cuts: [from, to] times
   // a rewind took back; what was logged between them is hidden.
@@ -155,6 +159,7 @@ class Transcript extends EventEmitter {
       this.items = [];
       this.seen.clear();
       this.turn = null;
+      this.lastApp = false;
       this.offset = 0;
       this.rest = '';
       this.loaded = false;
@@ -283,6 +288,7 @@ class Transcript extends EventEmitter {
       if (typeof raw === 'string' && /^\s*<bash-input>/.test(raw)) {
         const c = /<bash-input>([\s\S]*?)<\/bash-input>/.exec(raw);
         this.endTurn(ts);
+        this.lastApp = false;
         if (c) this.push({ id: 'u:' + d.uuid, k: 'you', t: mask('!' + c[1]), ts });
         return;
       }
@@ -291,15 +297,19 @@ class Transcript extends EventEmitter {
         this.push({ id: 'o:' + d.uuid, k: 'box', t: mask(out || '(no output)'), ts, mono: true });
         return;
       }
-      const cmd = typeof raw === 'string' && raw.includes('<command-name>') ? slashCommand(raw) : null;
+      const sc = typeof raw === 'string' && raw.includes('<command-name>') ? slashCommand(raw) : null;
+      const cu = sc ? unmark(sc) : null;
+      const cmd = cu ? cu.text : null;
       if (cmd && HIDDEN.test(cmd)) {
         this.hideOut = cmd.startsWith('/context') ? 'context' : 'drop';
         return;
       }
       if (cmd) {
         this.endTurn(ts);
+        this.lastApp = cu.app;
         const quiet = skillLine(cmd);
-        this.push(quiet ? { id: 'u:' + d.uuid, k: 'work', t: quiet, ts } : { id: 'u:' + d.uuid, k: 'you', t: mask(cmd), ts });
+        const app = cu.app ? { app: true } : {};
+        this.push(quiet ? { id: 'u:' + d.uuid, k: 'work', t: quiet, ts, ...app } : { id: 'u:' + d.uuid, k: 'you', t: mask(cmd), ts, ...app });
         this.turn = { anchor: 'u:' + d.uuid, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
         return;
       }
@@ -314,19 +324,24 @@ class Transcript extends EventEmitter {
         if (out) this.push({ id: 'o:' + d.uuid, k: 'box', t: mask(out), ts });
         return;
       }
-      const t = cleanUser(raw);
-      if (!t) return;
+      const c = cleanUser(raw);
+      const u = c ? unmark(c) : null;
+      if (!u || !u.text.trim()) return;
       this.endTurn(ts);
+      this.lastApp = u.app;
       const id = 'u:' + d.uuid;
-      this.push({ id, k: 'you', t: mask(t), ts });
+      this.push({ id, k: 'you', t: mask(u.text), ts, ...(u.app ? { app: true } : {}) });
       this.turn = { anchor: id, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
       return;
     }
     if (d.type === 'attachment') {
       const a = d.attachment;
       if (!a || a.type !== 'queued_command' || a.commandMode !== 'prompt') return;
-      const t = cleanUser(typeof a.prompt === 'string' ? a.prompt : userText(a.prompt));
-      if (t) this.push({ id: 'q:' + (a.source_uuid || d.uuid), k: 'you', t: mask(t), ts });
+      const c = cleanUser(typeof a.prompt === 'string' ? a.prompt : userText(a.prompt));
+      const u = c ? unmark(c) : null;
+      if (!u || !u.text.trim()) return;
+      this.lastApp = u.app;
+      this.push({ id: 'q:' + (a.source_uuid || d.uuid), k: 'you', t: mask(u.text), ts, ...(u.app ? { app: true } : {}) });
       return;
     }
     if (d.type === 'assistant') {
@@ -336,7 +351,11 @@ class Transcript extends EventEmitter {
         if (!b) return;
         if (b.type === 'text' && typeof b.text === 'string') {
           const t = b.text.trim();
-          if (t && t !== '(no content)') this.push({ id: `a:${d.uuid}:${i}`, k: 'box', t: mask(t), ts });
+          if (!t || t === '(no content)') return;
+          const id = `a:${d.uuid}:${i}`;
+          // Only a reply to a message from the app is read for questions.
+          const q = this.lastApp ? splitAsks(mask(t)) : null;
+          this.push(q ? { id, k: 'box', t: q.text, ts, asks: q.asks } : { id, k: 'box', t: mask(t), ts });
         } else if (b.type === 'tool_use') {
           if (!this.turn) this.turn = { anchor: null, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
           this.turn.steps++;
@@ -347,7 +366,8 @@ class Transcript extends EventEmitter {
       return;
     }
     if (d.type === 'system' && d.subtype === 'local_command' && typeof d.content === 'string') {
-      const cmd = slashCommand(d.content);
+      const sc = slashCommand(d.content);
+      const cmd = sc ? unmark(sc).text : null;
       // Commands the app sends for its own buttons stay out of the chat;
       // /context answers in the app's popover.
       if (cmd && HIDDEN.test(cmd)) {

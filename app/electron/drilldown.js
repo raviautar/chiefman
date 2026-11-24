@@ -140,11 +140,20 @@ function answeredNumbers(text) {
 }
 
 // The chief's log is read again on every change: each message is parsed once.
+// Lines in a code block are never items. A list made for the app's Drill
+// down click brings its questions (asks): an item with one answers with a
+// widget; any other item is read as before.
 const parsed = new Map();
 function listOf(it) {
   const hit = parsed.get(it.id);
   if (hit && hit.t === it.t) return hit.list;
-  const list = parseList(it.t);
+  const list = parseList(it.t.replace(/```[\s\S]*?(```|$)/g, ''));
+  if (list && Array.isArray(it.asks)) {
+    for (const x of list) {
+      const a = it.asks.find((q) => q.n === x.n);
+      if (a && a.kind !== 'words') x.ask = { kind: a.kind, options: a.options };
+    }
+  }
   if (parsed.size > 5000) parsed.clear();
   parsed.set(it.id, { t: it.t, list });
   return list;
