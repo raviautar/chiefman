@@ -21,7 +21,7 @@ function readPlan(claudeHome) {
 
 function fromApi(d) {
   if (!d || !Array.isArray(d.limits) || !(Date.now() / 1000 - Number(d.fetched) <= 900)) return null;
-  const at = (s) => (typeof s === 'string' ? Date.parse(s) || null : null);
+  const at = (s) => (typeof s === 'string' ? Date.parse(s.replace(/(\.\d{3})\d+/, '$1')) || null : null);
   const week = d.limits.find((l) => l && l.kind === 'weekly_all');
   const out = [];
   for (const l of d.limits) {
