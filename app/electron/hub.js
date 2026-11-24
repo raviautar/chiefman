@@ -11,6 +11,7 @@ const { DefaultKeeper } = require('./defaults');
 const { Usage, modelName } = require('./usage');
 const { readPlan, readWorkspace } = require('./plan');
 const { buttonSkills, pluginDirsIn } = require('./skills');
+const { markText, unmark } = require('./mark');
 const { execFile } = require('child_process');
 
 const PALETTE = ['#6C358C', '#0052B4', '#C2410C', '#034F46', '#A3398F', '#496E2D', '#5B5B59'];
@@ -936,9 +937,15 @@ class Hub {
     return {
       question: mask(menu.question),
       selected: menu.selected,
-      options: menu.options.map((o) => (o.current ? { n: o.n, label: mask(o.label), current: true } : { n: o.n, label: mask(o.label) })),
+      options: menu.options.map((o) => {
+        const opt = { n: o.n, label: mask(o.label) };
+        if (o.current) opt.current = true;
+        if (o.box) Object.assign(opt, { box: true, checked: !!o.checked });
+        return opt;
+      }),
       esc: !!menu.esc,
       free: menu.free || null,
+      ...(menu.multi ? { multi: true, button: menu.button || null } : {}),
     };
   }
 
@@ -1208,7 +1215,7 @@ class Hub {
       const typed = promptText(screen);
       const ours = (this.typedByApp.get(paneId) || []).some((t) => same(t) === same(typed));
       if (!ours && !opts.replace) {
-        return { ok: false, ask: 'replace', typed: mask(typed).slice(0, 300), reason: `Something else is typed in ${box.name}'s terminal. Replace it?` };
+        return { ok: false, ask: 'replace', typed: mask(unmark(typed).text).slice(0, 300), reason: `Something else is typed in ${box.name}'s terminal. Replace it?` };
       }
       if (!(await this.clearPrompt(paneId, typed))) return { ok: false, reason: `Could not clear what's typed in ${box.name}.` };
       this.log('cleared prompt', { box: box.name, ours });
@@ -1221,9 +1228,11 @@ class Hub {
     }
     const queued = this.working.has(paneId);
     this.touch(paneId);
-    if (text.startsWith('!')) await this.deliverChecked(paneId, text);
-    else await this.deliver(paneId, text);
-    const mine = (this.typedByApp.get(paneId) || []).concat(text).slice(-20);
+    // The app's own commands (/model, /rename ...) go bare; all else is marked.
+    const out = opts.app ? text : markText(text);
+    if (text.startsWith('!')) await this.deliverChecked(paneId, out);
+    else await this.deliver(paneId, out);
+    const mine = (this.typedByApp.get(paneId) || []).concat(out).slice(-20);
     this.typedByApp.set(paneId, mine);
     this.log('sent', { box: box.name, chars: text.length, slash: text.startsWith('/'), queued, app: !!opts.app });
     return { ok: true, queued };
@@ -1294,8 +1303,7 @@ class Hub {
       this.keeper.guard(['model'], 30000);
       this.keeper.guard(['modelSettings'], 30000);
     }
-    const d = n - menu.selected;
-    const keys = Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up');
+    const keys = moves(menu, n);
     this.touch(paneId);
     // In the model menu, "s" applies the pick to this session only, so his
     // default stays as it was (the guard above still watches it).
@@ -1330,16 +1338,69 @@ class Hub {
     if (!menu || !menu.free) return { ok: false, reason: 'Pick an option above.' };
     const one = String(text).replace(/\s+/g, ' ').trim();
     if (!one) return { ok: false };
+    // With check boxes, Enter would only tick it: his words go with the picks.
+    if (menu.multi) return this.submitMenu(paneId, menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n), one);
     const box = this.boxes.find((b) => b.paneId === paneId);
     if (!box || (await this.onShell(box))) return { ok: false, reason: 'That box ended.' };
-    const d = menu.free - menu.selected;
+    const d = moves(menu, menu.free);
     this.touch(paneId);
-    if (d) await this.keys(paneId, [...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up')]);
+    if (d.length) await this.keys(paneId, d);
     await sleep(150);
     await this.keys(paneId, ['-l', '--', one]);
     await sleep(150);
     await this.keys(paneId, ['Enter']);
     this.log('answer', { pane: paneId, chars: one.length });
+    this.soon('poll', 400, () => this.pollScreens());
+    return { ok: true };
+  }
+
+  // A question that allows several picks, driven as the terminal does: each
+  // check box that should change gets Enter, his own words go in the last
+  // one, and once the screen shows exactly his picks, Enter on Submit (or
+  // Next) sends them.
+  async submitMenu(paneId, picks, text) {
+    if (!this.panes.has(paneId)) return { ok: false, reason: 'That box is gone.' };
+    await this.needClaude(paneId);
+    const read = async () => parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
+    let menu = await read();
+    if (!menu || !menu.multi || !menu.order.includes(0)) return { ok: false, reason: 'That question is no longer on screen.' };
+    const want = new Set(picks);
+    const one = String(text || '').replace(/\s+/g, ' ').trim();
+    const box = this.boxes.find((b) => b.paneId === paneId);
+    if (!box || (await this.onShell(box))) return { ok: false, reason: 'That box ended.' };
+    this.touch(paneId);
+    let at = menu.at;
+    const go = async (key, extra) => {
+      const to = menu.order.indexOf(key);
+      const d = to - at;
+      at = to;
+      await this.keys(paneId, [...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up'), ...extra]);
+      await sleep(120);
+    };
+    for (const o of menu.options) {
+      if (!o.box || o.n === menu.free) continue;
+      if (!!o.checked !== want.has(o.n)) await go(o.n, ['Enter']);
+    }
+    if (one && menu.free) {
+      await go(menu.free, []);
+      await this.keys(paneId, ['-l', '--', one]);
+      await sleep(200);
+    }
+    await sleep(250);
+    const now = await read();
+    const right =
+      now &&
+      now.multi &&
+      now.options.every((o) => !o.box || o.n === now.free || !!o.checked === want.has(o.n)) &&
+      (!one || (now.options.find((o) => o.n === now.free) || {}).checked);
+    if (!right) {
+      this.log('submit menu', { pane: paneId, ok: false });
+      return { ok: false, reason: 'Your picks did not all take. Check them in Terminal.' };
+    }
+    menu = now;
+    at = now.at;
+    await go(0, ['Enter']);
+    this.log('submit menu', { pane: paneId, picks: want.size, words: !!one });
     this.soon('poll', 400, () => this.pollScreens());
     return { ok: true };
   }
@@ -1499,8 +1560,9 @@ class Hub {
       this.log('first message kept', { name, why: 'prompt not empty' });
       return { unsent: message };
     }
-    this.typedByApp.set(paneId, [message]);
-    const went = await this.deliverChecked(paneId, message).catch((e) => {
+    const out = markText(message);
+    this.typedByApp.set(paneId, [out]);
+    const went = await this.deliverChecked(paneId, out).catch((e) => {
       if (e && e.result) return 'refused';
       throw e;
     });
@@ -1510,7 +1572,7 @@ class Hub {
     }
     if (!went) {
       // Taken back out of the terminal, so it is in one place only.
-      await this.clearPrompt(paneId, message).catch(() => false);
+      await this.clearPrompt(paneId, out).catch(() => false);
       this.log('first message kept', { name, why: 'stuck' });
       return { unsent: message, reason: `${name} did not take its first message. It is in the field.` };
     }
@@ -1781,7 +1843,9 @@ class Hub {
       open = /^\s*Rewind\s*$/m.test(screen) && /\(current\)/.test(screen);
     }
     if (!open) return { ok: false, reason: `${box.name} did not open its rewind menu.` };
-    const want = same(text);
+    // The menu shows the message as it was typed: with the app's mark, when
+    // the app sent it.
+    const wants = [same(text), same(markText(text))];
     let seen = 0;
     let prev = null;
     for (let step = 0; step < 150; step++) {
@@ -1791,7 +1855,7 @@ class Hub {
       const sel = screen.split('\n').filter((l) => /❯/.test(l)).pop() || '';
       const line = sel.replace(/^\s*❯\s*/, '').trim();
       const head = same(line.replace(/…$/, ''));
-      if (head && want.startsWith(head) && head.length >= Math.min(want.length, 12)) {
+      if (head && wants.some((want) => want.startsWith(head) && head.length >= Math.min(want.length, 12))) {
         if (seen === dupAfter) {
           await this.keys(paneId, ['Enter']);
           this.rewinding.set(paneId, { text, from: this.tsOf(paneId, spec && spec.id), sid: box.claude.sessionId, at: Date.now() });
@@ -1832,8 +1896,9 @@ class Hub {
         return;
       }
       if (parseMenu(screen)) continue;
-      if (promptState(screen) === 'typed' && same(promptText(screen)) === same(rw.text)) {
-        this.typedByApp.set(paneId, (this.typedByApp.get(paneId) || []).concat(rw.text).slice(-20));
+      const back = promptText(screen);
+      if (promptState(screen) === 'typed' && same(unmark(back).text) === same(rw.text)) {
+        this.typedByApp.set(paneId, (this.typedByApp.get(paneId) || []).concat(back).slice(-20));
         if (restore && rw.sid && rw.from) {
           const range = [rw.from, new Date().toISOString()];
           this.cuts[rw.sid] = (this.cuts[rw.sid] || []).concat([range]).slice(-200);
@@ -1888,6 +1953,12 @@ class Hub {
     scored.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     return scored.slice(0, 30).map((x) => x[2]);
   }
+}
+
+// The arrow keys that move a menu's ❯ to option n.
+function moves(menu, n) {
+  const d = menu.order.indexOf(n) - menu.at;
+  return Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up');
 }
 
 function subsequence(q, s) {

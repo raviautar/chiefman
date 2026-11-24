@@ -8,6 +8,7 @@ const cfg = require('./config');
 const { Hub } = require('./hub');
 const { mask } = require('./mask');
 const { makeLog } = require('./log');
+const { ensureReplyHook, removeReplyHook } = require('./replyhook');
 
 const log = makeLog(cfg.stateDir);
 
@@ -198,6 +199,11 @@ function wireIpc() {
   act('cm:choose', (p, n) => (PANE.test(p) && Number.isInteger(n) ? hub.choose(p, n) : { ok: false, reason: 'Bad request.' }));
   act('cm:dismiss', (p) => (PANE.test(p) ? hub.dismiss(p) : { ok: false, reason: 'Bad request.' }));
   act('cm:answer', (p, t) => (PANE.test(p) && typeof t === 'string' && t.length <= 5000 ? hub.answer(p, t) : { ok: false, reason: 'Bad request.' }));
+  act('cm:submit-menu', (p, picks, t) =>
+    PANE.test(p) && Array.isArray(picks) && picks.length <= 20 && picks.every((n) => Number.isInteger(n)) && (t == null || (typeof t === 'string' && t.length <= 5000))
+      ? hub.submitMenu(p, picks, t || '')
+      : { ok: false, reason: 'Bad request.' },
+  );
   act('cm:action', (p, kind) => (PANE.test(p) && typeof kind === 'string' ? hub.action(p, kind) : { ok: false, reason: 'Bad request.' }));
   act('cm:rename', (p, name) => (PANE.test(p) && typeof name === 'string' ? hub.rename(p, name) : { ok: false, reason: 'Bad request.' }));
   handle('cm:recent', () => hub.recentSessions());
@@ -338,6 +344,8 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   protocol.handle('cm-att', serveAttachment);
   log('start', { session: cfg.session, stateDir: cfg.stateDir, dev: !!cfg.devUrl, version: app.getVersion() });
+  if (cfg.replyHook) ensureReplyHook(cfg.claudeHome, log);
+  else removeReplyHook(cfg.claudeHome, log);
   hub = new Hub(cfg, send, log);
   wireIpc();
   createWindow();

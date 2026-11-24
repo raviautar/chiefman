@@ -139,9 +139,28 @@ function trustQuestion(lines) {
   return `Trust ${name}? Claude can read, change and run files there.`;
 }
 
+// The answers of a question menu with several questions, before he submits
+// them, in plain words.
+function reviewQuestion(lines, first) {
+  let r = first - 1;
+  while (r >= Math.max(0, first - 30) && !REVIEW.test(lines[r])) r--;
+  const out = ['Review your answers'];
+  for (const raw of lines.slice(r + 1, first)) {
+    const t = raw.replace(ART, '').trim();
+    if (!t) continue;
+    if (/^→\s*/.test(t) && out.length > 1) out[out.length - 1] += ' ' + t.replace(/^→\s*/, '');
+    else out.push(t);
+  }
+  return out.join('\n');
+}
+
 // A choice menu with a ❯ on the current option, as Claude Code draws for
 // permission prompts, AskUserQuestion, the trust question and its own menus.
-// Options are numbered, or plain lines in one column.
+// Options are numbered, or plain lines in one column. A question that allows
+// several picks (multi) has a check box on each option, and a Submit or Next
+// line under them that sends the picks.
+// order: the rows the arrow keys move through, top to bottom (0 is the
+// Submit or Next line); at: the row the ❯ is on.
 function parseMenu(screen) {
   const lines = plainLines(screen);
   const start = Math.max(0, lines.length - 40);
@@ -151,6 +170,7 @@ function parseMenu(screen) {
   const trust = menu.options.some((o) => /trust this folder/i.test(o.label));
   if (trust) menu.question = trustQuestion(lines);
   if (/^Rewind\b/.test(menu.question || '')) menu.question = menu.question.replace(/^Rewind\s+/, '').replace(/\s*\(\d+\s*\w+ ago\)/, '');
+  if (menu.review) menu.question = reviewQuestion(lines, menu.first);
   const hint = lines.slice(menu.end, menu.end + 9).join(' ');
   // Esc leaves the menu, unless an option is already marked as the Esc one,
   // or Esc means "exit Claude" (the trust question).
@@ -158,10 +178,16 @@ function parseMenu(screen) {
   const esc = !trust && !escOption && (menu.bare || /esc to (cancel|exit|close|go back)/i.test(hint));
   const options = menu.options.map((o) => {
     const raw = o.label.replace(ART, '').replace(/\s*\(esc\)\s*$/i, '');
+    const box = menu.multi ? BOX.exec(raw) : null;
+    if (box) return { n: o.n, label: raw.slice(box[0].length).trim(), box: true, checked: box[1] !== ' ' };
     const label = raw.replace(/\s*✔\s*/g, '  ').trim().replace(/\s{2,}/g, ' · ');
     return /✔/.test(raw) ? { n: o.n, label, current: true } : { n: o.n, label };
   });
-  const free = options.find((o) => /^type something\.?$/i.test(o.label));
+  // With several picks, his own words go in the last check box, which says
+  // "Type something" until he types there.
+  const boxes = options.filter((o) => o.box);
+  const free = menu.multi && menu.button ? boxes[boxes.length - 1] : options.find((o) => /^type something\.?$/i.test(o.label));
+  const order = menu.order || options.map((o) => o.n);
   return {
     question: menu.question,
     selected: menu.selected,
@@ -170,8 +196,16 @@ function parseMenu(screen) {
     // The model menu can apply a pick to this session only, which keeps his default.
     sessionKey: /\bs to use this session only\b/i.test(hint),
     free: free ? free.n : null,
+    multi: !!menu.multi,
+    button: menu.button || null,
+    order,
+    at: menu.at != null ? menu.at : Math.max(0, order.indexOf(menu.selected)),
   };
 }
+
+const BOX = /^\[( |✔|✓|x|X|×)\]\s+/;
+const BUTTON = /^\s*(❯\s*)?(Submit|Next)\s*$/;
+const REVIEW = /^\s*Review your answers\s*$/;
 
 function parseNumbered(lines, start) {
   const opts = [];
@@ -179,6 +213,8 @@ function parseNumbered(lines, start) {
     const m = /^\s*(❯\s*)?(\d{1,2})\.\s+(.+?)\s*$/.exec(lines[i]);
     if (m) opts.push({ i, n: Number(m[2]), label: m[3], on: !!m[1] });
   }
+  // The ❯ can sit on the Submit or Next line of a question with check boxes.
+  const onButton = (g) => lines.slice(g[0].i, g[g.length - 1].i).some((l) => /^\s*❯/.test(l) && BUTTON.test(l));
   let best = null;
   for (let a = 0; a < opts.length; a++) {
     if (opts[a].n !== 1) continue;
@@ -188,7 +224,7 @@ function parseNumbered(lines, start) {
       if (opts[b].n !== prev.n + 1 || opts[b].i - prev.i > 4) break;
       group.push(opts[b]);
     }
-    if (group.length >= 2 && group.some((o) => o.on)) best = group;
+    if (group.length >= 2 && (group.some((o) => o.on) || onButton(group))) best = group;
   }
   if (!best) return null;
   const first = best[0].i;
@@ -197,13 +233,39 @@ function parseNumbered(lines, start) {
   // Some of Claude's own menus (the rewind question) have no key hint: they
   // sit under a ▔ bar with nothing below them.
   const bare = lines.slice(last + 1).every((l) => !l.trim()) && lines.slice(Math.max(0, first - 14), first).some((l) => /^\s*▔{10,}/.test(l));
-  if (!HINT.test(near) && !bare) return null;
+  // Nor does the last step of a question menu, "Review your answers".
+  const review = lines.slice(last + 1).every((l) => !l.trim()) && best.some((o) => o.on) && lines.slice(Math.max(0, first - 30), first).some((l) => REVIEW.test(l));
+  if (!HINT.test(near) && !bare && !review) return null;
+  const multi = best.filter((o) => BOX.test(o.label)).length >= 2;
+  let button = null;
+  let order = null;
+  let at = null;
+  if (multi) {
+    const rows = best.map((o) => ({ i: o.i, n: o.n, on: o.on }));
+    for (let i = first; i <= last; i++) {
+      const m = BUTTON.exec(lines[i]);
+      if (m) {
+        button = m[2];
+        rows.push({ i, n: 0, on: !!m[1] });
+        break;
+      }
+    }
+    rows.sort((x, y) => x.i - y.i);
+    order = rows.map((r) => r.n);
+    at = Math.max(0, rows.findIndex((r) => r.on));
+  }
   return {
     question: questionAbove(lines, first),
     selected: (best.find((o) => o.on) || best[0]).n,
     options: best.map((o) => ({ n: o.n, label: o.label })),
     end: last + 1,
+    first,
     bare,
+    review,
+    multi,
+    button,
+    order,
+    at,
   };
 }
 
