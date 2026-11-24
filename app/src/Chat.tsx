@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { api, Ask, Box, Draft, Item, MAX_SEND, Menu, Result, tooLong, type TurnNow } from './api';
 import { Arrow, Check, Icon } from './icons';
-import { Markdown, More, PictureOpen, useFold } from './Markdown';
+import { Markdown, More, PictureOpen, Unfolded, useFold } from './Markdown';
+import { FindBar, findAll, paint, unpaint } from './Find';
 import { Bundle, choiceOf, compose, currentRow, Entry, entryFor, keyPick, oneLine, QRow, QuestionCard, recommendedPick, type Kind } from './Answers';
 import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
 import { NowFailed, NowLine, nowText, TurnCard } from './Turn';
@@ -187,7 +188,8 @@ function replyViews(items: Item[], open: boolean, busy: boolean) {
       text = inferred.text;
       cards.push({ kind: 'actions', buttons: inferred.buttons, hint: inferred.line });
     }
-    if (m.tail && !(busy && i === items.length - 1)) text = [text, m.tail].filter(Boolean).join('\n\n');
+    // A block still being written shows nothing until the turn ends.
+    if (m.tail && !(busy && i > lastTurn)) text = [text, m.tail].filter(Boolean).join('\n\n');
     if (!cards.length && text === m.t) return;
     views.set(m.id, { text, cards, live, waitLive: live && i === lastReply });
     if (live && cards.length) owner = m.id;
@@ -196,6 +198,26 @@ function replyViews(items: Item[], open: boolean, busy: boolean) {
 }
 
 type Attachment = Draft['atts'][number];
+
+// A shell line's output; a long one shows its last lines until he opens it.
+const SHELL_SHOWN = 12;
+function ShellOut({ id, text, fresh }: { id: string; text: string; fresh: boolean }) {
+  const [open, setAll] = useState(false);
+  const found = useContext(Unfolded) != null;
+  const all = open || found;
+  const ls = useMemo(() => text.split('\n'), [text]);
+  const long = ls.length > SHELL_SHOWN + 8;
+  return (
+    <div className={'shell-wrap' + (fresh ? ' rise' : '')} data-item={id}>
+      <pre className="say shell-out">{long && !all ? ls.slice(-SHELL_SHOWN).join('\n') : text}</pre>
+      {long && (
+        <button type="button" className="md-more" aria-expanded={all} onClick={() => setAll(!open)}>
+          {all ? 'Show less' : `Show all ${ls.length} lines`}
+        </button>
+      )}
+    </div>
+  );
+}
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -244,10 +266,11 @@ const CLIP_OVER = 8;
 
 function Clip({ text }: { text: string }) {
   const f = useFold();
+  const found = useContext(Unfolded) != null;
   const long = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 64)), 0) > CLIP_OVER;
   return (
     <>
-      <div ref={f.ref} className={'you-text' + (long ? (f.open ? ' open' : ' cut') : '')}>
+      <div ref={f.ref} className={'you-text' + (long ? (f.open || found ? ' open' : ' cut') : '')}>
         <Quoted text={text} />
       </div>
       {long && <More open={f.open} onClick={f.toggle} />}
@@ -395,6 +418,11 @@ export function ChatView({
   const [draft, setDraft] = useState(initial?.text ?? '');
   const [sending, setSending] = useState(false);
   const [limit, setLimit] = useState(PAGE);
+  // Once he scrolls up: the rows on screen, from and to (null: to the
+  // newest), at most three pages, so a long chat stays quick.
+  const [win, setWin] = useState<{ from: number; to: number | null } | null>(null);
+  // Cmd+F: the words, and which place he is on.
+  const [find, setFind] = useState<{ q: string; at: number; go: number } | null>(null);
   const [hist, setHist] = useState<number | null>(null);
   const [pop, setPop] = useState<Pop | null>(null);
   const [atts, setAtts] = useState<Attachment[]>(initial?.atts ?? []);
@@ -417,7 +445,9 @@ export function ChatView({
   const input = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
   const scrolled = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const keep = useRef<{ h: number; top: number } | null>(null);
+  // The row at the top of the view and how far down it sat, kept while rows
+  // come and go above or below it.
+  const anchor = useRef<{ id: string; top: number } | null>(null);
   const lastEsc = useRef(0);
   const shut = useRef<string | null>(null);
   const alive = useRef(true);
@@ -674,9 +704,7 @@ export function ChatView({
   useEffect(() => {
     const on = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
-      const i = items.findIndex((x) => x.id === id);
-      if (i < 0) return;
-      setLimit((l) => Math.max(l, items.length - i + 4));
+      if (!showRow(id)) return;
       setJumpTo(id);
     };
     window.addEventListener('cm-jump', on);
@@ -694,17 +722,106 @@ export function ChatView({
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    if (keep.current) {
-      el.scrollTop = el.scrollHeight - keep.current.h + keep.current.top;
-      keep.current = null;
-    } else if (stick.current) el.scrollTop = el.scrollHeight;
+    const a = anchor.current;
+    if (a) {
+      anchor.current = null;
+      const r = el.querySelector(`.chat-col > [data-item="${CSS.escape(a.id)}"]`);
+      if (r) el.scrollTop += r.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top;
+    } else if (stick.current) {
+      // A message he sent shows the newest rows again.
+      if (win && win.to != null) setWin(null);
+      el.scrollTop = el.scrollHeight;
+    }
   });
 
   // His place: a New line above the first reply he has not seen, and a ↓
   // with a count for replies that come while he reads higher up.
   const place = usePlace({ key: box.session || box.name, items, loaded: !!chat?.loaded, reset: chat?.reset ?? 0, fresh: chat?.fresh, scroller, stick });
   const keepN = Math.max(limit, place.need);
-  const rows = place.withLine(items.length > keepN ? items.slice(-keepN) : items);
+  const from = win ? Math.min(win.from, items.length) : Math.max(0, items.length - keepN);
+  const to = win && win.to != null ? Math.min(win.to, items.length) : items.length;
+  const rows = place.withLine(items.slice(from, to));
+  const span = useRef({ from, to, n: items.length, items });
+  span.current = { from, to, n: items.length, items };
+
+  // The row the view is at, before rows come or go around it.
+  function holdPlace() {
+    const el = scroller.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    for (const r of el.querySelectorAll<HTMLElement>('.chat-col > [data-item]')) {
+      const b = r.getBoundingClientRect();
+      if (b.bottom > top) {
+        anchor.current = { id: r.dataset.item!, top: b.top - top };
+        return;
+      }
+    }
+  }
+
+  // A row further up or down comes on screen, with the rows around it.
+  // False when the chat has no such row.
+  function showRow(id: string) {
+    const s = span.current;
+    const i = s.items.findIndex((x) => x.id === id);
+    if (i < 0) return false;
+    if (i >= s.from && i < s.to) return true;
+    const f = Math.max(0, i - PAGE / 2);
+    const t = Math.min(s.n, f + PAGE);
+    setWin({ from: f, to: t >= s.n ? null : t });
+    return true;
+  }
+
+  // More rows as he scrolls toward either end; rows far from the view go.
+  function moreRows(el: HTMLDivElement) {
+    if (anchor.current) return;
+    const n = items.length;
+    const most = PAGE * 3;
+    if (el.scrollTop < 300 && from > 0) {
+      holdPlace();
+      const f = Math.max(0, from - PAGE);
+      const t = to - f > most ? f + most : win && win.to != null ? to : null;
+      setWin({ from: f, to: t });
+    } else if (el.scrollHeight - el.scrollTop - el.clientHeight < 300 && win && win.to != null) {
+      holdPlace();
+      const t = Math.min(n, to + PAGE);
+      setWin({ from: t - from > most ? t - most : from, to: t >= n ? null : t });
+    } else if (stick.current && win && win.to == null && n - win.from > PAGE + 50) {
+      setWin(null);
+      setLimit(PAGE);
+    }
+  }
+
+  function jumpDown() {
+    if (win) {
+      setWin(null);
+      setLimit(PAGE);
+    }
+    place.jump();
+  }
+
+  // Cmd+F: every place the words are, the one he is on, and the row that
+  // holds it (a turn's facts sit in the reply they close).
+  const findQ = (find?.q ?? '').trim().toLowerCase();
+  const found = useMemo(() => findAll(items, findQ), [items, findQ]);
+  const findAt = found.length ? Math.min(find?.at ?? 0, found.length - 1) : 0;
+  const findNow = find && found.length ? found[findAt] : null;
+  const stepNow = useRef<(d: 1 | -1) => void>(() => {});
+  useEffect(() => {
+    const open = (e: globalThis.KeyboardEvent) => {
+      if (!e.metaKey || e.altKey || e.ctrlKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'f') {
+        e.preventDefault();
+        setFind((f) => ({ q: f?.q ?? '', at: f?.at ?? 0, go: (f?.go ?? 0) + 1 }));
+        setTimeout(() => (document.querySelector('.find-q') as HTMLInputElement | null)?.select(), 0);
+      } else if (k === 'g') {
+        e.preventDefault();
+        stepNow.current(e.shiftKey ? -1 : 1);
+      }
+    };
+    window.addEventListener('keydown', open);
+    return () => window.removeEventListener('keydown', open);
+  }, []);
 
   useLayoutEffect(() => {
     const el = input.current;
@@ -1018,6 +1135,59 @@ export function ChatView({
     if (t.k === 'work' && t.turn && r.k === 'box' && !r.mono && (!folds[r.id] || unfolded.has(r.id))) under.set(r.id, t);
   }
   const taken = new Set([...under.values()].map((t) => t.id));
+  // The row Cmd+F is on: the item itself, or the reply whose turn it is.
+  let holder: string | null = null;
+  if (findNow) {
+    holder = findNow.id;
+    for (const [r, t] of under) if (t.id === findNow.id) holder = r;
+  }
+  // The place he is on comes on screen: its rows, its fold opened.
+  useEffect(() => {
+    if (!findNow || !holder) return;
+    showRow(holder);
+    if (folds[holder] && !unfolded.has(holder)) setUnfolded((s) => new Set(s).add(holder!));
+  }, [findNow?.id, findNow?.nth, find?.go]);
+  // Every place marked, his own darker; the chat moves to it when he moved.
+  const went = useRef(0);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!find || !el) return;
+    const row = holder ? el.querySelector(`.chat-col > [data-item="${CSS.escape(holder)}"]`) : null;
+    const now = paint(el.querySelector('.chat-col') || el, findQ, row, findNow?.nth ?? 0);
+    if (find.go === went.current || !findNow) return;
+    const box = (now || row)?.getBoundingClientRect();
+    if (!box) return;
+    went.current = find.go;
+    stick.current = false;
+    const top = el.getBoundingClientRect();
+    if (box.top < top.top + 40 || box.bottom > top.bottom - 40) el.scrollTop += box.top - top.top - el.clientHeight / 3;
+  });
+  useEffect(() => () => unpaint(), []);
+
+  function stepFind(d: 1 | -1) {
+    if (!found.length) return;
+    setFind((f) => (f ? { ...f, at: (findAt + d + found.length) % found.length, go: f.go + 1 } : f));
+  }
+  stepNow.current = stepFind;
+  function closeFind() {
+    setFind(null);
+    unpaint();
+    input.current?.focus();
+  }
+
+  // Every row carries its item's id, for his place and for Cmd+F; the row
+  // Cmd+F is on shows its folded parts.
+  const mark = (m: Item, el: ReactNode) => {
+    if (!isValidElement(el)) return el;
+    const tagged = (el.props as Record<string, unknown>)['data-item'] ? el : cloneElement(el as ReactElement<Record<string, unknown>>, { 'data-item': m.id });
+    return holder === m.id ? (
+      <Unfolded.Provider key={m.id} value={findNow!.id}>
+        {tagged}
+      </Unfolded.Provider>
+    ) : (
+      tagged
+    );
+  };
   const turnCard = (t: Item) => (
     <TurnCard
       key={t.id}
@@ -1044,7 +1214,7 @@ export function ChatView({
     middle = (
       <div className="chat-col">
         {note && <div className="ended-note">{note}</div>}
-        {rows.map((m) => {
+        {rows.map((m) => mark(m, (() => {
           if (taken.has(m.id)) return null;
           const isFresh = chat!.fresh.has(m.id);
           const folded = folds[m.id];
@@ -1112,12 +1282,7 @@ export function ChatView({
                 {m.t}
               </div>
             );
-          if (m.mono)
-            return (
-              <pre key={m.id} className={'say shell-out' + (isFresh ? ' rise' : '')}>
-                {m.t}
-              </pre>
-            );
+          if (m.mono) return <ShellOut key={m.id} id={m.id} text={m.t} fresh={isFresh} />;
           // The box's reply sits in a soft bubble; its cards (its questions,
           // its blocks, the turn's facts) sit under it, outside the bubble,
           // in its column.
@@ -1126,7 +1291,7 @@ export function ChatView({
           const cards = view && view.cards.length ? view : null;
           const t = under.get(m.id);
           if (!m.asks?.length && !cards && !t)
-            return (
+            return !text.trim() ? null : (
               <div key={m.id} className={'say' + (isFresh ? ' rise' : '')} data-quote="">
                 <Markdown text={text} />
               </div>
@@ -1168,7 +1333,7 @@ export function ChatView({
               {t && turnCard(t)}
             </div>
           );
-        })}
+        })()))}
         {/* His first message until it is sent: under a start-up question, and
             while the box comes up after his answer. What he sends after it
             waits below it. */}
@@ -1317,16 +1482,14 @@ export function ChatView({
         }}
         onScroll={(e) => {
           const el = e.currentTarget;
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+          stick.current = to >= items.length && el.scrollHeight - el.scrollTop - el.clientHeight < 60;
           place.onScroll(stick.current);
-          if (el.scrollTop < 300 && items.length > limit && !keep.current) {
-            keep.current = { h: el.scrollHeight, top: el.scrollTop };
-            setLimit((l) => l + PAGE);
-          }
+          moreRows(el);
         }}
       >
+        {find && <FindBar q={find.q} at={findAt} total={found.length} onQ={(q) => setFind((f) => ({ q, at: 0, go: (f?.go ?? 0) + 1 }))} onStep={stepFind} onClose={closeFind} />}
         <PictureOpen.Provider value={onOpen}>{middle}</PictureOpen.Provider>
-        <Jump n={place.below} onClick={place.jump} />
+        <Jump n={place.below} onClick={jumpDown} />
         <Quoter scroller={scroller} on={!closed || typeAhead} onKeep={keepQuote} onLeave={leaveQuote} onDone={() => input.current?.focus()} />
       </div>
       <div

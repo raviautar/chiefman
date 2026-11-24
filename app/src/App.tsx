@@ -556,14 +556,14 @@ export function App() {
       // which the chat sees to.
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.menu && !box.menu.perm) {
         const el = document.activeElement;
-        if (el && (el.closest('.drill, .qcard-wrap, .quote-bubble, .quote-tray, [data-held]') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .qcard-wrap, .quote-bubble, .quote-tray, .find-bar, [data-held]') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         if (box.menu.esc) api().dismiss(box.paneId).then((r) => !r.ok && r.reason && show(r.reason, true));
         return;
       }
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
-        if (el && (el.closest('.drill, .qcard-wrap, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .qcard-wrap, .quote-bubble, .quote-tray, .find-bar') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         api()
           .interrupt(box.paneId)

@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, type Item, type StepDetail, type Turn, type TurnNow } from './api';
 import { Card } from './Card';
 import { Icon } from './icons';
-import { Markdown } from './Markdown';
+import { Markdown, Unfolded } from './Markdown';
 import './turn.css';
 
 // How long a turn took: "37s", "4m", "1h 5m".
@@ -189,6 +189,13 @@ export function Section({ title, children }: { title: string; children: ReactNod
 export function TurnCard({ item, paneId, onAsk, canAsk }: { item: Item; paneId: string | null; onAsk: (text: string) => void; canAsk: boolean }) {
   const [open, setOpen] = useState(false);
   const [rest, setRest] = useState(false);
+  // Cmd+F on a place in this card opens it.
+  const found = useContext(Unfolded) === item.id;
+  useEffect(() => {
+    if (!found) return;
+    setOpen(true);
+    setRest(true);
+  }, [found]);
   const t = item.turn!;
   const writes = (w: string) => (w === 'draft' ? 'draft' : w === 'sent' ? 'sent' : undefined);
   return (

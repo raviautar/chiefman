@@ -23,6 +23,7 @@ const MARK: Record<string, string> = {
   plus: 'M12 5v14M5 12h14',
   close: 'M6 6l12 12M18 6L6 18',
   down: 'M6 9l6 6 6-6',
+  above: 'M6 15l6-6 6 6',
   right: 'M9 5l7 7-7 7',
   terminal: 'M6 4.5h12a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3z M7.5 9.5l3 2.5-3 2.5 M12.5 15h4',
   chat: ICON.bubble,
@@ -50,7 +51,7 @@ function Svg({ d, className }: { d: string; className?: string }) {
   );
 }
 
-// One of the app's marks by name: tick, up, plus, close, down, right,
+// One of the app's marks by name: tick, up, plus, close, down, above, right,
 // terminal, chat, ask, steps, out, jump, pen, hand, passed, failed, clock.
 export function Icon({ name, className }: { name: string; className?: string }) {
   return <Svg d={MARK[name] || MARK.tick} className={className} />;

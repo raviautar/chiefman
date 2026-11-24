@@ -7,6 +7,10 @@ import './blocks.css';
 // none, it opens in the Mac's default app.
 export const PictureOpen = createContext<((url: string) => void) | null>(null);
 
+// Inside the chat row Cmd+F is on, the id of the item the place is in: the
+// row's folded parts show in full, and a turn's card with that id opens.
+export const Unfolded = createContext<string | null>(null);
+
 // A picture on this Mac, served by the app (only from his home folder and
 // the temporary folders).
 export const picUrl = (p: string) => 'cm-att://p/' + encodeURIComponent(p);
@@ -690,9 +694,12 @@ function block(b: Block, key: number, fold: boolean): ReactNode {
 // fold: long parts show their start with Show all, and a reply of over about
 // 40 lines shows its start and its last paragraph, which may ask something.
 // Inside a folded reply the parts do not fold again: one Show all opens all.
-export function Markdown({ text, fold = true }: { text: string; fold?: boolean }) {
+export function Markdown({ text, fold: may = true }: { text: string; fold?: boolean }) {
   const blocks = useMemo(() => parse(text), [text]);
   const f = useFold();
+  // Cmd+F on a place in this row shows it all.
+  const found = useContext(Unfolded);
+  const fold = may && found == null;
   const long = fold && blocks.length > 1 && height(text.split('\n')) > 40;
   if (!long) return <div className="md">{blocks.map((b, i) => block(b, i, fold))}</div>;
   return (

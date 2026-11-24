@@ -28,7 +28,14 @@
   --on-ink-fill: rgba(255, 255, 255, 0.14);
   /* Lines inside a bubble follow its text, so they read on grey and black. */
   --line-in: color-mix(in srgb, currentColor 18%, transparent);
+  /* Cmd+F: every place the words are, and the one he is on. */
+  --mark: rgba(255, 196, 0, 0.32);
+  --mark-now: rgba(255, 166, 0, 0.75);
   --shadow: 0 8px 28px rgba(12, 12, 14, 0.12), 0 0 0 0.5px rgba(12, 12, 14, 0.1);
+  /* The two speeds: a control's state changes quickly; what comes or goes
+     on screen moves a little slower. */
+  --quick: 120ms;
+  --move: 180ms;
   /* The terminal reads these (Terminal.tsx). */
   --term-bg: var(--ink);
   --term-ink: #ededf0;
@@ -892,7 +899,97 @@ svg {
   overflow-wrap: anywhere;
 }
 .say.shell-out {
+  max-width: 100%;
+}
+.shell-wrap {
+  align-self: flex-start;
   max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+/* A row out of view is laid out only once it comes near: a long chat
+   scrolls smoothly. */
+.chat-col > [data-item] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+.chat-col > [data-item]:nth-last-child(-n + 12) {
+  content-visibility: visible;
+}
+
+/* ---- Cmd+F: a small bar at the top of the chat, the places marked ---- */
+
+.find-dock {
+  position: sticky;
+  top: -8px;
+  height: 0;
+  z-index: 5;
+  overflow: visible;
+}
+.find-bar {
+  position: absolute;
+  top: 0;
+  right: -28px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 10px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  font-size: var(--body);
+  animation: rise var(--quick) ease-out both;
+}
+.find-q {
+  width: 180px;
+  height: 28px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--body);
+}
+.find-n {
+  min-width: 52px;
+  padding: 0 6px;
+  color: var(--t2);
+  font-size: var(--small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.find-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.find-btn:hover {
+  background: var(--hover);
+}
+.find-btn:active {
+  background: var(--press);
+}
+.find-btn:disabled {
+  color: var(--t3);
+  background: transparent;
+  cursor: default;
+}
+::highlight(cm-find) {
+  background-color: var(--mark);
+  color: inherit;
+}
+::highlight(cm-find-now) {
+  background-color: var(--mark-now);
+  color: var(--ink);
 }
 
 /* A reply and the cards under it (its questions, the turn's facts): one
