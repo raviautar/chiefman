@@ -1458,46 +1458,21 @@ button:focus-visible,
   text-align: left;
 }
 
-.switcher button span {
+/* Box names and action names start at the same place: only the label
+   stretches, never the mark before it. */
+.switcher button .label {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher button:hover {
+  background: rgba(26, 26, 26, 0.035);
 }
 
 .switcher button.on {
-  background: var(--sand);
-}
-
-.composer-wrap {
-  position: relative;
-}
-
-.slash {
-  position: absolute;
-  bottom: calc(100% - 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, calc(100% - 64px));
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  border-radius: 14px;
-  background: var(--white);
-  box-shadow: 0 10px 32px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
-}
-
-.slash button {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.slash button.on {
   background: var(--sand);
 }
 
@@ -1641,12 +1616,6 @@ button:focus-visible,
   flex-direction: column;
   max-height: 50vh;
   overflow-y: auto;
-}
-
-.dot-action {
-  width: 15px;
-  height: 15px;
-  display: inline-block;
 }
 
 .recent {
