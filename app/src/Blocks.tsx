@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { api, Widget } from './api';
 import { Card, type CardButton } from './Card';
 import { Markdown, shortUrl } from './Markdown';
-import { Check } from './icons';
+import { Check, Icon } from './icons';
 import './blocks.css';
 
 // The cards a box's blocks make under its reply (electron/blocks.js reads
@@ -73,16 +73,11 @@ function useSend(onSend: (text: string) => Promise<boolean>) {
   return { busy, go };
 }
 
-const svg = (d: string) => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={d} />
-  </svg>
-);
-const PEN = svg('M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4');
-const HAND = svg('M8 13V5.5a1.5 1.5 0 0 1 3 0V12 M11 11V4.5a1.5 1.5 0 0 1 3 0V12 M14 11.5V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-7 7h-.5a6 6 0 0 1-5-2.7L3 15.5a1.5 1.5 0 0 1 2.5-1.7L8 16');
-const PASS = svg('M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M8 12.5l3 3l5-6.5');
-const FAIL = svg('M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M9 9l6 6 M15 9l-6 6');
-const CLOCK = svg('M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7v5l3 2');
+const PEN = <Icon name="pen" />;
+const HAND = <Icon name="hand" />;
+const PASS = <Icon name="passed" />;
+const FAIL = <Icon name="failed" />;
+const CLOCK = <Icon name="clock" />;
 
 interface Common {
   live: boolean;
@@ -198,7 +193,7 @@ function Turn({ steps, live, keys, onDismiss, onSend }: Common & { steps: { text
             onClick={(e) => live && !(e.target as Element).closest('a, button, .md-file') && toggle(i)}
           >
             <button type="button" role="checkbox" aria-checked={on.has(i)} aria-label={`Step ${i + 1}`} className="bk-tick" disabled={!live} title={keys ? String(i + 1) : undefined} onClick={() => toggle(i)}>
-              {on.has(i) && <Check size={11} />}
+              {on.has(i) && <Check />}
             </button>
             <span className="bk-step">
               <Markdown text={s.text} fold={false} />

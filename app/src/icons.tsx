@@ -33,6 +33,11 @@ const MARK: Record<string, string> = {
   steps: 'M9 6h11 M9 12h11 M9 18h11 M4.5 6h.01 M4.5 12h.01 M4.5 18h.01',
   out: 'M7 17L17 7 M9 7h8v8',
   jump: 'M12 5v14 M6 13l6 6l6-6',
+  pen: 'M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4',
+  hand: 'M8 13V5.5a1.5 1.5 0 0 1 3 0V12 M11 11V4.5a1.5 1.5 0 0 1 3 0V12 M14 11.5V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-7 7h-.5a6 6 0 0 1-5-2.7L3 15.5a1.5 1.5 0 0 1 2.5-1.7L8 16',
+  passed: ICON.check,
+  failed: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M9 9l6 6 M15 9l-6 6',
+  clock: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7v5l3 2',
 };
 
 export const SYMBOLS = ['doc', 'crown', 'columns', 'check', 'wrench', 'eye', 'bubble', 'window'];
@@ -46,7 +51,7 @@ function Svg({ d, className }: { d: string; className?: string }) {
 }
 
 // One of the app's marks by name: tick, up, plus, close, down, right,
-// terminal, chat, ask, steps, out, jump.
+// terminal, chat, ask, steps, out, jump, pen, hand, passed, failed, clock.
 export function Icon({ name, className }: { name: string; className?: string }) {
   return <Svg d={MARK[name] || MARK.tick} className={className} />;
 }
