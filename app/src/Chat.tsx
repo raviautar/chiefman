@@ -459,11 +459,14 @@ export function ChatView({
     return () => ro.disconnect();
   }, [hasCol, starting, resuming]);
 
-  // His saved draft comes back with the cursor where he left it.
+  // A box he switches to has the cursor in its message field; a saved draft
+  // comes back with the cursor where he left it. A field he types in
+  // elsewhere (a sheet, the drill-down) keeps it.
   useLayoutEffect(() => {
     const el = input.current;
-    if (!el || !initial) return;
-    const at = Math.min(initial.caret, el.value.length);
+    const busy = document.activeElement?.closest('.drill, [role="dialog"], [role="menu"]');
+    if (!el || busy) return;
+    const at = initial ? Math.min(initial.caret, el.value.length) : el.value.length;
     el.focus();
     el.setSelectionRange(at, at);
   }, []);
@@ -937,6 +940,11 @@ export function ChatView({
       <div
         className="chat"
         ref={scroller}
+        onClick={(e) => {
+          // A pick made with the mouse leaves the cursor in the message
+          // field, so Enter sends it instead of taking the pick back.
+          if (e.detail > 0 && (e.target as Element).closest('.chip.pick')) input.current?.focus();
+        }}
         onWheel={(e) => {
           // The thin scrollbar shows only while he scrolls, not when a new
           // message moves the chat down.

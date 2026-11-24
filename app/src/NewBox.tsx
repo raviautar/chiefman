@@ -140,6 +140,12 @@ export function NewBoxSheet({
                 setName(v);
                 setOwn(v);
               }}
+              onKeyDown={(e) => {
+                // Enter starts the box, as Start box does.
+                if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                e.preventDefault();
+                if (ready) start(null, clean);
+              }}
             />
             {usedBefore && (
               <div className="used-before">
