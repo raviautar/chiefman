@@ -1,11 +1,12 @@
 /* ---- what a turn did (Turn.tsx), the live line, his place ---- */
+/* Colours, sizes and corners are the Mono values at the top of styles.css. */
 
 .turn-bad {
-  color: var(--wcard-failed, #cf222e);
+  color: var(--failed);
 }
 
 .wcard.turn .wcard-title {
-  font-weight: 500;
+  font-weight: var(--regular);
 }
 .wcard.turn .wcard-body {
   display: flex;
@@ -20,8 +21,8 @@
   gap: 1px;
 }
 .turn-h {
-  font-size: 11.5px;
-  color: var(--wcard-grey, #7a7a78);
+  font-size: var(--small);
+  color: var(--t2);
   padding: 0 6px 3px;
 }
 
@@ -34,19 +35,19 @@
   box-sizing: border-box;
   padding: 3px 6px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--r-control);
   background: transparent;
-  color: var(--wcard-ink, #111);
+  color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--body);
   text-align: left;
   cursor: pointer;
 }
 .turn-row:hover {
-  background: var(--wcard-hover, #f6f6f5);
+  background: var(--fill);
 }
 .turn-row:active {
-  background: #efefee;
+  background: var(--fill-2);
 }
 .turn-row.still {
   cursor: text;
@@ -57,11 +58,11 @@
 }
 .turn-row.small {
   min-height: 24px;
-  font-size: 12.5px;
-  color: #3d3d3b;
+  font-size: var(--small);
+  color: var(--t2);
 }
 .turn-row:focus-visible {
-  outline: 2px solid var(--focus, #a77bc4);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -78,7 +79,7 @@
 }
 .turn-say.mono {
   flex: 0 1 auto;
-  font-size: 12.5px;
+  font-size: var(--small);
 }
 .turn-dir {
   flex: 1;
@@ -86,27 +87,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--wcard-grey, #7a7a78);
+  font-size: var(--small);
+  color: var(--t2);
 }
 .turn-count,
 .turn-kind {
   flex-shrink: 0;
-  font-size: 12px;
-  color: var(--wcard-grey, #7a7a78);
+  font-size: var(--small);
+  color: var(--t2);
   font-variant-numeric: tabular-nums;
 }
 .turn-out {
   flex-shrink: 0;
-  color: var(--wcard-grey, #7a7a78);
+  color: var(--t2);
 }
 .turn-row:hover .turn-out {
-  color: var(--wcard-ink, #111);
+  color: var(--ink);
 }
 
 .turn-rest {
-  color: var(--wcard-grey, #7a7a78);
-  font-size: 12.5px;
+  color: var(--t2);
+  font-size: var(--small);
 }
 .turn-rest .turn-say {
   flex: 0 1 auto;
@@ -117,10 +118,10 @@
   padding: 8px 10px;
   max-height: 300px;
   overflow: auto;
-  border-radius: 8px;
-  background: #f7f7f6;
-  color: #3d3d3b;
-  font-size: 11.5px;
+  border-radius: var(--r-control);
+  background: var(--fill);
+  color: var(--ink);
+  font-size: var(--small);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -129,7 +130,6 @@
 }
 .turn-pre.cmd {
   margin-bottom: 0;
-  color: var(--wcard-ink, #111);
 }
 .turn-pre.diff span {
   display: block;
@@ -138,21 +138,21 @@
 }
 /* Removed lines quiet, added lines in ink: no colour, only weight. */
 .turn-pre.diff .add {
-  color: var(--wcard-ink, #111);
-  background: rgba(17, 17, 17, 0.045);
+  color: var(--ink);
+  background: var(--hover);
 }
 .turn-pre.diff .del {
-  color: #9a9996;
+  color: var(--t3);
 }
 .turn-pre.diff .hunk {
-  color: #a9a8a4;
+  color: var(--t3);
   padding-top: 4px;
 }
 
 .turn-note {
   padding: 2px 6px 6px;
-  font-size: 12px;
-  color: var(--wcard-grey, #7a7a78);
+  font-size: var(--small);
+  color: var(--t2);
 }
 
 .turn-fail {
@@ -170,15 +170,15 @@
 }
 .turn-ask {
   flex-shrink: 0;
-  height: 26px;
-  font-size: 12px;
+  height: 28px;
+  font-size: var(--small);
 }
 .turn-dot {
   flex-shrink: 0;
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: var(--wcard-failed, #cf222e);
+  border-radius: var(--r-full);
+  background: var(--failed);
 }
 
 /* ---- while it works: the newest step in grey, a quiet pulse ---- */
@@ -188,8 +188,8 @@
   align-items: center;
   gap: 8px;
   min-height: 20px;
-  font-size: 13px;
-  color: #6f6f6c;
+  font-size: var(--body);
+  color: var(--t2);
 }
 .now-t {
   min-width: 0;
@@ -199,15 +199,15 @@
 }
 .now-time {
   flex-shrink: 0;
-  color: #9a9996;
+  color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
 .now-pulse {
   flex-shrink: 0;
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: #8f8f8c;
+  border-radius: var(--r-full);
+  background: var(--t3);
   animation: now-pulse 1.6s ease-in-out infinite;
 }
 @keyframes now-pulse {
@@ -226,16 +226,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  color: var(--wcard-failed, #cf222e);
+  font-size: var(--body);
+  color: var(--failed);
 }
 
 /* "Interrupted", "Compacted": one small centred grey word. */
 .mark-word {
   align-self: center;
-  font-size: 11.5px;
-  color: #9a9996;
-  letter-spacing: 0.01em;
+  font-size: var(--small);
+  color: var(--t3);
 }
 
 /* ---- his place: a thin New line, and a round ↓ with a count ---- */
@@ -244,16 +243,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #111111;
+  font-size: var(--small);
+  font-weight: var(--bold);
+  color: var(--ink);
 }
 .new-line::before,
 .new-line::after {
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(17, 17, 17, 0.16);
+  background: var(--line);
 }
 
 .jump-dock {
@@ -270,11 +269,11 @@
   top: -46px;
   width: 36px;
   height: 36px;
-  border-radius: 50%;
-  border: 1px solid rgba(17, 17, 17, 0.12);
-  background: #ffffff;
-  color: #111111;
-  box-shadow: 0 4px 14px rgba(17, 17, 17, 0.1);
+  border-radius: var(--r-full);
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--ink);
+  box-shadow: var(--shadow);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -283,7 +282,7 @@
   animation: rise 160ms ease-out both;
 }
 .jump:hover {
-  background: #f6f6f5;
+  background: var(--fill);
 }
 .jump:active {
   transform: scale(0.95);
@@ -296,11 +295,11 @@
   height: 18px;
   box-sizing: border-box;
   padding: 0 5px;
-  border-radius: 9px;
-  background: #111111;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 600;
+  border-radius: var(--r-full);
+  background: var(--ink);
+  color: var(--white);
+  font-size: var(--small);
+  font-weight: var(--bold);
   line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;

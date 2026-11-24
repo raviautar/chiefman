@@ -11,6 +11,9 @@ export function TerminalView({ paneId }: { paneId: string }) {
   const wrap = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Its colours are the stylesheet's, named at its top.
+    const css = getComputedStyle(document.documentElement);
+    const color = (name: string) => css.getPropertyValue(name).trim();
     const term = new Terminal({
       fontFamily: "'SF Mono', Menlo, monospace",
       fontSize: 12.5,
@@ -20,11 +23,11 @@ export function TerminalView({ paneId }: { paneId: string }) {
       macOptionIsMeta: true,
       allowProposedApi: true,
       theme: {
-        background: '#1A1A1A',
-        foreground: '#EEEBE3',
-        cursor: '#F0D7FF',
-        cursorAccent: '#1A1A1A',
-        selectionBackground: '#502B66',
+        background: color('--term-bg'),
+        foreground: color('--term-ink'),
+        cursor: color('--term-ink'),
+        cursorAccent: color('--term-bg'),
+        selectionBackground: color('--term-pick'),
       },
       linkHandler: { activate: (_e, uri) => /^https:/.test(uri) && api().openUrl(uri) },
     });

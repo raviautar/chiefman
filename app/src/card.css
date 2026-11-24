@@ -2,15 +2,16 @@
 
 .wcard,
 .wcard-line {
-  --wcard-line: rgba(17, 17, 17, 0.1);
-  --wcard-ink: #111111;
-  --wcard-grey: #7a7a78;
-  --wcard-hover: #f6f6f5;
-  --wcard-failed: #cf222e;
-  --wcard-passed: #1a7f37;
-  --wcard-asks: #d4610f;
-  --wcard-working: #3e7bfa;
-  --wcard-waiting: #c4307c;
+  /* The Mono values, named at the top of styles.css. */
+  --wcard-line: var(--line);
+  --wcard-ink: var(--ink);
+  --wcard-grey: var(--t2);
+  --wcard-hover: var(--fill);
+  --wcard-failed: var(--failed);
+  --wcard-passed: var(--done);
+  --wcard-asks: var(--asks);
+  --wcard-working: var(--working);
+  --wcard-waiting: var(--waiting);
 }
 
 .wcard {
@@ -18,12 +19,12 @@
   box-sizing: border-box;
   width: 100%;
   max-width: 92%;
-  background: #ffffff;
+  background: var(--white);
   border: 1px solid var(--wcard-line);
-  border-radius: 12px;
+  border-radius: var(--r-card);
   overflow: hidden;
   color: var(--wcard-ink);
-  font-size: 13px;
+  font-size: var(--body);
   line-height: 1.45;
 }
 
@@ -49,12 +50,12 @@
   background: var(--wcard-hover);
 }
 .wcard-head:not(.still):active {
-  background: #efefee;
+  background: var(--fill-2);
 }
 .wcard-head:focus-visible {
-  outline: 2px solid var(--focus, #a77bc4);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
-  border-radius: 12px;
+  border-radius: var(--r-card);
 }
 
 .wcard-icon {
@@ -74,8 +75,8 @@
 .wcard-title {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--body);
+  font-weight: var(--bold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -83,7 +84,7 @@
 
 .wcard-state {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--small);
   color: var(--wcard-grey);
   font-variant-numeric: tabular-nums;
 }
@@ -103,8 +104,12 @@
   color: var(--wcard-waiting);
 }
 
+/* At 16px with the one line weight, as every icon (icons.tsx). */
 .wcard-fold {
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
   color: var(--wcard-grey);
   transition: transform 120ms ease;
 }
@@ -131,32 +136,32 @@
 .wcard-btn {
   height: 28px;
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--r-control);
   border: 1px solid var(--wcard-line);
-  background: #ffffff;
+  background: var(--white);
   color: var(--wcard-ink);
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: var(--body);
+  font-weight: var(--bold);
   cursor: pointer;
 }
 .wcard-btn:hover:not(:disabled) {
   background: var(--wcard-hover);
 }
 .wcard-btn:active:not(:disabled) {
-  background: #efefee;
+  background: var(--fill-2);
   transform: scale(0.98);
 }
 .wcard-btn.wcard-main {
   background: var(--wcard-ink);
   border-color: var(--wcard-ink);
-  color: #ffffff;
+  color: var(--white);
 }
 .wcard-btn.wcard-main:hover:not(:disabled) {
-  background: #2b2b2b;
+  background: var(--ink-hover);
 }
 .wcard-btn.wcard-main:active:not(:disabled) {
-  background: #000000;
+  background: var(--wcard-ink);
 }
 .wcard-btn:disabled {
   opacity: 0.4;
@@ -173,30 +178,28 @@
   padding: 2px 6px;
   margin: 0 -6px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-control);
   background: transparent;
   color: var(--wcard-grey);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--small);
   line-height: 18px;
   text-align: left;
   cursor: pointer;
 }
 .wcard-line:hover {
   color: var(--wcard-ink);
-  background: rgba(17, 17, 17, 0.04);
+  background: var(--hover);
 }
 .wcard-line:active {
-  background: rgba(17, 17, 17, 0.07);
+  background: var(--press);
+}
+.wcard-line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
 }
 .wcard-line .wcard-icon {
-  width: 14px;
-  height: 14px;
   color: inherit;
-}
-.wcard-line .wcard-icon svg {
-  width: 14px;
-  height: 14px;
 }
 .wcard-line-t {
   min-width: 0;

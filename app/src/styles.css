@@ -1,42 +1,49 @@
+/* The Mono look, set here and nowhere else: every colour, the Mac's own
+   font, three sizes, two weights, three corners, one shadow, one line.
+   Black and white; colour only says a state, as the tmux tabs do. */
 :root {
-  --sand: #f5f4f0;
-  --paper: #fcfcfb;
+  --ink: #0c0c0e;
+  --ink-hover: #2c2c31;
+  --t2: #66666c;
+  --t3: #a0a0a7;
+  --line: #e7e7ea;
+  --fill: #f3f3f5;
+  --fill-2: #e8e8ec;
+  --panel: #f5f5f7;
   --white: #ffffff;
-  --ink: #1a1a1a;
-  --ink-2: #343432;
-  --muted: #5b5b59;
-  --faint: #878683;
-  --line: #eeebe3;
-  --line-strong: #c5c0b3;
-  --lilac: #f0d7ff;
-  --lilac-ink: #502b66;
-  --lilac-ring: #f4e1ff;
-  --forest: #034f46;
-  --mint: #d1f2ee;
-  --rust: #c2410c;
-  /* Working is one blue everywhere: the sidebar dot and the chat's line. */
-  --working: #3e7bfa;
-  --working-ink: #2557c7;
-  /* His messages: a lilac pill on the right. The box's: a soft grey bubble. */
-  --you: #ecd8fb;
-  --you-ink: #2c1838;
-  --reply: #f1f0ec;
-  --focus: #a77bc4;
-  --serif: 'EB Garamond', Georgia, serif;
-  --sans: Figtree, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --mono: 'Google Sans Code', 'SF Mono', Menlo, monospace;
-  /* Look B, "Mono", for everything outside the bubbles: black and white,
-     the only colour a box's state. */
-  --b-ink: #0c0c0e;
-  --b-t2: #66666c;
-  --b-t3: #a0a0a7;
-  --b-hair: #e7e7ea;
-  --b-fill: #f3f3f5;
-  --b-fill-2: #e8e8ec;
-  --b-panel: #f5f5f7;
-  --b-blue: #0a7aff;
-  --b-orange: #f57a00;
-  --b-green: #1fa94d;
+  /* States: blue working, orange asks, green done, red failed, pink waiting. */
+  --working: #0a7aff;
+  --asks: #f57a00;
+  --done: #1fa94d;
+  --failed: #d92d20;
+  --waiting: #d6336c;
+  /* The one accent: the keyboard ring and the recommended choice. */
+  --accent: var(--working);
+  /* Washes laid over what is under them. */
+  --hover: rgba(12, 12, 14, 0.04);
+  --press: rgba(12, 12, 14, 0.08);
+  --thumb: rgba(12, 12, 14, 0.2);
+  --veil: rgba(12, 12, 14, 0.55);
+  --on-ink-2: rgba(255, 255, 255, 0.72);
+  --on-ink-fill: rgba(255, 255, 255, 0.14);
+  /* Lines inside a bubble follow its text, so they read on grey and black. */
+  --line-in: color-mix(in srgb, currentColor 18%, transparent);
+  --shadow: 0 8px 28px rgba(12, 12, 14, 0.12), 0 0 0 0.5px rgba(12, 12, 14, 0.1);
+  /* The terminal reads these (Terminal.tsx). */
+  --term-bg: var(--ink);
+  --term-ink: #ededf0;
+  --term-pick: #3a3a40;
+
+  --sans: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --small: 12px;
+  --body: 13px;
+  --talk: 15px;
+  --regular: 400;
+  --bold: 600;
+  --r-control: 8px;
+  --r-card: 12px;
+  --r-full: 999px;
 }
 
 html,
@@ -47,26 +54,40 @@ body,
 }
 
 body {
-  background: #ffffff;
+  background: var(--white);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--body);
+  font-weight: var(--regular);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
   cursor: default;
 }
 
-button {
+button,
+input,
+textarea {
   font-family: inherit;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 90ms ease;
+}
+
+button {
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease, transform 90ms ease;
 }
 
 /* A clear ring on whatever the keyboard is on; none for a mouse click. */
 button:focus-visible,
-[role='option']:focus-visible {
-  outline: 2px solid var(--b-ink);
+[role='option']:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+button:disabled {
+  cursor: default;
+}
+
+svg {
+  flex-shrink: 0;
 }
 
 .app {
@@ -76,10 +97,8 @@ button:focus-visible,
   overflow: hidden;
 }
 
-/* ---- sidebar ---- */
+/* ---- sidebar: a grey panel inside the white window ---- */
 
-/* A grey panel that floats inside the white window. The window's lights sit
-   in its top row; New Box sits at the other end of that row. */
 .nav {
   width: 256px;
   flex-shrink: 0;
@@ -88,9 +107,8 @@ button:focus-visible,
   display: flex;
   flex-direction: column;
   padding: 6px 8px 12px;
-  border-radius: 18px;
-  background: var(--b-panel);
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.07);
+  border-radius: var(--r-card);
+  background: var(--panel);
   -webkit-app-region: drag;
 }
 
@@ -108,23 +126,23 @@ button:focus-visible,
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--b-ink);
-  color: #ffffff;
+  background: var(--ink);
+  color: var(--white);
   cursor: pointer;
   -webkit-app-region: no-drag;
 }
 .new-btn:hover {
-  background: #2c2c31;
+  background: var(--ink-hover);
 }
 .new-btn:active {
   transform: scale(0.92);
 }
 .new-btn.on {
-  box-shadow: 0 0 0 3px rgba(12, 12, 14, 0.12);
+  box-shadow: 0 0 0 3px var(--fill-2);
 }
 
 .nav-list {
@@ -139,63 +157,54 @@ button:focus-visible,
 .row {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   width: 100%;
   box-sizing: border-box;
   flex-shrink: 0;
   padding: 8px 10px;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--r-control);
   font: inherit;
-  font-size: 13px;
-  color: var(--b-ink);
+  color: var(--ink);
   text-align: left;
   cursor: pointer;
   background: transparent;
   -webkit-app-region: no-drag;
 }
-
 .row:hover {
-  background: rgba(0, 0, 0, 0.035);
+  background: var(--hover);
 }
-
 .row:active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--press);
 }
-
 .row.on {
-  background: #ffffff;
-  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.07);
+  background: var(--white);
+  box-shadow: 0 0 0 1px var(--line);
 }
-
 .row .txt {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-
 .row .top {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
-
 .row .name {
   flex: 1;
   min-width: 0;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: var(--bold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .row .when,
 .row .row-cost {
   flex: none;
-  font-size: 12px;
-  color: var(--b-t3);
+  font-size: var(--small);
+  color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
 .row .row-cost {
@@ -207,45 +216,43 @@ button:focus-visible,
 .row:hover .row-cost + .when {
   display: none;
 }
-
 .row .pv {
   margin-top: 1px;
-  font-size: 12px;
-  color: var(--b-t2);
+  font-size: var(--small);
+  color: var(--t2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .row .pv.need {
-  color: var(--b-ink);
-  font-weight: 500;
+  color: var(--ink);
 }
-
 .row.off .name,
 .row.off .pv {
-  color: var(--b-t3);
+  color: var(--t3);
 }
 
+/* A box's picture: its icon on a grey disc, the chief's crown on black,
+   its state a dot at the corner. */
 .av {
   position: relative;
   width: 32px;
   height: 32px;
   flex: none;
-  border-radius: 50%;
-  background: var(--b-fill-2);
-  color: var(--b-ink);
+  border-radius: var(--r-full);
+  background: var(--fill-2);
+  color: var(--ink);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .av.chief {
-  background: var(--b-ink);
-  color: #ffffff;
+  background: var(--ink);
+  color: var(--white);
 }
 .av.gone {
   opacity: 0.45;
 }
-/* margin and display: the answer widgets' .asks rule must not move it. */
 .av-dot {
   position: absolute;
   right: -2px;
@@ -255,28 +262,25 @@ button:focus-visible,
   height: 12px;
   margin: 0;
   box-sizing: border-box;
-  border-radius: 50%;
-  border: 2px solid var(--b-panel);
+  border-radius: var(--r-full);
+  border: 2px solid var(--panel);
 }
 .row.on .av-dot {
-  border-color: #ffffff;
+  border-color: var(--white);
 }
 .av-dot.working {
-  background: var(--b-blue);
+  background: var(--working);
   animation: pulse 1.8s ease-in-out infinite;
 }
 .av-dot.asks {
-  display: block;
-  margin: 0;
-  background: var(--b-orange);
+  background: var(--asks);
 }
 .av-dot.done {
-  background: var(--b-green);
+  background: var(--done);
 }
 
-/* The mark before a box's name: its state as a dot in the colours of its
-   tmux tab (blue working, orange asks him, green done), grey while idle, a
-   ring once it is off. The chief keeps its crown, in the same colours. */
+/* The mark before a box's name (Cmd+K): its state as a dot, grey while
+   idle, a ring once it is off. The chief keeps its crown. */
 .mark {
   width: 16px;
   height: 16px;
@@ -285,46 +289,49 @@ button:focus-visible,
   align-items: center;
   justify-content: center;
 }
+.mark.crown {
+  color: var(--t3);
+}
+.mark.crown.working {
+  color: var(--working);
+}
+.mark.crown.asks {
+  color: var(--asks);
+}
+.mark.crown.done {
+  color: var(--done);
+}
 .dot {
   width: 8px;
   height: 8px;
   box-sizing: border-box;
-  border-radius: 50%;
-  background: #d6d3cb;
+  border-radius: var(--r-full);
+  background: var(--t3);
 }
 .dot.working {
-  background: var(--b-blue);
-  box-shadow: 0 0 0 3px rgba(10, 122, 255, 0.16);
+  background: var(--working);
   animation: pulse 1.8s ease-in-out infinite;
 }
-/* margin: the answer widgets' .asks rule must not move the dot. */
 .dot.asks {
-  display: block;
-  margin: 0;
-  background: var(--b-orange);
-  box-shadow: 0 0 0 3px rgba(245, 122, 0, 0.18);
+  background: var(--asks);
 }
 .dot.done {
-  background: var(--b-green);
-  box-shadow: 0 0 0 3px rgba(31, 169, 77, 0.18);
+  background: var(--done);
 }
 .dot.gone {
   background: transparent;
-  border: 1.5px solid var(--line-strong);
+  border: 1.5px solid var(--t3);
 }
 .mark.pulse svg {
   animation: pulse 1.8s ease-in-out infinite;
 }
-
 @keyframes pulse {
   50% {
     opacity: 0.35;
   }
 }
 
-/* The foot of the sidebar: one bar per plan limit, how much is used and the
-   time left to its reset, in ink; orange only from 80%, when it needs his
-   eye. Then the machine's workspace name. */
+/* The foot of the sidebar: a bar per plan limit, in ink; orange from 80%. */
 .usage {
   flex-shrink: 0;
   padding: 0 8px;
@@ -334,14 +341,14 @@ button:focus-visible,
 }
 .u-top {
   display: flex;
-  font-size: 12px;
-  color: var(--b-t2);
+  font-size: var(--small);
+  color: var(--t2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .u-top b {
-  font-weight: 600;
-  color: var(--b-ink);
+  font-weight: var(--bold);
+  color: var(--ink);
 }
 .u-top span {
   margin-left: auto;
@@ -349,31 +356,29 @@ button:focus-visible,
 .u-bar {
   height: 4px;
   margin-top: 6px;
-  border-radius: 2px;
-  background: rgba(0, 0, 0, 0.08);
+  border-radius: var(--r-full);
+  background: var(--fill-2);
   overflow: hidden;
 }
 .u-bar i {
   display: block;
   height: 100%;
-  border-radius: 2px;
-  background: var(--b-ink);
+  border-radius: var(--r-full);
+  background: var(--ink);
 }
 .u.high .u-bar i {
-  background: var(--b-orange);
+  background: var(--asks);
 }
 .ws {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
   margin-top: 14px;
   padding: 12px 8px 0;
-  border-top: 0.5px solid rgba(0, 0, 0, 0.1);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--b-ink);
+  border-top: 1px solid var(--line);
+  font-weight: var(--bold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -382,27 +387,28 @@ button:focus-visible,
   width: 22px;
   height: 22px;
   flex: none;
-  border-radius: 7px;
-  background: var(--b-fill-2);
+  border-radius: var(--r-control);
+  background: var(--fill-2);
   font-style: normal;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--small);
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.nav-quiet {
+  margin: 8px 10px 0;
+  font-size: var(--small);
+  color: var(--t3);
 }
 
 .spin {
   animation: spin 900ms steps(8) infinite;
 }
-
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
-
-/* ---- main card ---- */
 
 /* ---- main: one white canvas ---- */
 
@@ -412,13 +418,13 @@ button:focus-visible,
   display: flex;
   flex-direction: column;
   position: relative;
-  background: #ffffff;
+  background: var(--white);
   overflow: hidden;
+  container-type: inline-size;
 }
 
-/* No header bar: the box's name, quiet, at the top left of the
-   conversation; on the right only what matters (Remote Control when off,
-   the switch to the terminal). The strip moves the window. */
+/* No header bar: the box's name at the top left, on the right only what
+   matters. The strip moves the window. */
 .head {
   position: relative;
   z-index: 6;
@@ -431,14 +437,12 @@ button:focus-visible,
   padding: 0 14px 0 28px;
   -webkit-app-region: drag;
 }
-
 .head-name {
   position: relative;
   min-width: 0;
   display: flex;
   align-items: center;
 }
-
 .name-btn {
   display: flex;
   align-items: center;
@@ -449,13 +453,12 @@ button:focus-visible,
   margin-left: -8px;
   padding: 0 8px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--r-control);
   background: transparent;
   font: inherit;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--b-ink);
+  font-size: var(--talk);
+  font-weight: var(--bold);
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -468,25 +471,27 @@ button:focus-visible,
 }
 .name-btn:hover,
 .name-btn.open {
-  background: var(--b-fill);
+  background: var(--fill);
 }
 .name-btn:hover .pill-chevron,
 .name-btn.open .pill-chevron {
   opacity: 0.6;
 }
 .name-btn:active {
-  background: var(--b-fill-2);
+  background: var(--fill-2);
 }
-
 .name-new {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--b-t3);
+  font-size: var(--talk);
+  font-weight: var(--bold);
+  color: var(--t3);
   white-space: nowrap;
 }
 .name-new.set {
-  color: var(--b-ink);
+  color: var(--ink);
+}
+.pill-chevron {
+  margin-left: 4px;
+  opacity: 0.7;
 }
 
 /* What the box cost and how full its context is: on hover of its name. */
@@ -496,11 +501,11 @@ button:focus-visible,
   left: -8px;
   z-index: 30;
   padding: 6px 10px;
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
-  font-size: 12px;
-  color: var(--b-t2);
+  border-radius: var(--r-control);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  font-size: var(--small);
+  color: var(--t2);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -518,7 +523,6 @@ button:focus-visible,
   left: -8px;
   right: auto;
 }
-
 .head-right {
   margin-left: auto;
   display: flex;
@@ -529,14 +533,6 @@ button:focus-visible,
 .head-right .icon-btn {
   width: 32px;
   height: 32px;
-  color: var(--b-t2);
-}
-.head-right .icon-btn:hover {
-  background: var(--b-fill);
-  color: var(--b-ink);
-}
-.head-right .icon-btn:active {
-  background: var(--b-fill-2);
 }
 .head-right .tip::after {
   left: auto;
@@ -544,2334 +540,7 @@ button:focus-visible,
   transform: none;
 }
 
-/* Plain English, Explain and Drill down: grey chips inside the message
-   box, at its bottom left. */
-.skill-btn {
-  height: 28px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-  color: var(--b-ink);
-  background: var(--b-fill);
-}
-
-.skill-btn:hover {
-  background: var(--b-fill-2);
-}
-
-.skill-btn.on {
-  background: var(--b-ink);
-  color: #ffffff;
-}
-
-.skill-btn:active {
-  transform: scale(0.96);
-}
-
-.badge {
-  min-width: 18px;
-  height: 18px;
-  box-sizing: border-box;
-  padding: 0 6px;
-  border-radius: 9px;
-  background: var(--b-orange);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* ---- chat ---- */
-
-/* The scrollbar room is kept on both sides, so the column stays centred
-   under the header and lines up with the message box. */
-.chat {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  padding: 16px 40px 8px;
-  scrollbar-gutter: stable both-edges;
-  /* The thumb takes this colour: clear until he scrolls. */
-  border-color: transparent;
-  transition: border-color 300ms ease;
-}
-.chat.scrolling {
-  border-color: rgba(26, 26, 26, 0.22);
-  transition: border-color 80ms ease;
-}
-.chat::-webkit-scrollbar {
-  width: 6px;
-  background: transparent;
-}
-.chat::-webkit-scrollbar-track {
-  background: transparent;
-}
-.chat::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  border-right: 6px solid;
-  border-color: inherit;
-}
-
-.chat-col {
-  width: 100%;
-  max-width: 640px;
-  margin: auto auto 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  user-select: text;
-  cursor: auto;
-}
-
-/* His turn starts about 28px after the last reply; a tag he pressed sits
-   about 6px above the reply it brought. */
-.chat-col > .you,
-.chat-col > .pending,
-.chat-col > .tag {
-  margin-top: 16px;
-}
-.chat-col > :first-child {
-  margin-top: 0;
-}
-.chat-col > .tag {
-  margin-bottom: -6px;
-}
-
-/* His messages: a lilac pill on the right. */
-.you {
-  align-self: flex-end;
-  max-width: 74%;
-  padding: 9px 15px;
-  border-radius: 20px 20px 6px 20px;
-  background: linear-gradient(180deg, #f1e0fc, var(--you));
-  box-shadow: inset 0 0 0 0.5px rgba(80, 43, 102, 0.1);
-  color: var(--you-ink);
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-/* A long message of his shows its first six lines, softly cut. */
-.you-text.cut {
-  max-height: 9em;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 2.4em), transparent);
-}
-/* Opened, all of it shows, quoted lines too. */
-.you-text.open .you-quote {
-  display: block;
-}
-.you .md-more {
-  margin-top: 2px;
-  color: var(--lilac-ink);
-  opacity: 0.8;
-}
-.you .md-more:hover {
-  color: var(--lilac-ink);
-  opacity: 1;
-}
-
-/* The box's replies: a soft grey bubble on the left, the same text size,
-   about 70 characters a line whatever the window's width. */
-.say {
-  align-self: flex-start;
-  max-width: min(92%, calc(31.5em + 32px));
-  box-sizing: border-box;
-  padding: 11px 16px;
-  border-radius: 20px 20px 20px 6px;
-  background: var(--reply);
-  box-shadow: inset 0 0 0 0.5px rgba(26, 26, 26, 0.04);
-  font-size: 14px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.say.shell-out {
-  max-width: 92%;
-}
-
-/* Several replies in a row sit close and join at the left, so they read as
-   one run, each still its own. */
-.chat-col > .say + .say,
-.chat-col > .say + .reply-group {
-  margin-top: -8px;
-}
-.chat-col > .say + .say,
-.chat-col > .say + .reply-group > .say:first-child {
-  border-top-left-radius: 6px;
-}
-
-/* A button press of his: a small quiet tag on his side, no arrow. */
-.tag {
-  align-self: flex-end;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid #e6d2f4;
-  font-size: 12px;
-  color: var(--lilac-ink);
-}
-.tag .queued {
-  padding: 0;
-}
-.tag.answered {
-  max-width: 74%;
-  box-sizing: border-box;
-}
-.tag svg {
-  flex-shrink: 0;
-}
-.tag-t {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* A reply with questions: its bubble, then the widgets outside it. */
-.reply-group {
-  display: flex;
-  flex-direction: column;
-}
-
-/* ---- Markdown in a bubble: set as a calm page ---- */
-
-/* Clear but small space between paragraphs, lists, code and tables. */
-.md p,
-.md ul,
-.md ol,
-.md .md-code,
-.md .md-table-wrap,
-.md .md-marks {
-  margin: 0 0 10px;
-}
-/* A quote stands apart a little more. */
-.md .md-quote-wrap {
-  margin: 14px 0;
-}
-.md > :last-child,
-.md .md-body > :last-child,
-.md blockquote > :last-child,
-.md li > :last-child {
-  margin-bottom: 0;
-}
-.md > :first-child,
-.md .md-body > :first-child,
-.md blockquote > :first-child {
-  margin-top: 0;
-}
-
-.md strong {
-  font-weight: 600;
-}
-
-/* Headings stay small and quiet: never bigger than a line of bold. */
-.md .md-h {
-  margin: 16px 0 4px;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-.md .md-h3 {
-  color: var(--muted);
-}
-.md .md-h:first-child {
-  margin-top: 0;
-}
-.md .nowrap {
-  white-space: nowrap;
-}
-
-/* Lists breathe a little; a nested list has a quiet dash. */
-.md ul,
-.md ol {
-  padding-left: 20px;
-}
-.md li {
-  margin: 3px 0;
-  padding-left: 2px;
-}
-.md li::marker {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.md p + ul,
-.md p + ol {
-  margin-top: -4px;
-}
-.md li ul,
-.md li ol {
-  margin: 3px 0 0;
-  padding-left: 18px;
-}
-.md li ul {
-  list-style-type: '–  ';
-}
-.md li li::marker {
-  color: var(--faint);
-}
-.md li > p,
-.md li > .md-code,
-.md li > .md-table-wrap {
-  margin: 6px 0 0;
-}
-
-/* Task lists: a quiet box, ticked when done. */
-.md li.task {
-  list-style: none;
-  position: relative;
-  margin-left: -20px;
-  padding-left: 22px;
-}
-.task-box {
-  position: absolute;
-  left: 0;
-  top: 0.3em;
-  width: 14px;
-  height: 14px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  border: 1.5px solid var(--line-strong);
-}
-.task.done .task-box {
-  border-color: transparent;
-  background: rgba(3, 79, 70, 0.12);
-  color: var(--forest);
-}
-.task.done .task-t {
-  color: var(--muted);
-}
-
-/* Inline code: a soft tint, never a box. A local path shows its file name. */
-.md code {
-  font-family: var(--mono);
-  font-size: 0.86em;
-  padding: 0.1em 0.35em;
-  border-radius: 4px;
-  background: rgba(26, 26, 26, 0.055);
-}
-.md code.md-file {
-  cursor: default;
-}
-
-/* A code block: a quiet ground, no wrap, scrolls sideways in the bubble. */
-.md-code {
-  position: relative;
-}
-.md-code pre {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.6);
-  box-shadow: inset 0 0 0 0.5px rgba(26, 26, 26, 0.07);
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre;
-  overflow-x: auto;
-  overflow-wrap: normal;
-}
-.md-code.cut pre {
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 2.6em), transparent);
-}
-.md-copy {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  height: 22px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--white);
-  box-shadow: 0 0 0 0.5px rgba(26, 26, 26, 0.12), 0 1px 2px rgba(26, 26, 26, 0.06);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  user-select: none;
-  opacity: 0;
-  transition: opacity 120ms ease, color 120ms ease;
-}
-.md-code:hover .md-copy,
-.md-copy:focus-visible {
-  opacity: 1;
-}
-.md-copy:hover {
-  color: var(--ink);
-}
-.md-copy:active {
-  transform: scale(0.96);
-}
-.md-code pre::-webkit-scrollbar,
-.md-table::-webkit-scrollbar {
-  height: 6px;
-  background: transparent;
-}
-.md-code pre::-webkit-scrollbar-thumb,
-.md-table::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: rgba(26, 26, 26, 0.1);
-}
-.md-code:hover pre::-webkit-scrollbar-thumb,
-.md-table-wrap:hover .md-table::-webkit-scrollbar-thumb {
-  background: rgba(26, 26, 26, 0.22);
-}
-
-/* A quote: one block, a thin rule at its left, slightly inset, the same type. */
-.md blockquote {
-  margin: 0 0 0 1px;
-  padding: 0 0 0 14px;
-  border-left: 2px solid var(--line-strong);
-}
-.md blockquote.cut,
-.md .md-body.cut {
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 3em), transparent);
-}
-.md blockquote.cut {
-  max-height: 12.8em;
-}
-/* A long reply shows about its first 16 lines, then its last paragraph. */
-.md .md-body.cut {
-  max-height: 25.6em;
-}
-.md > .md-more {
-  margin: 2px 0 10px;
-}
-
-/* Show all and Show less: quiet words under what they open. */
-.md-more {
-  display: block;
-  margin: 4px 0 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
-  line-height: 1.6;
-  color: var(--muted);
-  cursor: pointer;
-  user-select: none;
-}
-.md-more:hover {
-  color: var(--ink);
-}
-.md-more:active {
-  opacity: 0.7;
-}
-
-/* Lines that start with a check mark or an arrow: the marks in one column,
-   the words lined up after them. */
-.md-mark-row {
-  display: grid;
-  grid-template-columns: 1.4em minmax(0, 1fr);
-}
-.md-mark,
-.md .sym {
-  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-}
-
-.md hr {
-  margin: 14px 0;
-  border: 0;
-  border-top: 1px solid rgba(26, 26, 26, 0.1);
-}
-
-/* Links: short words, the whole address on hover. */
-.md a {
-  color: var(--lilac-ink);
-  text-decoration: underline;
-  text-decoration-color: #c9a6dd;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2.5px;
-  cursor: pointer;
-  transition: text-decoration-color 120ms ease;
-}
-.md a:hover {
-  text-decoration-color: currentColor;
-}
-.md a.short {
-  white-space: nowrap;
-}
-
-/* In his bubble, the same page in his colours. */
-.you .md a {
-  color: inherit;
-  text-decoration-color: rgba(80, 43, 102, 0.35);
-}
-.you .md code {
-  background: rgba(80, 43, 102, 0.08);
-}
-.you .md-code pre {
-  background: rgba(255, 255, 255, 0.45);
-}
-.you .md blockquote {
-  border-left-color: rgba(80, 43, 102, 0.25);
-}
-
-.pending {
-  align-self: flex-end;
-  max-width: 74%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
-
-.pending .you {
-  max-width: 100%;
-}
-.pending.waiting .you {
-  opacity: 0.55;
-}
-
-.queued {
-  font-size: 12px;
-  color: var(--muted);
-  padding-right: 6px;
-}
-
-.ask {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.choices .chip {
-  height: auto;
-  min-height: 30px;
-  padding: 6px 14px;
-  line-height: 1.3;
-  text-align: left;
-  max-width: 100%;
-}
-
-.work {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.empty {
-  margin: auto;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
-  max-width: 340px;
-}
-
-.empty h2 {
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 20px;
-  color: var(--ink);
-  margin: 0 0 6px;
-}
-
-/* New lines come in quickly: a short fade and lift, no blur, no bounce. */
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes sent {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.rise {
-  animation: rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-.sent {
-  animation: sent 180ms ease-out both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rise,
-  .sent,
-  .spin,
-  .dot.working,
-  .mark.pulse svg,
-  .drill-dock {
-    animation: none;
-  }
-}
-
-/* ---- the message box: one white card ---- */
-
-/* As wide as the conversation column, with the same edges: the chat's 40px
-   padding plus the 6px it keeps for its scrollbar. */
-.composer-wrap {
-  position: relative;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 6px 46px 18px;
-}
-
-/* What waits to go at the top, his text, then the skills on the left and
-   the model and Send on the right. */
-.composer {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 640px;
-  box-sizing: border-box;
-  border-radius: 22px;
-  background: #ffffff;
-  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04), 0 14px 34px rgba(0, 0, 0, 0.09);
-  transition: box-shadow 140ms ease, opacity 140ms ease;
-  cursor: text;
-}
-
-.composer:focus-within {
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 2px 6px rgba(0, 0, 0, 0.05), 0 14px 34px rgba(0, 0, 0, 0.11);
-}
-
-.composer textarea {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  height: 36px;
-  max-height: 160px;
-  padding: 13px 18px 3px;
-  border: 0;
-  outline: none;
-  resize: none;
-  background: transparent;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--b-ink);
-  overflow-y: auto;
-}
-
-.composer textarea::placeholder {
-  color: var(--b-t3);
-}
-
-.composer textarea:read-only {
-  cursor: default;
-}
-
-.composer textarea::-webkit-scrollbar {
-  width: 6px;
-  background: transparent;
-}
-.composer textarea::-webkit-scrollbar-track {
-  background: transparent;
-}
-.composer textarea::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.18);
-}
-
-.tools {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 6px 8px 8px 10px;
-  cursor: default;
-}
-.tools-gap {
-  flex: 1;
-}
-
-/* The model and effort (and an unusual mode): quiet words at the right. */
-.tool-pill {
-  height: 28px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  color: var(--b-t2);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.tool-pill:hover:not(:disabled),
-.tool-pill.open {
-  background: var(--b-fill);
-  color: var(--b-ink);
-}
-.tool-pill:active:not(:disabled) {
-  background: var(--b-fill-2);
-}
-.tool-pill:disabled {
-  cursor: default;
-}
-.tool-pill.mode.plan {
-  background: var(--b-ink);
-  color: #ffffff;
-  font-weight: 600;
-}
-.model-wrap {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.send {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  border: 0;
-  padding: 0;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  background: var(--b-fill-2);
-  color: var(--b-t3);
-}
-
-.send:hover:not(:disabled) {
-  background: #dcdce1;
-  color: var(--b-t2);
-}
-
-.send.ready {
-  background: var(--b-ink);
-  color: #ffffff;
-}
-
-.send.ready:hover:not(:disabled) {
-  background: #2c2c31;
-  color: #ffffff;
-}
-
-.send:active:not(:disabled) {
-  transform: scale(0.92);
-}
-
-/* ---- terminal ---- */
-
-.term-wrap {
-  flex: 1;
-  min-height: 0;
-  margin: 0 12px 12px;
-  border-radius: 10px;
-  background: var(--ink);
-  overflow: auto;
-  padding: 10px 12px;
-  box-sizing: border-box;
-}
-
-.term-wrap .xterm {
-  padding: 0;
-}
-
-.term-wrap .xterm-viewport {
-  background: var(--ink) !important;
-}
-
-/* ---- drill-down panel ---- */
-
-.drill {
-  width: 340px;
-  flex-shrink: 0;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px 16px 16px 8px;
-  overflow-y: auto;
-}
-
-.drill-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 4px 6px;
-}
-
-.round {
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--paper);
-  color: var(--ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  cursor: pointer;
-}
-
-.round:hover {
-  background: var(--white);
-  border-color: var(--line-strong);
-}
-
-.round:active {
-  transform: scale(0.92);
-}
-
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 14px;
-  background: var(--white);
-  border: 1px solid var(--line);
-  flex-shrink: 0;
-  transition: background 200ms ease;
-}
-
-.card.done {
-  background: var(--sand);
-}
-
-.card-top {
-  display: flex;
-  gap: 10px;
-}
-
-.card-text {
-  font-size: 13px;
-  line-height: 1.45;
-  user-select: text;
-  overflow-wrap: anywhere;
-}
-
-.card.done .card-text {
-  color: var(--muted);
-}
-
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-left: 32px;
-}
-
-.chip {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: var(--paper);
-  color: var(--ink);
-}
-
-.chip:hover:not(:disabled) {
-  border-color: var(--line-strong);
-  background: var(--white);
-}
-
-.chip:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.chip.primary {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-}
-
-.chip.primary:hover:not(:disabled) {
-  border-color: #3a3a38;
-  background: #3a3a38;
-}
-
-.reply {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding-left: 32px;
-}
-
-.reply input {
-  flex: 1;
-  min-width: 0;
-  height: 32px;
-  box-sizing: border-box;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  outline: none;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  background: var(--white);
-}
-
-.reply input:focus {
-  box-shadow: 0 0 0 3px var(--lilac-ring);
-}
-
-.reply button {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  border: 0;
-  padding: 0;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  background: var(--ink);
-  color: var(--paper);
-}
-
-.reply button:hover {
-  background: #3a3a38;
-}
-
-.reply button:active {
-  transform: scale(0.92);
-}
-
-.sent-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-left: 32px;
-  font-size: 13px;
-  color: var(--lilac-ink);
-}
-
-.drill-empty {
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.55;
-  padding: 4px;
-}
-
-/* ---- toast ---- */
-
-.toast {
-  position: absolute;
-  top: 72px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: var(--b-ink);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  max-width: 80%;
-  animation: toast-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 4px);
-  }
-}
-
-.toast .bang {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--b-orange);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-/* ---- sheets: Clear, Close, Rename ---- */
-
-.scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  background: rgba(0, 0, 0, 0.08);
-  animation: fade 140ms ease both;
-}
-
-@keyframes fade {
-  from {
-    opacity: 0;
-  }
-}
-
-.sheet {
-  position: absolute;
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  width: 440px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 22px;
-  border-radius: 18px;
-  background: #ffffff;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
-  animation: sheet 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-@keyframes sheet {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -6px) scale(0.98);
-  }
-}
-
-.sheet h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--b-ink);
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field label,
-.field .label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-}
-
-.field input {
-  height: 36px;
-  box-sizing: border-box;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--white);
-  outline: none;
-  font-family: inherit;
-  font-size: 14px;
-  color: var(--ink);
-}
-
-.field textarea {
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--white);
-  outline: none;
-  resize: none;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--ink);
-}
-
-.field input:focus,
-.field textarea:focus {
-  border-color: var(--line-strong);
-  box-shadow: 0 0 0 3px var(--lilac-ring);
-}
-
-.dots,
-.tiles {
-  display: flex;
-  gap: 10px;
-}
-
-.tiles {
-  gap: 8px;
-}
-
-.sheet-foot {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 10px;
-  padding-top: 2px;
-}
-
-.sheet-foot .err {
-  flex: 1;
-  font-size: 12px;
-  color: var(--rust);
-}
-
-.btn {
-  height: 34px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid var(--b-hair);
-  background: #ffffff;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--b-ink);
-  cursor: pointer;
-}
-
-.btn.dark {
-  padding: 0 18px;
-  border: 0;
-  background: var(--b-ink);
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: #d2d2d7;
-}
-
-.btn.dark:hover:not(:disabled) {
-  background: #2c2c31;
-}
-
-.btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* ---- round 2: pickers, switcher, slash menu ---- */
-
-/* The model picker opens upward from its words in the message box. */
-.picker {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
-  cursor: default;
-}
-
-/* What the box cost so far and how full its context is. */
-.picker-meter {
-  padding: 2px 10px 8px;
-  border-bottom: 1px solid var(--b-hair);
-  font-size: 12px;
-  color: var(--b-t2);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.picker-row {
-  display: flex;
-  gap: 2px;
-}
-
-.picker-row button {
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--b-t2);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.picker-row button:hover {
-  background: var(--b-fill);
-  color: var(--b-ink);
-}
-
-.picker-row button:active {
-  transform: scale(0.96);
-}
-
-.picker-row button.on {
-  background: var(--b-ink);
-  color: #ffffff;
-}
-
-.picker-mode {
-  align-items: center;
-  gap: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--b-hair);
-}
-
-.picker-label {
-  padding-left: 10px;
-  font-size: 12px;
-  color: var(--b-t3);
-}
-
-.picker-mode button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--b-ink);
-}
-
-.picker-key {
-  font-size: 11px;
-  color: var(--b-t3);
-}
-
-.icon-btn {
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--b-t2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.icon-btn:hover {
-  background: var(--b-fill);
-  color: var(--b-ink);
-}
-
-.icon-btn:active {
-  background: var(--b-fill-2);
-  transform: scale(0.92);
-}
-
-.copied {
-  font-size: 12px;
-  color: var(--faint);
-  white-space: nowrap;
-}
-
-.text-btn {
-  border: 0;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-  color: var(--ink);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.text-btn:hover:not(:disabled) {
-  color: var(--ink);
-  text-decoration-thickness: 2px;
-}
-
-.scrim.clear {
-  background: transparent;
-  backdrop-filter: none;
-}
-
-/* Cmd+K: every box and every action, each with its shortcut. */
-.switcher {
-  position: absolute;
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  width: 380px;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
-  animation: switch-in 120ms ease-out both;
-}
-@keyframes switch-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%);
-  }
-}
-
-.switcher input {
-  height: 38px;
-  border: 0;
-  outline: none;
-  padding: 0 10px;
-  font-family: inherit;
-  font-size: 14px;
-  color: var(--b-ink);
-  background: transparent;
-  border-bottom: 1px solid var(--b-hair);
-  margin-bottom: 4px;
-}
-
-.switcher input::placeholder {
-  color: var(--b-t3);
-}
-
-.switcher button {
-  height: 32px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  color: var(--b-ink);
-  cursor: pointer;
-  text-align: left;
-}
-
-.switcher .hint {
-  flex: none;
-  font-family: inherit;
-  font-size: 12px;
-  color: var(--b-t3);
-  font-variant-numeric: tabular-nums;
-}
-
-.switcher .sub {
-  color: var(--b-t3);
-}
-
-.switcher-none {
-  padding: 8px 10px;
-  font-size: 13px;
-  color: var(--b-t3);
-}
-
-/* Box names and action names start at the same place: only the label
-   stretches, never the mark before it. */
-.switcher button .label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.switcher button:hover {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.switcher button.on {
-  background: var(--b-fill);
-}
-
-.switcher button:active {
-  background: var(--b-fill-2);
-}
-
-.empty {
-  color: var(--b-t3);
-  font-size: 13px;
-}
-
-/* Only a quiet Hide, on hover of the panel. */
-.drill-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-height: 24px;
-  margin-top: -6px;
-}
-.drill .drill-hide {
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-.drill:hover .drill-hide,
-.drill .drill-hide:focus-visible {
-  opacity: 1;
-}
-
-.pager {
-  display: flex;
-  gap: 4px;
-}
-
-.pager-count {
-  margin-right: 4px;
-  font-size: 12px;
-  color: var(--faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.drill .card {
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  padding: 4px 0 16px;
-  background: transparent;
-  box-shadow: none;
-}
-
-.drill .card-text {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--ink);
-}
-
-.menu {
-  position: absolute;
-  top: 28px;
-  right: 0;
-  z-index: 30;
-  min-width: 210px;
-  display: flex;
-  flex-direction: column;
-  padding: 5px;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
-  animation: rise 120ms ease-out both;
-}
-
-.menu button {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  height: 30px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  color: var(--b-ink);
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.menu button:hover {
-  background: var(--b-fill);
-}
-
-.menu button:active {
-  background: var(--b-fill-2);
-}
-
-.menu .hint {
-  font-size: 12px;
-  color: var(--b-t3);
-}
-
-.sheet.small {
-  width: 380px;
-}
-
-.sheet-body {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--muted);
-}
-
-.switcher-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 50vh;
-  overflow-y: auto;
-}
-
-/* ---- round 2 ---- */
-.drill-also {
-  margin: auto 2px 0;
-  padding-top: 14px;
-  font-size: 13px;
-  color: #8a8984;
-  line-height: 1.45;
-}
-.sheet-quote {
-  margin: 4px 0 10px;
-  padding: 8px 10px;
-  max-height: 120px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 13px;
-  color: #5b5b59;
-  background: rgba(0, 0, 0, 0.035);
-  border-radius: 8px;
-}
-.drill .card .chip:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-/* ---- round 3 ---- */
-
-.nav-quiet {
-  margin: 8px 10px 0;
-  font-size: 12px;
-  color: var(--b-t3);
-}
-.drill-head .pager {
-  align-items: center;
-  gap: 6px;
-}
-.card-n {
-  font-family: var(--serif);
-  font-size: 20px;
-  line-height: 1;
-  font-weight: 500;
-  color: var(--ink);
-  min-width: 20px;
-}
-.drill .card-top {
-  align-items: flex-start;
-  gap: 12px;
-}
-.drill .chips {
-  align-items: center;
-}
-.reply-link {
-  border: 0;
-  background: transparent;
-  padding: 0 4px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--muted);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-.reply-link:hover {
-  color: var(--ink);
-}
-.drill .card.done-line {
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 0 12px;
-}
-.drill .done-line .sent-line {
-  padding-left: 0;
-}
-.work.fold {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  align-self: flex-start;
-}
-.work.fold:hover {
-  color: var(--ink);
-}
-.shell-out {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--white);
-  border: 1px solid var(--line);
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  max-height: 360px;
-  overflow: auto;
-}
-.pop-list {
-  width: min(640px, 100%);
-  box-sizing: border-box;
-  margin-bottom: 8px;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  border-radius: 14px;
-  background: var(--white);
-  box-shadow: 0 10px 32px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
-}
-.pop-title {
-  padding: 4px 10px 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--faint);
-}
-.pop-search {
-  margin: 0 4px 6px;
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid var(--line-strong);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-}
-.pop-items {
-  display: flex;
-  flex-direction: column;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.pop-item {
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  text-align: left;
-  font: inherit;
-  font-size: 13px;
-  color: var(--ink);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 0;
-}
-.pop-item.mono {
-  font-family: var(--mono);
-  font-size: 12px;
-}
-.pop-item:hover {
-  background: rgba(26, 26, 26, 0.035);
-}
-.pop-item.on {
-  background: var(--sand);
-}
-.pop-item:active {
-  background: #ebe8df;
-}
-.pop-search:focus {
-  box-shadow: 0 0 0 3px var(--lilac-ring);
-}
-.pop-none {
-  padding: 6px 10px;
-  font-size: 13px;
-  color: var(--faint);
-}
-.att-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-  max-width: 640px;
-  margin-bottom: 8px;
-  padding: 0 10px;
-  box-sizing: border-box;
-}
-.att-chip {
-  position: relative;
-  display: flex;
-  align-items: center;
-  height: 48px;
-  min-width: 48px;
-  border-radius: 10px;
-  background: var(--white);
-  border: 1px solid var(--line);
-  overflow: hidden;
-}
-.att-chip img {
-  height: 48px;
-  max-width: 96px;
-  object-fit: cover;
-  display: block;
-}
-.att-doc {
-  padding: 0 12px;
-  font-size: 12px;
-  color: var(--muted);
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.att-chip button {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(26, 26, 26, 0.7);
-  color: #fff;
-  font-size: 11px;
-  line-height: 16px;
-  cursor: pointer;
-}
-.att-chip button:hover {
-  background: var(--ink);
-}
-.btn.ending {
-  color: var(--rust);
-}
-.composer.shell {
-  box-shadow: 0 0 0 1.5px var(--b-ink), 0 14px 34px rgba(0, 0, 0, 0.09);
-}
-/* An ended box's card: not live, but it takes text for Resume and send. */
-.composer.dim {
-  opacity: 0.55;
-  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12);
-}
-.composer.dim:focus-within {
-  opacity: 0.8;
-}
-.shell-hint {
-  font-size: 12px;
-  color: var(--b-t2);
-  padding: 4px 8px;
-}
-
-/* ---- round 4: header that never overlaps, floating drill-down, pictures ---- */
-
-.main {
-  container-type: inline-size;
-}
-.copied {
-  animation: fade-out 4s ease forwards;
-}
-@keyframes fade-out {
-  0%,
-  80% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-/* Below the header, so the switch and the panel button stay in reach. */
-.drill.float {
-  position: absolute;
-  top: 61px;
-  right: 9px;
-  /* --field-h is the message field's height, set by the chat. */
-  bottom: calc(var(--field-h, 100px) + 9px);
-  z-index: 30;
-  padding: 18px 16px 16px;
-  border-radius: 18px;
-  background: var(--b-panel);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
-  animation: sheet-in 140ms ease both;
-}
-@keyframes sheet-in {
-  from {
-    opacity: 0;
-    transform: translateX(12px);
-  }
-}
-
-.you-atts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
-.you-atts:first-child {
-  margin-top: 0;
-}
-.you-img {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: zoom-in;
-  border-radius: 10px;
-  overflow: hidden;
-  line-height: 0;
-}
-.you-img img {
-  max-width: 240px;
-  max-height: 240px;
-  border-radius: 10px;
-  display: block;
-}
-.you .att-doc {
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: var(--white);
-}
-.lightbox {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  background: rgba(26, 26, 26, 0.55);
-  cursor: zoom-out;
-  animation: fade 160ms ease both;
-}
-.lightbox img {
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: 10px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
-}
-
-/* ---- round 6: menus with a way out, notes and warnings by the field ---- */
-
-.choices .chip.current {
-  border-color: var(--line-strong);
-}
-.choices .chip svg {
-  margin-right: 5px;
-  vertical-align: -2px;
-}
-.choices .chip .opt-note {
-  margin-left: 6px;
-  font-weight: 400;
-  color: var(--faint);
-}
-/* Cancel is a way out, not a choice: one quiet word, set apart, last.
-   Esc does the same. */
-.choices .menu-cancel {
-  margin-left: 6px;
-  padding: 6px 4px;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  color: var(--muted);
-  cursor: pointer;
-}
-.choices .menu-cancel:hover {
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.pill-chevron {
-  margin-left: 5px;
-  vertical-align: 0;
-  opacity: 0.7;
-}
-
-/* A box that ended: one quiet line with two text buttons. */
-.ended-line {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.ended-line .text-btn {
-  font-size: 13px;
-}
-.ended-line .text-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.ended-note {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--faint);
-}
-.ended-why {
-  margin-bottom: 6px;
-  font-size: 13px;
-  color: var(--ink);
-}
-
-/* A closed box: the arrow stays dim, whatever is typed. */
-.send:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.skills {
-  position: relative;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  -webkit-app-region: no-drag;
-}
-.nothing-pop {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 40;
-  white-space: nowrap;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 13px;
-  color: var(--muted);
-  background: var(--white);
-  box-shadow: 0 8px 28px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
-}
-/* Warnings and notices sit just above the message field. */
-.toast {
-  top: auto;
-  bottom: calc(var(--field-h, 100px) + 8px);
-}
-
-/* ---- answer widgets: right under each question, gone once answered ---- */
-
-.asks {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
-}
-.q {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-}
-.q-n {
-  min-width: 16px;
-  font-family: var(--serif);
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--faint);
-}
-.q-body {
-  flex: 1;
-  min-width: 0;
-}
-.q-text p {
-  margin: 0;
-}
-.q-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 7px;
-}
-.reply.q-words {
-  padding-left: 0;
-  margin-top: 7px;
-  max-width: 440px;
-}
-.q-send {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding-left: 26px;
-}
-.drill-send {
-  padding-left: 0;
-  margin-top: 2px;
-}
-.q-preview {
-  min-width: 0;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.chip.pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.chip.pick.on {
-  border-color: #dcb6f2;
-  background: var(--lilac);
-  color: var(--lilac-ink);
-}
-.chip.primary:disabled,
-.chip.pick:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.tick {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  box-sizing: border-box;
-  border: 1.5px solid var(--line-strong);
-  border-radius: 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.chip.pick.on .tick {
-  border-color: var(--lilac-ink);
-  background: var(--lilac-ink);
-  color: var(--white);
-}
-.choices .chip .tick svg {
-  margin: 0;
-  vertical-align: 0;
-}
-.ask > .say {
-  white-space: pre-line;
-}
-
-/* ---- quote replies: a Reply button at his selection, a bubble for his
-   words, and one tray above the field for everything waiting to go ---- */
-
-.chat {
-  position: relative;
-}
-::highlight(cm-quote) {
-  background-color: var(--lilac);
-  color: var(--lilac-ink);
-}
-@keyframes quote-in {
-  from {
-    opacity: 0;
-    transform: translateY(-3px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.quote-btn {
-  position: absolute;
-  z-index: 12;
-  height: 26px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--white);
-  color: var(--ink);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  box-shadow: 0 4px 14px rgba(26, 26, 26, 0.12), 0 0 0 0.5px rgba(26, 26, 26, 0.14);
-  cursor: pointer;
-  animation: quote-in 120ms ease-out;
-}
-.quote-btn:hover {
-  background: var(--sand);
-}
-.quote-bubble {
-  position: absolute;
-  z-index: 12;
-  width: min(320px, calc(100% - 24px));
-  box-sizing: border-box;
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 5px 5px 5px 13px;
-  border-radius: 17px;
-  background: var(--white);
-  box-shadow: 0 10px 32px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
-  animation: quote-in 140ms ease-out;
-}
-.quote-bubble textarea,
-.qt-line.editing textarea {
-  flex: 1;
-  min-width: 0;
-  box-sizing: border-box;
-  height: 26px;
-  max-height: 120px;
-  padding: 3px 0;
-  border: 0;
-  outline: none;
-  resize: none;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--ink);
-  overflow-y: auto;
-}
-.quote-bubble textarea::placeholder,
-.qt-line.editing textarea::placeholder {
-  color: var(--faint);
-}
-.qb-add {
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--ink);
-  color: var(--paper);
-  cursor: pointer;
-}
-.qb-add:hover {
-  background: var(--ink-2);
-}
-/* As wide as the message box; its words start where the box's text does. */
-.quote-tray {
-  width: 100%;
-  max-width: 640px;
-  max-height: 140px;
-  box-sizing: border-box;
-  margin-bottom: 8px;
-  padding: 0 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  overflow-y: auto;
-}
-.qt-line {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-  flex-shrink: 0;
-  border-radius: 8px;
-}
-.qt-line:hover {
-  background: rgba(26, 26, 26, 0.035);
-}
-.qt-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  height: 26px;
-  padding: 0 8px;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  color: var(--ink-2);
-  cursor: pointer;
-}
-.qt-quote {
-  flex: 0 1 auto;
-  max-width: 45%;
-  min-width: 0;
-  padding-left: 8px;
-  border-left: 2px solid var(--line-strong);
-  color: var(--faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.qt-main .qt-quote:last-child {
-  max-width: none;
-}
-.qt-reply {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.qt-answers {
-  gap: 7px;
-  color: var(--lilac-ink);
-  cursor: default;
-}
-.qt-answers svg {
-  flex-shrink: 0;
-}
-.qt-x {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--faint);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-.qt-line:hover .qt-x,
-.qt-x:focus-visible {
-  opacity: 1;
-}
-.qt-x:hover {
-  color: var(--ink);
-  background: rgba(26, 26, 26, 0.06);
-}
-.qt-line.editing {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  padding: 5px 10px 3px;
-  background: var(--white);
-  box-shadow: 0 0 0 0.5px rgba(26, 26, 26, 0.14);
-}
-.qt-line.editing .qt-quote {
-  max-width: none;
-  font-size: 12px;
-}
-/* His sent quote replies: the quote quiet and cut short, his words under it. */
-.you-quote,
-.you-line {
-  display: block;
-}
-.you-quote {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  padding-left: 9px;
-  border-left: 2px solid var(--line-strong);
-  color: var(--muted);
-  font-size: 13px;
-}
-.you-line + .you-quote {
-  margin-top: 10px;
-}
-.you-quote + .you-line {
-  margin-top: 3px;
-}
-
-/* ---- names on hover, the docked panel's slide ---- */
-
-/* A button whose only label is an icon says its name on hover. */
-.tip {
-  position: relative;
-}
-.tip::after {
-  content: attr(data-tip);
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--b-ink);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 16px;
-  white-space: pre;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-.tip:hover::after {
-  opacity: 1;
-  transition-delay: 350ms;
-}
-.tip:active::after,
-.tip:disabled::after {
-  opacity: 0;
-  transition-delay: 0ms;
-}
-.tip.up::after {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
-
-/* The docked panel slides open and shut; the chat beside it glides. */
-.drill-dock {
-  flex-shrink: 0;
-  width: 340px;
-  display: flex;
-  overflow: hidden;
-  animation: dock-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-.drill-dock.closing {
-  animation: dock-out 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-/* The same grey panel as the sidebar, on the other side. */
-.drill-dock > .drill {
-  flex: none;
-  width: 332px;
-  margin: 8px 8px 8px 0;
-  padding: 16px 14px 14px;
-  border-radius: 18px;
-  background: var(--b-panel);
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.07);
-}
-@keyframes dock-in {
-  from {
-    width: 0;
-    opacity: 0;
-  }
-}
-@keyframes dock-out {
-  to {
-    width: 0;
-    opacity: 0;
-  }
-}
-
-.chip.pick.on:hover:not(:disabled) {
-  border-color: #cfa3ea;
-  background: #e8c8fb;
-}
-.work.fold:active,
-.reply-link:active,
-.menu-cancel:active {
-  opacity: 0.7;
-}
-.quote-btn:active,
-.qb-add:active {
-  transform: scale(0.94);
-}
-.qt-line:active {
-  background: rgba(26, 26, 26, 0.06);
-}
-.qt-answers:active {
-  background: transparent;
-}
-
-/* Remote Control, top right: a phone. On, it is quiet and shows only while
-   the pointer is over the top strip; off, it stays, crossed out. It
-   breathes while the box turns it on or off. */
+/* Remote Control: a phone, quiet while on, crossed out while off. */
 .icon-btn.remote.going svg {
   animation: pulse 1.2s ease-in-out infinite;
 }
@@ -2895,29 +564,816 @@ button:focus-visible,
   right: 0;
   z-index: 30;
   padding: 6px 10px;
-  border-radius: 10px;
-  background: #ffffff;
-  color: var(--b-t2);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  border-radius: var(--r-control);
+  background: var(--white);
+  box-shadow: var(--shadow);
+}
+.copied {
+  font-size: var(--small);
+  color: var(--t2);
+  white-space: nowrap;
+  animation: fade-out 4s ease forwards;
+}
+@keyframes fade-out {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
-/* ---- skipped questions, tables, the compact drill-down list ---- */
+/* ---- buttons, one look each ---- */
 
-/* Questions he answered in his words, or skipped: one quiet line under the reply. */
-.reply-group > .fold.q-fold {
-  margin-top: 8px;
+/* An icon alone: grey, darker on hover, its name on hover (tip). */
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--t2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.icon-btn:hover {
+  background: var(--fill);
+  color: var(--ink);
+}
+.icon-btn:active {
+  background: var(--fill-2);
+  transform: scale(0.92);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
 }
 
-/* A list right under a sentence sits close to it; a nested one is tight. */
-/* A table in a reply: thin rules, no boxes, words never split; a wide one
-   scrolls sideways inside the bubble. */
+/* Plain English, Explain and Drill down: grey chips in the message box. */
+.skills {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+.skill-btn {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-full);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: var(--bold);
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--ink);
+  background: var(--fill);
+}
+.skill-btn:hover {
+  background: var(--fill-2);
+}
+.skill-btn.on {
+  background: var(--ink);
+  color: var(--white);
+}
+.skill-btn:active {
+  transform: scale(0.96);
+}
+.skill-btn:disabled {
+  opacity: 0.4;
+}
+.skill-btn.count {
+  margin-left: -4px;
+  padding: 0 4px;
+  background: transparent;
+}
+.skill-btn.count:hover {
+  background: var(--fill);
+}
+.badge {
+  min-width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: var(--r-full);
+  background: var(--asks);
+  color: var(--white);
+  font-size: var(--small);
+  font-weight: var(--bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nothing-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  white-space: nowrap;
+  padding: 10px 14px;
+  border-radius: var(--r-card);
+  color: var(--t2);
+  background: var(--white);
+  box-shadow: var(--shadow);
+}
+
+/* A plain button with a thin line; .dark is the main one. */
+.btn {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: var(--white);
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  background: var(--fill);
+}
+.btn:active:not(:disabled) {
+  background: var(--fill-2);
+  transform: scale(0.97);
+}
+.btn.dark {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--white);
+  font-weight: var(--bold);
+}
+.btn.dark:hover:not(:disabled) {
+  background: var(--ink-hover);
+}
+.btn.dark:active:not(:disabled) {
+  background: var(--ink);
+}
+.btn.ending {
+  color: var(--failed);
+}
+.btn:disabled {
+  opacity: 0.4;
+}
+
+/* Words that act: underlined, quiet. */
+.text-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.text-btn:hover:not(:disabled) {
+  text-decoration-thickness: 2px;
+}
+.text-btn:active:not(:disabled) {
+  opacity: 0.7;
+}
+.text-btn:disabled {
+  opacity: 0.4;
+}
+
+/* A button whose only label is an icon says its name on hover. */
+.tip {
+  position: relative;
+}
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 3px 8px;
+  border-radius: var(--r-control);
+  background: var(--ink);
+  color: var(--white);
+  font-size: var(--small);
+  font-weight: var(--regular);
+  line-height: 16px;
+  white-space: pre;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.tip:hover::after {
+  opacity: 1;
+  transition-delay: 350ms;
+}
+.tip:active::after,
+.tip:disabled::after {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+.tip.up::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+/* ---- the conversation ---- */
+
+/* The scrollbar room is kept on both sides, so the column stays centred. */
+.chat {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 40px 8px;
+  scrollbar-gutter: stable both-edges;
+  /* The thumb takes this colour: clear until he scrolls. */
+  border-color: transparent;
+  transition: border-color 300ms ease;
+}
+.chat.scrolling {
+  border-color: var(--thumb);
+  transition: border-color 80ms ease;
+}
+.chat::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+.chat::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat::-webkit-scrollbar-thumb {
+  border-radius: var(--r-full);
+  border-right: 6px solid;
+  border-color: inherit;
+}
+
+.chat-col {
+  width: 100%;
+  max-width: 640px;
+  margin: auto auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: var(--talk);
+  user-select: text;
+  cursor: auto;
+}
+
+/* His turn starts about 28px after the last reply; a tag he pressed sits
+   about 6px above the reply it brought. */
+.chat-col > .you,
+.chat-col > .pending,
+.chat-col > .tag {
+  margin-top: 16px;
+}
+.chat-col > :first-child {
+  margin-top: 0;
+}
+.chat-col > .tag {
+  margin-bottom: -6px;
+}
+
+.empty {
+  margin: auto;
+  text-align: center;
+  color: var(--t3);
+  font-size: var(--body);
+  line-height: 1.55;
+  max-width: 340px;
+}
+
+/* His messages: black, white words, on the right. */
+.you {
+  align-self: flex-end;
+  max-width: 74%;
+  box-sizing: border-box;
+  padding: 9px 14px;
+  border-radius: var(--r-card);
+  background: var(--ink);
+  color: var(--white);
+  font-size: var(--talk);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A long message of his shows its first 8 lines, softly cut. */
+.you-text.cut {
+  max-height: 12em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, var(--ink) calc(100% - 2.4em), transparent);
+}
+.you-text.open .you-quote {
+  display: block;
+}
+.you .md-more {
+  color: var(--on-ink-2);
+}
+.you .md-more:hover {
+  color: var(--white);
+}
+
+/* The box's replies: light grey on the left, about 70 characters a line
+   whatever the window's width. */
+.say {
+  align-self: flex-start;
+  max-width: min(92%, calc(31.5em + 32px));
+  box-sizing: border-box;
+  padding: 10px 16px;
+  border-radius: var(--r-card);
+  background: var(--fill);
+  color: var(--ink);
+  font-size: var(--talk);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.say.shell-out {
+  max-width: 92%;
+}
+
+/* A reply and the cards under it (its questions, the turn's facts): one
+   column, the same left edge and width. */
+.reply-group {
+  align-self: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  width: fit-content;
+  min-width: 0;
+  max-width: min(92%, calc(31.5em + 32px));
+  font-size: var(--talk);
+}
+.reply-group > .say {
+  max-width: none;
+}
+.reply-group .wcard,
+.reply-group .wcard-line {
+  max-width: none;
+}
+
+/* Several replies in a row sit close, each still its own: a calm run. */
+.chat-col > .say + .say,
+.chat-col > .say + .reply-group {
+  margin-top: -6px;
+}
+
+/* A button press of his: a small quiet tag on his side. */
+.tag {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--line);
+  font-size: var(--small);
+  color: var(--t2);
+}
+.tag .queued {
+  padding: 0;
+}
+
+.pending {
+  align-self: flex-end;
+  max-width: 74%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.pending .you {
+  max-width: 100%;
+}
+.pending.waiting .you {
+  opacity: 0.55;
+}
+.queued {
+  font-size: var(--small);
+  color: var(--t2);
+  padding-right: 6px;
+}
+
+/* An older drill-down list, folded to one quiet line. */
+.work {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--small);
+  color: var(--t2);
+}
+.work.fold {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: var(--small);
+  color: var(--t2);
+  cursor: pointer;
+}
+.work.fold:hover {
+  color: var(--ink);
+}
+.work.fold:active {
+  opacity: 0.7;
+}
+
+.shell-out {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: var(--small);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 360px;
+  overflow: auto;
+}
+
+/* His pictures and files. */
+.you-atts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.you-atts:first-child {
+  margin-top: 0;
+}
+.you-img {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: var(--r-control);
+  overflow: hidden;
+  line-height: 0;
+}
+.you-img img {
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: var(--r-control);
+  display: block;
+}
+.you .att-doc {
+  padding: 4px 10px;
+  border-radius: var(--r-control);
+  background: var(--on-ink-fill);
+  color: var(--white);
+}
+.lightbox {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: var(--veil);
+  cursor: zoom-out;
+  animation: fade 160ms ease both;
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow);
+}
+
+/* His sent quote replies: the quote quiet and cut short, his words under it. */
+.you-quote,
+.you-line {
+  display: block;
+}
+.you-quote {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  padding-left: 9px;
+  border-left: 2px solid var(--line-in);
+  color: var(--on-ink-2);
+  font-size: var(--body);
+}
+.you-line + .you-quote {
+  margin-top: 10px;
+}
+.you-quote + .you-line {
+  margin-top: 3px;
+}
+
+/* New lines come in quickly: a short fade and lift. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sent {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+.rise {
+  animation: rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.sent {
+  animation: sent 180ms ease-out both;
+}
+
+/* ---- Markdown in a bubble: a calm page, on grey and on black ---- */
+
+.md p,
+.md ul,
+.md ol,
+.md .md-code,
+.md .md-table-wrap,
+.md .md-marks {
+  margin: 0 0 10px;
+}
+.md .md-quote-wrap {
+  margin: 14px 0;
+}
+.md > :last-child,
+.md .md-body > :last-child,
+.md blockquote > :last-child,
+.md li > :last-child {
+  margin-bottom: 0;
+}
+.md > :first-child,
+.md .md-body > :first-child,
+.md blockquote > :first-child {
+  margin-top: 0;
+}
+.md strong {
+  font-weight: var(--bold);
+}
+/* Headings stay small: never bigger than a line of bold. */
+.md .md-h {
+  margin: 16px 0 4px;
+  font-size: inherit;
+  font-weight: var(--bold);
+  line-height: 1.5;
+}
+.md .md-h:first-child {
+  margin-top: 0;
+}
+.md .nowrap {
+  white-space: nowrap;
+}
+.md ul,
+.md ol {
+  padding-left: 20px;
+}
+.md li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+.md li::marker {
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.you .md li::marker {
+  color: var(--on-ink-2);
+}
+.md p + ul,
+.md p + ol {
+  margin-top: -4px;
+}
+.md li ul,
+.md li ol {
+  margin: 3px 0 0;
+  padding-left: 18px;
+}
+.md li ul {
+  list-style-type: '–  ';
+}
+.md li > p,
+.md li > .md-code,
+.md li > .md-table-wrap {
+  margin: 6px 0 0;
+}
+
+/* Task lists: a quiet round box, ticked when done. */
+.md li.task {
+  list-style: none;
+  position: relative;
+  margin-left: -20px;
+  padding-left: 24px;
+}
+.task-box {
+  position: absolute;
+  left: 0;
+  top: 0.2em;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--line-in);
+}
+.task.done .task-box {
+  border-color: transparent;
+  color: var(--done);
+}
+.task.done .task-t {
+  opacity: 0.6;
+}
+
+/* Inline code: a soft tint, never a box. A local path shows its file name. */
+.md code {
+  font-family: var(--mono);
+  font-size: var(--body);
+  padding: 0.1em 0.35em;
+  border-radius: var(--r-control);
+  background: var(--fill-2);
+}
+.you .md code {
+  background: var(--on-ink-fill);
+}
+.md code.md-file {
+  cursor: default;
+}
+
+/* A code block: white on the grey bubble, no wrap, scrolls sideways. */
+.md-code {
+  position: relative;
+}
+.md-code pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+  background: var(--white);
+  font-family: var(--mono);
+  font-size: var(--small);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+.you .md-code pre {
+  background: var(--on-ink-fill);
+}
+.md-code pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+.md-code.cut pre {
+  -webkit-mask-image: linear-gradient(180deg, var(--ink) calc(100% - 2.6em), transparent);
+}
+.md-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--white);
+  color: var(--t2);
+  font-size: var(--small);
+  cursor: pointer;
+  user-select: none;
+  opacity: 0;
+}
+.md-code:hover .md-copy,
+.md-copy:focus-visible {
+  opacity: 1;
+}
+.md-copy:hover {
+  color: var(--ink);
+}
+.md-copy:active {
+  background: var(--fill);
+  transform: scale(0.96);
+}
+
+/* A wide table or code block: a thin grey scrollbar, only on hover. */
+.md-code pre::-webkit-scrollbar,
+.md-table::-webkit-scrollbar {
+  height: 4px;
+  background: transparent;
+}
+.md-code pre::-webkit-scrollbar-thumb,
+.md-table::-webkit-scrollbar-thumb {
+  border-radius: var(--r-full);
+  background: transparent;
+}
+.md-code:hover pre::-webkit-scrollbar-thumb,
+.md-table-wrap:hover .md-table::-webkit-scrollbar-thumb {
+  background: var(--thumb);
+}
+.you .md-code:hover pre::-webkit-scrollbar-thumb,
+.you .md-table-wrap:hover .md-table::-webkit-scrollbar-thumb {
+  background: var(--on-ink-2);
+}
+
+/* A quote: a thin rule at its left, the same type. */
+.md blockquote {
+  margin: 0 0 0 1px;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--line-in);
+}
+.md blockquote.cut,
+.md .md-body.cut {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, var(--ink) calc(100% - 3em), transparent);
+}
+.md blockquote.cut {
+  max-height: 12.8em;
+}
+/* A long reply shows about its first 16 lines, then its last paragraph. */
+.md .md-body.cut {
+  max-height: 25.6em;
+}
+.md > .md-more {
+  margin: 2px 0 10px;
+}
+
+/* Show all and Show less: quiet words under what they open. */
+.md-more {
+  display: block;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--body);
+  line-height: 1.6;
+  color: var(--t2);
+  cursor: pointer;
+  user-select: none;
+}
+.md-more:hover {
+  color: var(--ink);
+}
+.md-more:active {
+  opacity: 0.7;
+}
+
+/* Lines that start with a check mark or an arrow: the marks in one column. */
+.md-mark-row {
+  display: grid;
+  grid-template-columns: 1.4em minmax(0, 1fr);
+}
+.md hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--line-in);
+}
+
+/* Links: short words, the whole address on hover; underlined in both
+   bubbles, in the bubble's own text colour. */
+.md a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-in);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2.5px;
+  cursor: pointer;
+  transition: text-decoration-color 120ms ease;
+}
+.md a:hover {
+  text-decoration-color: currentColor;
+}
+.md a.short {
+  white-space: nowrap;
+}
+.you .md a {
+  text-decoration-color: var(--on-ink-2);
+}
+
+/* A table: thin rules, no boxes; a wide one scrolls sideways. */
 .md-table {
   overflow-x: auto;
   overflow-wrap: normal;
 }
 .md-table table {
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--body);
   line-height: 1.45;
 }
 .md-table th,
@@ -2925,15 +1381,14 @@ button:focus-visible,
   padding: 5px 14px 5px 0;
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid rgba(26, 26, 26, 0.07);
+  border-bottom: 1px solid var(--line-in);
 }
 .md-table td {
   min-width: 4em;
 }
 .md-table th {
-  font-weight: 600;
+  font-weight: var(--bold);
   white-space: nowrap;
-  border-bottom-color: var(--line-strong);
 }
 .md-table th:last-child,
 .md-table td:last-child {
@@ -2943,143 +1398,1009 @@ button:focus-visible,
   border-bottom: 0;
 }
 
-/* The chief's drill-down: every item at once, each its line and its
-   answers. A short line has its answers beside it; a long one, under it. */
-.drill {
-  gap: 6px;
+/* ---- questions: one card, a row each (Answers.tsx) ---- */
+
+.qcard-wrap {
+  min-width: 0;
+  font-size: var(--body);
 }
-.drill .items {
+.qcard-wrap .wcard {
+  max-width: none;
+}
+.q-rows {
   display: flex;
   flex-direction: column;
 }
-.item {
+.q-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.q-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.q-row:last-child {
+  padding-bottom: 0;
+}
+/* Plain numbers; the one the keys go to in ink. */
+.q-n {
+  line-height: 28px;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.q-row.q-cur .q-n {
+  color: var(--ink);
+  font-weight: var(--bold);
+}
+/* The question and its choices on one line when they fit. */
+.q-main {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+}
+.q-q {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 0;
+  line-height: 18px;
+  user-select: text;
+}
+.q-q .md p {
+  margin: 0;
+}
+.q-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.q-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+.q-chip:hover:not(:disabled) {
+  background: var(--fill);
+}
+.q-chip:active:not(:disabled) {
+  background: var(--fill-2);
+  transform: scale(0.97);
+}
+.q-chip:disabled {
+  opacity: 0.4;
+}
+.q-chip.check {
+  padding-left: 6px;
+}
+/* The recommended choice is lit; Enter takes it. */
+.q-chip.rec {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.q-chip.on,
+.q-chip.on.rec {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--white);
+}
+.q-chip.on:hover:not(:disabled) {
+  border-color: var(--ink-hover);
+  background: var(--ink-hover);
+}
+.q-box {
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--t3);
+  border-radius: var(--r-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.q-chip.on .q-box {
+  border-color: var(--white);
+  background: var(--white);
+  color: var(--ink);
+}
+/* A choice's note: small, under the row, on hover or once picked. */
+.q-note {
+  grid-column: 2;
+  padding-top: 4px;
+  font-size: var(--small);
+  color: var(--t2);
+}
+/* A question that takes words: one line. */
+.q-field {
+  flex: 1 1 12em;
+  min-width: 0;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  outline: none;
+  background: var(--white);
+  font: inherit;
+  color: var(--ink);
+}
+.q-field::placeholder {
+  color: var(--t3);
+}
+.q-field:hover {
+  border-color: var(--fill-2);
+}
+.q-field:focus {
+  border-color: var(--accent);
+}
+.q-field:disabled {
+  opacity: 0.4;
+}
+.q-own {
+  margin-top: 10px;
+  width: 100%;
+}
+/* What a sent question went with, in the opened finished card. */
+.q-ans {
+  padding: 5px 0;
+  line-height: 18px;
+  color: var(--t2);
+}
+.q-ans.skipped {
+  color: var(--t3);
+}
+/* The card's foot: "In your words" as quiet words at the left, Send last. */
+.qcard .wcard-buttons {
+  align-items: center;
+}
+.qcard .wcard-buttons > button:not(:last-child) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--t2);
+  padding: 0 6px;
+}
+.qcard .wcard-buttons > button:first-child:not(:last-child) {
+  margin-right: auto;
+}
+.qcard .wcard-buttons > button:not(:last-child):hover:not(:disabled) {
+  background: var(--fill);
+  color: var(--ink);
+}
+/* Sent: grey rows, "question · answer". */
+.wcard-line.qcard {
+  align-items: flex-start;
+}
+.wcard-line.qcard .wcard-line-t {
+  white-space: normal;
+}
+.q-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.q-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Claude's other menus (permissions, the model list): a chip each, the
+   safe one dark, Cancel quiet and last. */
+.ask {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  padding: 9px 0;
+}
+.ask > .say {
+  white-space: pre-line;
+}
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--body);
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+.chip:hover:not(:disabled) {
+  background: var(--fill);
+}
+.chip:active:not(:disabled) {
+  background: var(--fill-2);
+  transform: scale(0.97);
+}
+.chip:disabled {
+  opacity: 0.4;
+}
+.chip.primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--white);
+}
+.chip.primary:hover:not(:disabled) {
+  border-color: var(--ink-hover);
+  background: var(--ink-hover);
+}
+.chip.current {
+  border-color: var(--ink);
+}
+.opt-note {
+  margin-left: 4px;
+  color: var(--t3);
+}
+.chip.primary .opt-note {
+  color: var(--on-ink-2);
+}
+.menu-cancel {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  font: inherit;
+  font-size: var(--body);
+  color: var(--t2);
+  cursor: pointer;
+}
+.menu-cancel:hover {
+  background: var(--fill);
+  color: var(--ink);
+}
+.menu-cancel:active {
+  background: var(--fill-2);
+}
+
+/* A box that ended: one quiet line with two text buttons. */
+.ended-line {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: var(--body);
+  color: var(--t2);
+}
+.ended-note {
+  margin-top: 4px;
+  font-size: var(--small);
+  color: var(--t3);
+}
+.ended-why {
+  margin-bottom: 6px;
+  font-size: var(--body);
+  color: var(--ink);
+}
+
+/* ---- the message box: one white card ---- */
+
+/* As wide as the conversation column, with the same edges. */
+.composer-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 46px 18px;
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  transition: box-shadow 140ms ease, opacity 140ms ease;
+  cursor: text;
+}
+.composer:focus-within {
+  box-shadow: var(--shadow), 0 0 0 1px var(--line);
+}
+.composer.shell {
+  box-shadow: var(--shadow), 0 0 0 1.5px var(--ink);
+}
+/* An ended box's card: not live, but it takes text for Resume and send. */
+.composer.dim {
+  opacity: 0.55;
+}
+.composer.dim:focus-within {
+  opacity: 0.8;
+}
+.composer textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  height: 36px;
+  max-height: 160px;
+  padding: 13px 16px 3px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-size: var(--talk);
+  line-height: 20px;
+  color: var(--ink);
+  overflow-y: auto;
+}
+.composer textarea::placeholder {
+  color: var(--t3);
+}
+.composer textarea:read-only {
+  cursor: default;
+}
+.composer textarea::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+.composer textarea::-webkit-scrollbar-thumb {
+  border-radius: var(--r-full);
+  background: var(--thumb);
+}
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px 8px 10px;
+  cursor: default;
+}
+.tools-gap {
+  flex: 1;
+}
+.shell-hint {
+  font-size: var(--small);
+  color: var(--t2);
+  padding: 4px 8px;
+}
+
+/* The model and effort (and an unusual mode): quiet words at the right. */
+.tool-pill {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-full);
+  display: flex;
+  align-items: center;
+  background: transparent;
+  font: inherit;
+  font-size: var(--small);
+  color: var(--t2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tool-pill:hover:not(:disabled),
+.tool-pill.open {
+  background: var(--fill);
+  color: var(--ink);
+}
+.tool-pill:active:not(:disabled) {
+  background: var(--fill-2);
+}
+.tool-pill:disabled {
+  opacity: 0.4;
+}
+.tool-pill.mode.plan {
+  background: var(--ink);
+  color: var(--white);
+  font-weight: var(--bold);
+}
+.model-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.send {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  border-radius: var(--r-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--fill-2);
+  color: var(--t3);
+}
+.send:hover:not(:disabled) {
+  color: var(--t2);
+}
+.send.ready {
+  background: var(--ink);
+  color: var(--white);
+}
+.send.ready:hover:not(:disabled) {
+  background: var(--ink-hover);
+  color: var(--white);
+}
+.send:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.send:disabled {
+  opacity: 0.4;
+}
+
+/* Pictures and files he adds, at the top of the card. */
+.att-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px 0;
+}
+.att-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 48px;
+  min-width: 48px;
+  border-radius: var(--r-control);
+  background: var(--white);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.att-chip img {
+  height: 48px;
+  max-width: 96px;
+  object-fit: cover;
+  display: block;
+}
+.att-doc {
+  padding: 0 12px;
+  font-size: var(--small);
+  color: var(--t2);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.att-chip button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ink);
+  color: var(--white);
+  font-size: var(--small);
+  line-height: 16px;
+  cursor: pointer;
+}
+.att-chip button:hover {
+  background: var(--ink-hover);
+}
+
+/* The lists above the field: an earlier message, a search, a file. */
+.pop-list {
+  width: min(640px, 100%);
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+}
+.pop-title {
+  padding: 4px 10px 6px;
+  font-size: var(--small);
+  font-weight: var(--bold);
+  color: var(--t3);
+}
+.pop-search {
+  margin: 0 4px 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  font: inherit;
+  outline: none;
+}
+.pop-search:focus {
+  border-color: var(--accent);
+}
+.pop-items {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.pop-item {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pop-item.mono {
+  font-family: var(--mono);
+  font-size: var(--small);
+}
+.pop-item:hover {
+  background: var(--hover);
+}
+.pop-item.on {
+  background: var(--fill);
+}
+.pop-item:active {
+  background: var(--fill-2);
+}
+.pop-none {
+  padding: 6px 10px;
+  color: var(--t3);
+}
+
+/* ---- quote replies: Reply at his selection, a bubble for his words, a
+   tray at the top of the message box for what waits to go ---- */
+
+::highlight(cm-quote) {
+  background-color: var(--fill-2);
+  color: var(--ink);
+}
+@keyframes quote-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.quote-btn {
+  position: absolute;
+  z-index: 12;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--small);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  animation: quote-in 120ms ease-out;
+}
+.quote-btn:hover {
+  background: var(--fill);
+}
+.quote-btn:active {
+  background: var(--fill-2);
+  transform: scale(0.94);
+}
+.quote-bubble {
+  position: absolute;
+  z-index: 12;
+  width: min(320px, calc(100% - 24px));
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 5px 5px 5px 12px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  animation: quote-in 140ms ease-out;
+}
+.quote-bubble textarea,
+.qt-line.editing textarea {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 26px;
+  max-height: 120px;
+  padding: 3px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  line-height: 20px;
+  color: var(--ink);
+  overflow-y: auto;
+}
+.quote-bubble textarea::placeholder,
+.qt-line.editing textarea::placeholder {
+  color: var(--t3);
+}
+.qb-add {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  color: var(--white);
+  cursor: pointer;
+}
+.qb-add:hover {
+  background: var(--ink-hover);
+}
+.qb-add:active {
+  transform: scale(0.94);
+}
+.quote-tray {
+  width: 100%;
+  max-height: 140px;
+  box-sizing: border-box;
+  padding: 8px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
   border-bottom: 1px solid var(--line);
 }
-.item:last-child {
-  border-bottom: 0;
+.qt-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex-shrink: 0;
+  border-radius: var(--r-control);
 }
-.item-n {
-  min-width: 14px;
-  font-family: var(--serif);
-  font-size: 16px;
-  line-height: 20px;
-  color: var(--faint);
+.qt-line:hover {
+  background: var(--fill);
 }
-.item-body {
+.qt-line:active {
+  background: var(--fill-2);
+}
+.qt-main {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 5px 8px;
-}
-.item-text {
-  flex: 0 1 auto;
-  min-width: 0;
-  font-size: 13px;
-  line-height: 20px;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--small);
+  text-align: left;
   color: var(--ink);
-  user-select: text;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-.item-text.more {
   cursor: pointer;
 }
-.item-text.whole {
-  display: block;
+.qt-quote {
+  flex: 0 1 auto;
+  max-width: 45%;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.item-acts {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-.drill .item .chip {
-  height: 24px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-.drill .item .chip:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.drill .item .reply-link {
-  font-size: 12px;
-}
-.drill .item .reply {
-  flex-basis: 100%;
-  padding-left: 0;
-}
-.drill .item .reply input {
-  height: 28px;
-}
-.drill .item .reply button {
-  width: 28px;
-  height: 28px;
-}
-.drill .done-line {
-  padding: 4px 0;
-}
-/* Narrow: it floats above the message field, as tall as its items. */
-.drill.float {
-  top: auto;
-  max-height: calc(100% - 70px - var(--field-h, 100px));
-  padding: 14px 14px 12px;
-}
-/* The count after Drill down opens the list again. */
-.skill-btn.count {
-  margin-left: -4px;
-  padding: 0 4px;
-  background: transparent;
-}
-.skill-btn.count:hover {
-  background: var(--b-fill);
-}
-
-/* ---- look B: inside the message box ---- */
-
-/* What waits to go (quote replies, answers) sits at the top of the card,
-   over a hairline; pictures and files under it. */
-.composer .quote-tray {
+.qt-main .qt-quote:last-child {
   max-width: none;
-  margin: 0;
-  padding: 8px 8px 6px;
-  border-bottom: 1px solid var(--b-hair);
 }
-.composer .att-row {
-  max-width: none;
-  margin: 0;
-  padding: 12px 14px 0;
-}
-.composer .qt-line:hover {
-  background: var(--b-fill);
+.qt-reply {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .qt-answers {
-  color: var(--b-ink);
+  cursor: default;
 }
-
-/* The way to type his own answer, and the drill-down's Reply: shown when
-   the pointer is over the question. */
-.q .reply-link,
-.drill .item .reply-link {
+.qt-line:has(.qt-answers):active {
+  background: var(--fill);
+}
+.qt-x {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--t3);
+  font-size: var(--body);
+  line-height: 1;
+  cursor: pointer;
   opacity: 0;
   transition: opacity 120ms ease;
 }
-.q:hover .reply-link,
-.q .reply-link:focus-visible,
-.drill .item:hover .reply-link,
-.drill .item .reply-link:focus-visible {
+.qt-line:hover .qt-x,
+.qt-x:focus-visible {
   opacity: 1;
 }
+.qt-x:hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+.qt-line.editing {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 5px 10px 3px;
+  background: var(--white);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.qt-line.editing .qt-quote {
+  max-width: none;
+}
 
-/* Rename: the name and one button on one line. */
+/* ---- terminal ---- */
+
+.term-wrap {
+  flex: 1;
+  min-height: 0;
+  margin: 0 12px 12px;
+  border-radius: var(--r-card);
+  background: var(--term-bg);
+  overflow: auto;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+.term-wrap .xterm {
+  padding: 0;
+}
+.term-wrap .xterm-viewport {
+  background: var(--term-bg) !important;
+}
+
+/* ---- the chief's drill-down: a grey panel, one question card ---- */
+
+.drill {
+  width: 340px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 14px 14px;
+  overflow-y: auto;
+}
+/* Only a quiet Hide, on hover of the panel. */
+.drill-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 24px;
+  margin-top: -6px;
+}
+.drill .drill-hide {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.drill:hover .drill-hide,
+.drill .drill-hide:focus-visible {
+  opacity: 1;
+}
+.drill .qcard-wrap .wcard {
+  max-width: none;
+}
+.drill-empty {
+  color: var(--t2);
+  line-height: 1.55;
+  padding: 4px;
+}
+.drill-also {
+  margin: auto 2px 0;
+  padding-top: 14px;
+  color: var(--t2);
+  line-height: 1.45;
+}
+/* Wide: docked at the right, the same grey panel as the sidebar. */
+.drill-dock {
+  flex-shrink: 0;
+  width: 340px;
+  display: flex;
+  overflow: hidden;
+  animation: dock-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.drill-dock.closing {
+  animation: dock-out 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.drill-dock > .drill {
+  flex: none;
+  width: 332px;
+  margin: 8px 8px 8px 0;
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+@keyframes dock-in {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+}
+@keyframes dock-out {
+  to {
+    width: 0;
+    opacity: 0;
+  }
+}
+/* Narrow: it floats above the message field, as tall as its items. */
+.drill.float {
+  position: absolute;
+  top: auto;
+  right: 9px;
+  /* --field-h is the message field's height, set by the chat. */
+  bottom: calc(var(--field-h, 100px) + 9px);
+  z-index: 30;
+  max-height: calc(100% - 70px - var(--field-h, 100px));
+  border-radius: var(--r-card);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  animation: sheet-in 140ms ease both;
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+/* ---- notices, sheets, menus ---- */
+
+/* Warnings and notices sit just above the message field. */
+.toast {
+  position: absolute;
+  bottom: calc(var(--field-h, 100px) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--r-full);
+  background: var(--ink);
+  color: var(--white);
+  box-shadow: var(--shadow);
+  max-width: 80%;
+  animation: toast-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+}
+.toast .bang {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-full);
+  background: var(--failed);
+  color: var(--white);
+  font-size: var(--small);
+  font-weight: var(--bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: var(--press);
+  animation: fade 140ms ease both;
+}
+.scrim.clear {
+  background: transparent;
+}
+
+/* Close, Clear, Rename. */
+.sheet {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: 440px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  animation: sheet 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.sheet.small {
+  width: 380px;
+}
+.sheet:focus {
+  outline: none;
+}
+@keyframes sheet {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px) scale(0.98);
+  }
+}
+.sheet h2 {
+  margin: 0;
+  font-size: var(--talk);
+  font-weight: var(--bold);
+  color: var(--ink);
+}
+.sheet-body {
+  margin: 0;
+  line-height: 1.5;
+  color: var(--t2);
+}
+.sheet-quote {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--t2);
+  background: var(--fill);
+  border-radius: var(--r-control);
+}
+.sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+.sheet-foot .err,
+.rename .err {
+  flex: 1;
+  font-size: var(--small);
+  color: var(--failed);
+}
+.rename .err {
+  display: block;
+  margin-top: 8px;
+}
 .rename-row {
   display: flex;
   gap: 8px;
@@ -3087,26 +2408,240 @@ button:focus-visible,
 .rename-row input {
   flex: 1;
   min-width: 0;
-  height: 36px;
+  height: 32px;
   box-sizing: border-box;
   padding: 0 12px;
-  border: 0;
-  border-radius: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
   outline: none;
-  background: var(--b-fill);
+  background: var(--white);
   font: inherit;
-  font-size: 14px;
-  color: var(--b-ink);
+  color: var(--ink);
 }
 .rename-row input:focus {
-  box-shadow: 0 0 0 1.5px var(--b-ink);
+  border-color: var(--accent);
 }
-.rename .err {
-  display: block;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--rust);
+
+/* The model picker opens upward from its words in the message box. */
+.picker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  cursor: default;
 }
-.sheet:focus {
+.picker-meter {
+  padding: 2px 10px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--small);
+  color: var(--t2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.picker-row {
+  display: flex;
+  gap: 2px;
+}
+.picker-row button {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--t2);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.picker-row button:hover {
+  background: var(--fill);
+  color: var(--ink);
+}
+.picker-row button:active {
+  background: var(--fill-2);
+  transform: scale(0.96);
+}
+.picker-row button.on {
+  background: var(--ink);
+  color: var(--white);
+}
+.picker-row button:disabled {
+  opacity: 0.4;
+}
+.picker-mode {
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.picker-label {
+  padding-left: 10px;
+  font-size: var(--small);
+  color: var(--t3);
+}
+.picker-mode button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+.picker-key {
+  font-size: var(--small);
+  color: var(--t3);
+}
+
+/* Cmd+K: every box and every action, each with its shortcut. */
+.switcher {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  animation: switch-in 120ms ease-out both;
+}
+@keyframes switch-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+.switcher input {
+  height: 36px;
+  border: 0;
   outline: none;
+  padding: 0 10px;
+  font: inherit;
+  font-size: var(--talk);
+  color: var(--ink);
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.switcher input::placeholder {
+  color: var(--t3);
+}
+.switcher-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.switcher button {
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.switcher button:hover {
+  background: var(--hover);
+}
+.switcher button.on {
+  background: var(--fill);
+}
+.switcher button:active {
+  background: var(--fill-2);
+}
+.switcher button .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.switcher .hint {
+  flex: none;
+  font-size: var(--small);
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.switcher .sub {
+  color: var(--t3);
+}
+.switcher-none {
+  padding: 8px 10px;
+  color: var(--t3);
+}
+
+/* The name's menu: Rename, Close, Clear. */
+.menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  z-index: 30;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: var(--r-card);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  animation: rise 120ms ease-out both;
+}
+.menu button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.menu button:hover {
+  background: var(--fill);
+}
+.menu button:active {
+  background: var(--fill-2);
+}
+.menu button:disabled {
+  opacity: 0.4;
+}
+.menu .hint {
+  font-size: var(--small);
+  color: var(--t3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .sent,
+  .spin,
+  .dot.working,
+  .av-dot.working,
+  .mark.pulse svg,
+  .drill-dock {
+    animation: none;
+  }
 }
