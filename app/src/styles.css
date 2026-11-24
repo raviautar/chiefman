@@ -2806,3 +2806,99 @@ button:focus-visible,
 .md-table tbody tr:last-child td {
   border-bottom: 0;
 }
+
+/* The chief's drill-down: every item at once, each its line and its
+   answers. A short line has its answers beside it; a long one, under it. */
+.drill {
+  gap: 6px;
+}
+.drill .items {
+  display: flex;
+  flex-direction: column;
+}
+.item {
+  display: flex;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.item:last-child {
+  border-bottom: 0;
+}
+.item-n {
+  min-width: 14px;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 20px;
+  color: var(--faint);
+}
+.item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+}
+.item-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink);
+  user-select: text;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.item-text.more {
+  cursor: pointer;
+}
+.item-text.whole {
+  display: block;
+}
+.item-acts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.drill .item .chip {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.drill .item .chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.drill .item .reply-link {
+  font-size: 12px;
+}
+.drill .item .reply {
+  flex-basis: 100%;
+  padding-left: 0;
+}
+.drill .item .reply input {
+  height: 28px;
+}
+.drill .item .reply button {
+  width: 28px;
+  height: 28px;
+}
+.drill .done-line {
+  padding: 4px 0;
+}
+/* Narrow: it floats above the message field, as tall as its items. */
+.drill.float {
+  top: auto;
+  max-height: calc(100% - 70px - var(--field-h, 100px));
+  padding: 14px 14px 12px;
+}
+/* The count after Drill down opens the list again. */
+.skill-btn.count {
+  margin-left: -4px;
+  padding: 0 4px;
+}

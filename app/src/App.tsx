@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, PlanInfo, Result, Snapshot } from './api';
 import { Check, StateMark } from './icons';
 import { Picker } from './Picker';
@@ -208,9 +208,10 @@ export function App() {
       });
     const clock = setInterval(() => setNow(Date.now()), 20000);
     const mq = window.matchMedia(NARROW);
+    // An open panel stays open as the window narrows or widens.
     const onWidth = () => {
       setNarrow(mq.matches);
-      setPanel(panelFor(mq.matches));
+      setPanel((p) => p || panelFor(mq.matches));
     };
     mq.addEventListener('change', onWidth);
     return () => {
@@ -279,17 +280,6 @@ export function App() {
     saved.current = next;
     keepDrafts();
   }, [boxes, info.phase, draftsReady]);
-
-  // Below 1180 px the panel floats over the chat; a click outside closes it.
-  useEffect(() => {
-    if (!narrow || !drillShown) return;
-    const away = (e: MouseEvent) => {
-      const t = e.target as Element | null;
-      if (t && !t.closest('.drill, .skills, .scrim, .sheet')) showPanel(false);
-    };
-    document.addEventListener('mousedown', away, true);
-    return () => document.removeEventListener('mousedown', away, true);
-  }, [narrow, drillShown]);
 
   // "Nothing needs you." closes on a click anywhere else, or after 6 s.
   useEffect(() => {
@@ -402,7 +392,12 @@ export function App() {
         setNothing(false);
         return;
       }
-      if (e.key === 'Escape' && narrow && drillShown && !overlay && !ask) {
+      // Below 1180 px the panel floats over the chat and stays while he
+      // types; Esc on it, or with nothing in focus, puts it away. Esc in its
+      // reply field closes only the field.
+      const fa = document.activeElement;
+      const onPanel = !fa || fa === document.body || (!!fa.closest('.drill') && fa.tagName !== 'INPUT');
+      if (e.key === 'Escape' && narrow && drillShown && !overlay && !ask && onPanel) {
         e.preventDefault();
         e.stopPropagation();
         showPanel(false);
@@ -737,15 +732,21 @@ export function App() {
           // The chief's own list fills the panel; its count shows here.
           const chiefList = s.name === 'drill-down' && box!.name === 'chief';
           return (
-            <button
-              key={s.name}
-              className={'skill-btn' + (chiefList && (drillShown || nothing) ? ' on' : '')}
-              title={chiefList && asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you · runs drill-down` : `Runs ${s.name} in ${box!.name}`}
-              onClick={() => runSkill(s)}
-            >
-              {s.label}
-              {chiefList && asks > 0 && !drillShown && <span className="badge">{asks}</span>}
-            </button>
+            <Fragment key={s.name}>
+              <button
+                className={'skill-btn' + (chiefList && (drillShown || nothing) ? ' on' : '')}
+                title={`Runs ${s.name} in ${box!.name}`}
+                onClick={() => runSkill(s)}
+              >
+                {s.label}
+              </button>
+              {/* The list he has not answered yet: its count opens it again. */}
+              {chiefList && asks > 0 && !drillShown && (
+                <button className="skill-btn count" title={`Show the ${asks} that need${asks === 1 ? 's' : ''} you`} onClick={() => showPanel(true)}>
+                  <span className="badge">{asks}</span>
+                </button>
+              )}
+            </Fragment>
           );
         })}
         {nothing && (
@@ -760,14 +761,14 @@ export function App() {
   // A box whose window closed has no pane, but keeps its chat and draft. Its
   // chat keeps the old pane's key, so the field keeps his text and focus.
   const shownPane = box ? box.paneId ?? box.lastPane ?? null : null;
-  // The chief's lists fold to one line each: the newest while the panel shows
-  // it or once all of it is answered. Only the newest list shows at all; an
-  // older one is hidden (an empty fold). A list that never had items stays
-  // plain text.
+  // The chief's lists fold to one line each: the newest while some of it
+  // needs him (a click opens the panel) or once all of it is answered. Only
+  // the newest list shows at all; an older one is hidden (an empty fold). A
+  // list that never had items stays plain text.
   const folds: Record<string, string> = {};
   if (box && box.name === 'chief' && drill) {
     for (const [id, kind] of Object.entries(drill.folds || {})) folds[id] = kind === 'answered' ? 'Drill-down · all answered' : 'Earlier drill-down';
-    if (asks > 0 && drillShown) folds[drill.id] = `Drill-down · ${asks} need${asks === 1 ? 's' : ''} you`;
+    if (asks > 0) folds[drill.id] = `Drill-down · ${asks} need${asks === 1 ? 's' : ''} you`;
     else if (asks === 0 && (drill.total ?? 0) > 0) folds[drill.id] = 'Drill-down · all answered';
     const lists = ((shownPane && chats[shownPane]?.items) || []).filter((i) => i.id in folds || i.id === drill.id);
     for (const i of lists.slice(0, -1)) if (i.id in folds) folds[i.id] = '';
@@ -824,6 +825,12 @@ export function App() {
         onSend={sendToBox}
         onError={(t) => show(t, true)}
         foot={skillRow}
+        onFold={(id) => {
+          if (!drill || id !== drill.id || asks === 0 || drillShown) return false;
+          showPanel(true);
+          return true;
+        }}
+        foldTip={(id) => (drill && id === drill.id && asks > 0 && !drillShown ? 'Show it to answer' : undefined)}
       />
     );
   }
@@ -1055,10 +1062,10 @@ export function App() {
         )}
       </main>
 
-      {drillShown && narrow && <DrillPanel drill={drill} sent={sent} floating onSend={sendDrill} />}
+      {drillShown && narrow && <DrillPanel drill={drill} sent={sent} floating onSend={sendDrill} onClose={() => showPanel(false)} />}
       {(drillShown || closing) && !narrow && (
         <div className={'drill-dock' + (drillShown ? '' : ' closing')} onAnimationEnd={(e) => e.target === e.currentTarget && !drillShown && setClosing(false)}>
-          <DrillPanel drill={drill} sent={sent} floating={false} onSend={sendDrill} />
+          <DrillPanel drill={drill} sent={sent} floating={false} onSend={sendDrill} onClose={() => showPanel(false)} />
         </div>
       )}
     </div>

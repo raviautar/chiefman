@@ -245,6 +245,8 @@ export function ChatView({
   onSend,
   onError,
   foot,
+  onFold,
+  foldTip,
 }: {
   box: Box;
   chat: ChatState | undefined;
@@ -267,6 +269,10 @@ export function ChatView({
   onError: (text: string) => void;
   // The row under the message box: the skill buttons.
   foot?: ReactNode;
+  // A click on a folded line: true when it was used (the drill-down panel
+  // opened) instead of showing the whole message.
+  onFold?: (id: string) => boolean;
+  foldTip?: (id: string) => string | undefined;
 }) {
   const [draft, setDraft] = useState(initial?.text ?? '');
   const [sending, setSending] = useState(false);
@@ -716,7 +722,12 @@ export function ChatView({
           if (folded === '') return null;
           if (folded && !unfolded.has(m.id))
             return (
-              <button key={m.id} className="work fold" onClick={() => setUnfolded((s) => new Set(s).add(m.id))} title="Show the whole message">
+              <button
+                key={m.id}
+                className="work fold"
+                onClick={() => onFold?.(m.id) || setUnfolded((s) => new Set(s).add(m.id))}
+                title={foldTip?.(m.id) || 'Show the whole message'}
+              >
                 <Chevron />
                 {folded}
               </button>

@@ -4,7 +4,7 @@ import { Arrow, Check } from './icons';
 import { arrange } from './Chat';
 import { Bundle, Controls, Entry, entryFor, oneLine } from './Answers';
 
-function ReplyField({ n, onSend }: { n: number; onSend: (text: string) => Promise<boolean> }) {
+function ReplyField({ n, onSend, onClose }: { n: number; onSend: (text: string) => Promise<boolean>; onClose: () => void }) {
   const [text, setText] = useState('');
   const go = async () => {
     if (text.trim()) await onSend(text.trim());
@@ -20,7 +20,14 @@ function ReplyField({ n, onSend }: { n: number; onSend: (text: string) => Promis
         value={text}
         placeholder="Your words"
         onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && go()}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === 'Enter') go();
+          else if (e.key === 'Escape' && !text) {
+            e.stopPropagation();
+            onClose();
+          }
+        }}
       />
       <button aria-label={'Send reply to ' + n} onClick={go}>
         <Arrow size={13} />
@@ -29,13 +36,14 @@ function ReplyField({ n, onSend }: { n: number; onSend: (text: string) => Promis
   );
 }
 
-// One click answers once. A new card ignores clicks for its first 250 ms,
-// so the second half of a double click on the last card cannot answer it.
+// One click answers once. A new item ignores clicks for its first 250 ms,
+// so the second half of a double click on the last one cannot answer it.
 const WAKE = 250;
-// The big number is the chief's own, the one he answers by.
-// An item that asks something specific (a list made for his Drill down
-// click) has a widget instead: his picks wait with the others for one Send.
-function Card({
+// One item: the chief's number, its line (two lines at most; a click shows
+// all of it), and its answers right after. An item that asks something
+// specific (a list made for his Drill down click) has a widget instead: his
+// picks wait with the others for one Send.
+function Item({
   item,
   entry,
   onEntry,
@@ -48,6 +56,7 @@ function Card({
 }) {
   const [replying, setReplying] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [whole, setWhole] = useState(false);
   const born = useRef(Date.now());
   const once = useRef(false);
   const answer = async (text: string) => {
@@ -64,78 +73,83 @@ function Card({
   const ask = item.ask;
   const words = arrange(item.words.map((w, i) => ({ n: i, label: w })));
   const picks = entry?.picks ?? [];
+  const more = item.full && item.full !== item.text;
   return (
-    <div className="card rise" key={item.n}>
-      <div className="card-top">
-        <span className="card-n" aria-label={'Item ' + item.n}>
-          {item.n}
+    <div className="item rise">
+      <span className="item-n" aria-label={'Item ' + item.n}>
+        {item.n}
+      </span>
+      <div className="item-body">
+        <span
+          className={'item-text' + (more ? ' more' : '') + (whole ? ' whole' : '')}
+          title={whole || !more ? undefined : item.full}
+          onClick={() => more && setWhole(!whole)}
+        >
+          {whole ? item.full : item.text}
         </span>
-        <div className="card-text" title={item.full}>
-          {item.text}
-        </div>
+        {replying ? (
+          <ReplyField
+            n={item.n}
+            onClose={() => setReplying(false)}
+            onSend={async (t) => {
+              if (!ask) return answer(t);
+              // His words join the other picks and all go at once.
+              onEntry(entryFor(item.n, ask.kind, picks, t));
+              return onSend(t);
+            }}
+          />
+        ) : (
+          <span className="item-acts">
+            {ask ? (
+              <Controls kind={ask.kind} options={ask.options} picks={picks} onPicks={(p) => Date.now() - born.current >= WAKE && onEntry(entryFor(item.n, ask.kind, p, ''))} />
+            ) : (
+              words.map((w) => (
+                <button key={w.label} className="chip" disabled={busy} onClick={() => answer(w.label)}>
+                  {w.label}
+                </button>
+              ))
+            )}
+            <button
+              className="reply-link"
+              disabled={busy}
+              title="Reply in your words"
+              onClick={() => Date.now() - born.current >= WAKE && setReplying(true)}
+            >
+              Reply
+            </button>
+          </span>
+        )}
       </div>
-      {replying ? (
-        <ReplyField
-          n={item.n}
-          onSend={async (t) => {
-            if (!ask) return answer(t);
-            // His words join the other picks and all go at once.
-            onEntry(entryFor(item.n, ask.kind, picks, t));
-            return onSend(t);
-          }}
-        />
-      ) : (
-        <div className="chips">
-          {ask ? (
-            <Controls kind={ask.kind} options={ask.options} picks={picks} onPicks={(p) => Date.now() - born.current >= WAKE && onEntry(entryFor(item.n, ask.kind, p, ''))} />
-          ) : (
-            words.map((w) => (
-              <button key={w.label} className="chip" disabled={busy} onClick={() => answer(w.label)}>
-                {w.label}
-              </button>
-            ))
-          )}
-          <button className="reply-link" disabled={busy} onClick={() => Date.now() - born.current >= WAKE && setReplying(true)}>
-            Reply in your words
-          </button>
-        </div>
-      )}
     </div>
   );
 }
 
-// Only what needs him now: up to three cards stacked, more one at a time. A
-// sent answer folds its card
-// to one line that says what was sent; the chief's own log then keeps it away.
-// Picks made with widgets wait under the cards until one Send sends them all.
+// Only what needs him now, every item at once in a compact list. A sent
+// answer folds away to one line that says what was sent; the chief's own log
+// then keeps it away. Picks made with widgets wait under the list until one
+// Send (or Enter on a pick) sends them all.
 export function DrillPanel({
   drill,
   sent,
   floating,
   onSend,
+  onClose,
 }: {
   drill: Drill | null;
   sent: Record<string, string>;
   floating: boolean;
   onSend: (list: { n: number; text: string }[]) => Promise<boolean>;
+  onClose: () => void;
 }) {
   const open = drill ? drill.items.filter((i) => !sent[`${drill.id}:${i.n}`]) : [];
-  const [at, setAt] = useState(0);
   const [done, setDone] = useState<{ t: string; id: number } | null>(null);
   const [bundle, setBundle] = useState<Bundle>({});
   const [sending, setSending] = useState(false);
-  useEffect(() => {
-    if (at >= open.length) setAt(Math.max(0, open.length - 1));
-  }, [open.length, at]);
   useEffect(() => {
     if (!done) return;
     const t = setTimeout(() => setDone(null), 10000);
     return () => clearTimeout(t);
   }, [done?.id]);
-  // Three items or fewer show all at once; more page one at a time.
-  const stack = open.length <= 3;
-  const item = open[at];
-  const cards = stack ? open : item ? [item] : [];
   const keyOf = (n: number) => `${drill?.id}:${n}`;
   const picked = open.filter((i) => i.ask && bundle[keyOf(i.n)]?.text).map((i) => ({ n: i.n, text: bundle[keyOf(i.n)].text }));
   const preview = picked.map((a) => `${a.n}. ${a.text}`).join('\n');
@@ -157,43 +171,47 @@ export function DrillPanel({
   }
 
   return (
-    <aside className={'drill' + (floating ? ' float' : '')} aria-label="From the chief">
+    <aside
+      className={'drill' + (floating ? ' float' : '')}
+      aria-label="From the chief"
+      onKeyDown={(e) => {
+        // Enter on a pick sends the picks, as Enter in the message field does.
+        if (e.key === 'Enter' && picked.length && (e.target as Element).closest('.chip.pick')) {
+          e.preventDefault();
+          send(picked);
+        }
+      }}
+    >
       <div className="drill-head">
         <h2 className="drill-title">From the chief</h2>
-        {!stack && (
-          <span className="pager">
-            <span className="pager-count">
-              {Math.min(at, open.length - 1) + 1} of {open.length}
-            </span>
-            <button className="round tip" aria-label="Previous" data-tip="Previous" onClick={() => setAt((at - 1 + open.length) % open.length)}>
-              <Arrow size={12} dir="left" />
-            </button>
-            <button className="round tip" aria-label="Next" data-tip="Next" onClick={() => setAt((at + 1) % open.length)}>
-              <Arrow size={12} dir="right" />
-            </button>
-          </span>
-        )}
+        <button className="icon-btn tip" aria-label="Hide" data-tip="Hide" onClick={onClose}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
       </div>
-      {cards.length ? (
-        cards.map((it) => (
-          <Card
-            key={`${drill!.id}:${it.n}`}
-            item={it}
-            entry={bundle[keyOf(it.n)]}
-            onEntry={(e) =>
-              setBundle((b) => {
-                const next = { ...b };
-                if (e) next[keyOf(it.n)] = e;
-                else delete next[keyOf(it.n)];
-                return next;
-              })
-            }
-            onSend={(t) => {
-              if (!it.ask) return send([{ n: it.n, text: t }]);
-              return send([...picked.filter((a) => a.n !== it.n), { n: it.n, text: t }].sort((x, y) => x.n - y.n));
-            }}
-          />
-        ))
+      {open.length ? (
+        <div className="items">
+          {open.map((it) => (
+            <Item
+              key={`${drill!.id}:${it.n}`}
+              item={it}
+              entry={bundle[keyOf(it.n)]}
+              onEntry={(e) =>
+                setBundle((b) => {
+                  const next = { ...b };
+                  if (e) next[keyOf(it.n)] = e;
+                  else delete next[keyOf(it.n)];
+                  return next;
+                })
+              }
+              onSend={(t) => {
+                if (!it.ask) return send([{ n: it.n, text: t }]);
+                return send([...picked.filter((a) => a.n !== it.n), { n: it.n, text: t }].sort((x, y) => x.n - y.n));
+              }}
+            />
+          ))}
+        </div>
       ) : (
         <div className="drill-empty">Nothing needs you.</div>
       )}
@@ -208,7 +226,7 @@ export function DrillPanel({
         </div>
       )}
       {done && (
-        <div className="card done-line rise" key={`done:${done.id}`}>
+        <div className="done-line rise" key={`done:${done.id}`}>
           <span className="sent-line">
             <Check />
             Sent “{done.t}”
