@@ -685,6 +685,8 @@ export function ChatView({
       if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       const el = document.activeElement;
       if (el !== input.current && el && el !== document.body && el.closest('input, textarea, button, select, [role="dialog"], [role="menu"], .drill')) return;
+      // Esc with a menu or sheet open closes that, never denies the ask.
+      if (document.querySelector('[role="menu"], [role="dialog"], .find-bar')) return;
       if ((input.current?.value || '').trim() || atts.length || pop) return;
       e.preventDefault();
       e.stopPropagation();
@@ -1152,15 +1154,31 @@ export function ChatView({
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!find || !el) return;
-    const row = holder ? el.querySelector(`.chat-col > [data-item="${CSS.escape(holder)}"]`) : null;
-    const now = paint(el.querySelector('.chat-col') || el, findQ, row, findNow?.nth ?? 0);
+    const rowOf = () => (holder ? el.querySelector(`.chat-col > [data-item="${CSS.escape(holder)}"]`) : null);
+    const lit = () => paint(el.querySelector('.chat-col') || el, findQ, rowOf(), findNow?.nth ?? 0);
+    const now = lit();
     if (find.go === went.current || !findNow) return;
-    const box = (now || row)?.getBoundingClientRect();
-    if (!box) return;
-    went.current = find.go;
+    const move = (to: Range | Element | null) => {
+      const box = to?.getBoundingClientRect();
+      if (!box) return;
+      const top = el.getBoundingClientRect();
+      if (box.top < top.top + 40 || box.bottom > top.bottom - 40) el.scrollTop += box.top - top.top - el.clientHeight / 3;
+    };
+    const go = find.go;
+    went.current = go;
     stick.current = false;
-    const top = el.getBoundingClientRect();
-    if (box.top < top.top + 40 || box.bottom > top.bottom - 40) el.scrollTop += box.top - top.top - el.clientHeight / 3;
+    if (now) return move(now);
+    move(rowOf());
+    // A folded card opens itself a frame later: mark again, then move to
+    // the place itself.
+    let tries = 0;
+    const again = () => {
+      if (went.current !== go) return;
+      const later = lit();
+      if (later) move(later);
+      else if (++tries < 10) requestAnimationFrame(again);
+    };
+    requestAnimationFrame(again);
   });
   useEffect(() => () => unpaint(), []);
 
@@ -1429,7 +1447,6 @@ export function ChatView({
               </div>
             )}
             <div className="ended-line">
-              <span>Ended</span>
               {box.ended?.start && (
                 <button className="text-btn" onClick={resume} disabled={endBusy}>
                   {typed ? 'Resume and send' : 'Resume'}
@@ -1597,6 +1614,8 @@ export function ChatView({
                 return;
               }
               if (popKey(e)) return;
+              // Esc with a menu or sheet open only closes that.
+              if (e.key === 'Escape' && document.querySelector('[role="menu"], [role="dialog"]')) return;
               // The newest open card takes the keys while the field is empty:
               // Claude's question first, then the newer of the reply's
               // questions (1 to 9 pick, Enter the recommended one, Esc

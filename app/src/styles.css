@@ -1003,6 +1003,14 @@ svg {
 .reply-group > .say {
   max-width: none;
 }
+/* In a reply's column a finished line moves left instead of taking a
+   negative margin, so the column counts its padding and a lone line
+   ("1 failed", one answered question) is not cut short. */
+.reply-group .wcard-line {
+  margin: 0;
+  position: relative;
+  left: -6px;
+}
 /* A card right in the chat (Claude Code's own asks) is as wide as a reply. */
 .chat-col > .wcard,
 .chat-col > .wcard-line {
@@ -1752,7 +1760,7 @@ svg {
   background: var(--fill-2);
 }
 
-/* A box that ended: one quiet line with two text buttons. */
+/* A box that ended: two text buttons; its row in the list says it ended. */
 .ended-line {
   display: flex;
   align-items: baseline;
