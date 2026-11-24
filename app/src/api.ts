@@ -21,6 +21,8 @@ export interface Box {
   modelName: string | null;
   effort: string | null;
   remote: boolean;
+  // His click on the Remote Control icon, until the box has done it.
+  remoteAsk?: 'on' | 'off' | null;
   // Which of the skill buttons (plain-english, explain, drill-down) this box can run.
   skills?: string[];
   mode: string | null;
@@ -192,7 +194,7 @@ interface Bridge {
   rename(paneId: string, name: string): Promise<Result>;
   recent(): Promise<Recent[]>;
   switchBox(paneId: string, kind: 'model' | 'effort', value: string): Promise<Result>;
-  remote(paneId: string): Promise<Result>;
+  remote(paneId: string, what: 'on' | 'off' | 'link'): Promise<Result>;
   copy(text: string): void;
   attach(name: string, data: ArrayBuffer): Promise<Result>;
   choose(paneId: string, n: number): Promise<Result>;

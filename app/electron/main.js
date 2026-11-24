@@ -240,7 +240,7 @@ function wireIpc() {
       : { ok: false, reason: 'Bad request.' },
   );
   handle('cm:files', (p, q) => (PANE.test(p) && typeof q === 'string' && q.length < 200 ? hub.files(p, q) : []));
-  act('cm:remote', (p) => (PANE.test(p) ? hub.remote(p) : { ok: false, reason: 'Bad request.' }));
+  act('cm:remote', (p, what) => (PANE.test(p) && ['on', 'off', 'link'].includes(what) ? hub.remote(p, what) : { ok: false, reason: 'Bad request.' }));
   on('cm:copy', (t) => {
     if (typeof t === 'string' && /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(t)) clipboard.writeText(t);
   });

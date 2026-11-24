@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('chiefman', {
   rename: (paneId, name) => ipcRenderer.invoke('cm:rename', paneId, name),
   recent: () => ipcRenderer.invoke('cm:recent'),
   switchBox: (paneId, kind, value) => ipcRenderer.invoke('cm:switch', paneId, kind, value),
-  remote: (paneId) => ipcRenderer.invoke('cm:remote', paneId),
+  remote: (paneId, what) => ipcRenderer.invoke('cm:remote', paneId, what),
   copy: (text) => ipcRenderer.send('cm:copy', text),
   attach: (name, data) => ipcRenderer.invoke('cm:attach', name, data),
   retry: (paneId) => ipcRenderer.invoke('cm:retry', paneId),

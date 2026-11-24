@@ -119,6 +119,13 @@ class Hub {
     this.queues = new Map();
     this.lastSend = new Map();
     this.typedByApp = new Map();
+    // Remote Control, by Claude pid: the ones he turned off (kept across app
+    // restarts while that Claude runs), his clicks not yet done, when the app
+    // may next turn one on by itself, and the ones with a command in flight.
+    this.remoteOff = new Set((Array.isArray(this.state.remoteOff) ? this.state.remoteOff : []).filter(Number.isInteger));
+    this.remoteAsk = new Map();
+    this.remoteNext = new Map();
+    this.remoteBusy = new Set();
     this.keeper = new DefaultKeeper(path.join(cfg.claudeHome, 'settings.json'), this.log);
     this.timers = [];
     this.soonTimers = {};
@@ -448,6 +455,7 @@ class Hub {
         switching: this.switching.has(b.paneId) ? { ...this.switching.get(b.paneId), asking: !!sc.menu } : null,
         ...this.meter(b),
         remote: !!(b.claude && b.claude.bridge),
+        remoteAsk: (b.claude && (this.remoteAsk.get(b.claude.pid) || {}).want) || null,
         skills: (b.claude && (this.launch.get(b.claude.pid) || {}).skills) || [],
         ended: this.endedInfo(b),
         session: (b.claude && b.claude.sessionId) || (this.state.boxes.find((s) => s.name === b.name) || {}).sessionId || null,
@@ -658,13 +666,132 @@ class Hub {
     return { ok: true };
   }
 
-  // Remote Control: on means Claude gave the session a claude.ai link.
-  async remote(paneId) {
+  // ---- Remote Control -----------------------------------------------------
+
+  // On means Claude gave the session a claude.ai link. "link" returns it;
+  // "on" and "off" are his clicks on the header's icon, done once the box
+  // is idle.
+  async remote(paneId, what) {
     const box = this.boxes.find((b) => b.paneId === paneId);
     if (!box || !box.claude) return { ok: false, reason: 'No Claude runs there.' };
-    if (box.claude.bridge) return { ok: true, url: 'https://claude.ai/code/' + box.claude.bridge };
-    const r = await this.sendText(paneId, '/remote-control', { app: true });
-    return r.ok ? { ok: true, started: true } : r;
+    const c = box.claude;
+    if (what === 'link') return c.bridge ? { ok: true, url: 'https://claude.ai/code/' + c.bridge } : { ok: false, reason: 'Remote Control is off.' };
+    if (what !== 'on' && what !== 'off') return { ok: false, reason: 'Bad request.' };
+    if (what === 'off') this.remoteOff.add(c.pid);
+    else this.remoteOff.delete(c.pid);
+    this.recordState();
+    if (!!c.bridge === (what === 'on')) {
+      this.remoteAsk.delete(c.pid);
+      this.emitBoxes();
+      return { ok: true };
+    }
+    this.remoteAsk.set(c.pid, { want: what, at: Date.now(), tries: 0, last: 0 });
+    this.log('remote asked', { box: box.name, want: what });
+    this.emitBoxes();
+    this.soon('remote', 50, () => this.syncRemote());
+    return { ok: true, pending: true };
+  }
+
+  // Every box has Remote Control on. Boxes the app starts get the flag; a
+  // box found without it (started by hand, or by the chief) is turned on
+  // once, quietly, when it is idle. One he turned off stays off while that
+  // Claude runs, and so does one that had it and lost it (he disconnected
+  // it in the terminal).
+  syncRemote() {
+    if (!this.ctl) return;
+    let changed = false;
+    for (const b of this.boxes) {
+      const c = b.claude;
+      if (!c || !c.pid || this.remoteBusy.has(c.pid)) continue;
+      const on = !!c.bridge;
+      if (on) this.remoteNext.set(c.pid, Infinity);
+      const want = this.remoteOff.has(c.pid) ? 'off' : 'on';
+      const ask = this.remoteAsk.get(c.pid);
+      if (ask && (ask.want !== want || (ask.want === 'on') === on)) {
+        this.remoteAsk.delete(c.pid);
+        changed = true;
+        continue;
+      }
+      if (ask && (ask.tries >= 2 || Date.now() - ask.at > 600000)) {
+        this.remoteAsk.delete(c.pid);
+        this.log('remote not taken', { box: b.name, want });
+        this.out({ type: 'notice', text: `${b.name} did not turn Remote Control ${want}.`, bad: true });
+        changed = true;
+        continue;
+      }
+      if ((want === 'on') === on) continue;
+      if (ask) {
+        if (Date.now() - ask.last < 4000) continue;
+      } else {
+        if (want !== 'on') continue;
+        // A Claude started with the flag or the setting connects by itself
+        // within seconds, so it gets 30 seconds first.
+        const started = Number(new Date(c.startedAt)) || 0;
+        if (!this.remoteNext.has(c.pid)) this.remoteNext.set(c.pid, Math.max(Date.now(), started + 30000));
+        if (Date.now() < this.remoteNext.get(c.pid)) continue;
+        // The Terminal view open on this box: he may be typing there.
+        if (this.term && this.term.paneId === b.paneId) continue;
+      }
+      if (!this.remoteIdle(b)) continue;
+      this.remoteRun(b, want, ask);
+    }
+    for (const p of [...this.remoteOff]) if (!alive(p)) this.remoteOff.delete(p);
+    for (const p of [...this.remoteAsk.keys()]) if (!alive(p)) this.remoteAsk.delete(p);
+    for (const p of [...this.remoteNext.keys()]) if (!alive(p)) this.remoteNext.delete(p);
+    if (changed) this.emitBoxes();
+  }
+
+  remoteIdle(b) {
+    const sc = this.screens.get(b.paneId) || {};
+    return (
+      !this.working.has(b.paneId) && !sc.menu && !this.starting.has(b.name) && !this.resuming.has(b.name) &&
+      !this.switching.has(b.paneId) && !this.touchedWithin(b.paneId, 3000)
+    );
+  }
+
+  // Sends /remote-control as the app's other buttons send their commands.
+  // On a session that has it, Claude asks what to do: "Disconnect this
+  // session" turns it off, "Continue" leaves it on.
+  async remoteRun(b, want, ask) {
+    const pid = b.claude.pid;
+    const paneId = b.paneId;
+    this.remoteBusy.add(pid);
+    let sent = false;
+    try {
+      const r = await this.sendText(paneId, '/remote-control', { app: true });
+      sent = r.ok && !r.duplicate;
+      if (!sent) return;
+      // One pick only: keys that land after the dialog closed would reach
+      // the prompt, where Up brings back the last command.
+      const pick = want === 'off' ? /^Disconnect this session\b/ : /^Continue$/;
+      let picked = false;
+      for (let i = 0; i < 40; i++) {
+        await sleep(400);
+        const now = readSessions(this.cfg.claudeHome, this.cfg.session).get(paneId);
+        const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]).catch(() => ''));
+        const opt = !picked && menu && menu.options.some((o) => /^Disconnect this session\b/.test(o.label)) && menu.options.find((o) => pick.test(o.label));
+        if (opt) {
+          picked = true;
+          await this.choose(paneId, opt.n);
+          continue;
+        }
+        if (now && (now.pid !== pid || (!!now.bridge === (want === 'on') && !menu))) break;
+      }
+    } catch (e) {
+      this.log('remote failed', String((e && e.message) || e).slice(0, 120));
+    } finally {
+      // The next look at the box must see what the command did.
+      await this.scan().catch(() => {});
+      this.remoteBusy.delete(pid);
+      if (ask) {
+        ask.last = Date.now();
+        if (sent) ask.tries++;
+      }
+      // By itself the app tries once per Claude; a box that had text typed
+      // or a question open is tried again later.
+      if (!ask) this.remoteNext.set(pid, sent ? Infinity : Date.now() + 20000);
+      this.log('remote', { box: b.name, want, asked: !!ask, sent });
+    }
   }
 
   // ---- box actions --------------------------------------------------------
@@ -844,7 +971,8 @@ class Hub {
       if (!entry.sessionId && old.pending) entry.pending = true;
       return entry;
     });
-    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, created: this.created, boxes, ended: [...this.ended.values()], removed: this.removed };
+    const remoteOff = this.boxes.filter((b) => b.claude && this.remoteOff.has(b.claude.pid)).map((b) => b.claude.pid);
+    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, created: this.created, boxes, ended: [...this.ended.values()], removed: this.removed, remoteOff };
     if (JSON.stringify(next) !== JSON.stringify(this.state)) {
       this.state = next;
       try {
@@ -916,7 +1044,9 @@ class Hub {
           this.working.delete(b.paneId);
           changed = true;
         }
-        const menu = parseMenu(text);
+        let menu = parseMenu(text);
+        // The Remote Control dialog the icon's click opens is answered by the app.
+        if (menu && this.remoteBusy.has(b.claude.pid) && menu.options.some((o) => /^Disconnect this session\b/.test(o.label))) menu = null;
         const sc = {
           activity: w ? mask(parseActivity(text) || '') || null : null,
           menu: menu && this.maskMenu(menu),
@@ -931,6 +1061,7 @@ class Hub {
       this.polling = false;
     }
     if (changed) this.emitBoxes();
+    this.syncRemote();
   }
 
   maskMenu(menu) {
@@ -1411,7 +1542,8 @@ class Hub {
     const m = FLAG_RE.test(model || '') ? model : this.cfg.model;
     const e = FLAG_RE.test(effort || '') ? effort : this.cfg.effort;
     const dirs = this.cfg.pluginDirs.map((d) => ` --plugin-dir '${d.replace(/'/g, "'\\''")}'`).join('');
-    let cmd = `claude${dirs} --dangerously-skip-permissions --model ${m} --effort ${e}`;
+    // Remote Control is on for every box the app starts or brings back.
+    let cmd = `claude${dirs} --dangerously-skip-permissions --remote-control --model ${m} --effort ${e}`;
     if (resume && UUID_RE.test(resume)) cmd += ` --resume ${resume}`;
     return cmd;
   }
