@@ -28,6 +28,11 @@
       "name": "chief",
       "path": "skills/chief",
       "description": "Run many Claude Code sessions at once. One chief routes work between tmux-hosted boxes and background runners, coordinates through a ledger, brings you one thing at a time, and on request gives the drill-down: a short numbered list of what needs you. chiefman, the Mac app, is its visual front end."
+    },
+    {
+      "name": "drill-down",
+      "path": "skills/drill-down",
+      "description": "The numbered list of what is in flight, read live: first what needs you now with the exact words that unblock it, answered by number. Over all boxes in the chief, one box's own work anywhere else."
     }
   ]
 }

@@ -16,11 +16,13 @@ The bet: coding agents are strongest when a human does the thinking up front and
 
 **`goal-alignment`**: the loop. Do all the deciding and proving *before* the loop starts, co-write a plain-english brief (Problem, Implementation, Verification), then hand the agent a self-correcting loop whose only completion criteria are fast checks that actually appear in the transcript. The end-to-end check through the real UI comes after the loop is green. Preparation is the product; the loop is the cheap part.
 
-**`chief`**: the operating model, and the biggest change to day-to-day work in this repo. One loop is easy to watch. Five loops in five terminals are not, and the human quietly becomes their switchboard. `chief` fixes that: you talk to one session, the chief. Every other session is a *box* (a long-lived workstream in its own tmux window) or a *runner* (a background worker for one job). The chief routes work, drives the boxes, keeps a registry of what is running, reads an append-only ledger the boxes write to, and brings you one thing at a time. Ask for the *drill-down* and it gives a short numbered list of what needs you now, one plain line per item with the answer words in quotes, and you answer by number. It ships with thirteen rules, each written down the day breaking it cost something, and each with its reason next to it.
+**`chief`**: the operating model, and the biggest change to day-to-day work in this repo. One loop is easy to watch. Five loops in five terminals are not, and the human quietly becomes their switchboard. `chief` fixes that: you talk to one session, the chief. Every other session is a *box* (a long-lived workstream in its own tmux window) or a *runner* (a background worker for one job). The chief routes work, drives the boxes, keeps a registry of what is running, reads an append-only ledger the boxes write to, and brings you one thing at a time. It ships with thirteen rules, each written down the day breaking it cost something, and each with its reason next to it.
+
+**`drill-down`**: the list. Ask the chief to *drill down* and it reads every box live and gives a short numbered list of what needs you now, one plain line per item with the answer words in quotes. You answer by number. Asked in any other box, the same list covers only that box's work.
 
 ## How they fit together
 
-`plain-english` is the foundation: the voice and working rules every reply obeys. `explain`, `goal-alignment` and `chief` inherit it, and `goal-alignment` also reuses `explain`'s pacing whenever it has to explain code mid-design. `chief` sits one level up: each `goal-alignment` loop runs inside a box, and the chief keeps all of them moving while you deal with one thing at a time. chiefman, the app below, is the screen you see it all on.
+`plain-english` is the foundation: the voice and working rules every reply obeys. `explain`, `goal-alignment`, `chief` and `drill-down` inherit it, and `goal-alignment` also reuses `explain`'s pacing whenever it has to explain code mid-design. `chief` sits one level up: each `goal-alignment` loop runs inside a box, and the chief keeps all of them moving while you deal with one thing at a time. `drill-down` is how the chief shows you everything in flight at once. chiefman, the app below, is the screen you see it all on.
 
 ```mermaid
 flowchart TD
@@ -28,18 +30,21 @@ flowchart TD
     explain["explain<br/>understanding mode"]
     goal["goal-alignment<br/>the loop"]
     chief["chief<br/>many loops, one conversation"]
+    drill["drill-down<br/>the list"]
     app["chiefman<br/>the Mac app"]
     plain -->|inherited by| explain
     plain -->|inherited by| goal
     plain -->|inherited by| chief
     explain -->|pacing reused by| goal
     chief -->|runs each loop in a box| goal
-    app -->|shows the boxes and the drill-down of| chief
+    chief -->|asks the boxes for| drill
+    app -->|shows the boxes of| chief
+    app -->|shows the cards of| drill
 ```
 
 ## chiefman, the Mac app
 
-chiefman is the visual front end of these skills. The app lives in this repo in the `app/` folder; `cd app && npm install && npm run app` builds it and installs it in ~/Applications. It is a small Mac app (Electron) over the chief's tmux session. It shows each box's conversation one message at a time, with the tool work hidden. It types your messages into a box, starts new boxes, and brings them all back after a reboot. The chief's drill-down shows as answer cards, one click per answer. The skills are shaped for it: replies read on their own without the tool work (`plain-english` R14), and the drill-down has a fixed shape the app can read (`chief`).
+chiefman is the visual front end of these skills. The app lives in this repo in the `app/` folder; `cd app && npm install && npm run app` builds it and installs it in ~/Applications. It is a small Mac app (Electron) over the chief's tmux session. It shows each box's conversation one message at a time, with the tool work hidden. It types your messages into a box, starts new boxes, and brings them all back after a reboot. The chief's drill-down shows as answer cards, one click per answer. The skills are shaped for it: replies read on their own without the tool work (`plain-english` R14), and the drill-down has a fixed shape the app can read (`drill-down`). The installed app carries this repo's skills and starts every box with them, so its Plain English, Explain and Drill down buttons need nothing else installed. To run your own copies instead, list their plugin folders under `"pluginDirs"` in `~/.chiefman/config.json`.
 
 Each message the app sends ends with the line `[sent from chiefman]`, which the app hides again. On start the app adds one `UserPromptSubmit` hook to `~/.claude/settings.json`, with its script in `~/.claude/hooks/chiefman-reply.sh`. For a message with that mark, the hook tells Claude how the app shows replies, so a box puts the questions you must settle in one `questions` block that the app turns into check marks, choices and check boxes. Messages typed in the terminal carry no mark and get nothing. To take the hook away, set `"replyHook": false` in `~/.chiefman/config.json`; the app removes its entry and script on its next start.
 
@@ -68,7 +73,7 @@ claude --plugin-dir /path/to/chiefman
 If you prefer to install them manually as individual skills, copy the folders into your skills directory:
 
 ```sh
-cp -r skills/plain-english skills/explain skills/goal-alignment skills/chief ~/.claude/skills/
+cp -r skills/plain-english skills/explain skills/goal-alignment skills/chief skills/drill-down ~/.claude/skills/
 ```
 
 ### Invocation

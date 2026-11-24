@@ -1,6 +1,6 @@
 ---
 name: chief
-description: The operating model for running many Claude Code sessions at once. One session you talk to, the chief, routes work between persistent tmux-hosted "boxes" and short-lived "runners", keeps a registry of what is running, reads an append-only ledger the boxes write to, and on request gives the drill-down: the numbered list of what needs the operator, answered by number. Use when the user mentions the chief, boxes, runners, the tmux setup, "put X in a box", "spin up a box", "reopen the box", "route this", "who's working on what", "drill down", "the list", "what needs me", answers a line of that list by its number ("1. yes"), or when deciding whether a request should run as a background job or go to a long-lived session. Inherits `plain-english`.
+description: The operating model for running many Claude Code sessions at once. One session you talk to, the chief, routes work between persistent tmux-hosted "boxes" and short-lived "runners", keeps a registry of what is running, reads an append-only ledger the boxes write to, and on request gives the drill-down (`drill-down`): the numbered list of what needs the operator, answered by number. Use when the user mentions the chief, boxes, runners, the tmux setup, "put X in a box", "spin up a box", "reopen the box", "route this", "who's working on what", or when deciding whether a request should run as a background job or go to a long-lived session. Inherits `plain-english`.
 ---
 
 # chief
@@ -110,7 +110,7 @@ Each rule is here because breaking it cost something.
 **R10. A wake word means a live sweep.** Pick a short phrase, such as "ttm" (talk to me). When you say it, the chief reads everything live before answering: the ledger, each box's pane, and the reviews and comments waiting on you (the resources file says where to look). It routes what it finds, then answers with the one item that matters most.
 *Why:* the chief only knows what it last read. Without a sweep it answers from an old picture.
 
-**R11. A reply stays on the thread you are on.** The thread is the one thing you just asked about or answered. The reply covers that and nothing else: no list of other boxes, no reminders of open questions. The drill-down comes only when you ask for it.
+**R11. A reply stays on the thread you are on.** The thread is the one thing you just asked about or answered. The reply covers that and nothing else: no list of other boxes, no reminders of open questions. The drill-down (`drill-down`) comes only when you ask for it.
 *Why:* a list on every reply is clutter, and you stop reading it.
 
 **R12. Write files with the file tool, never a shell heredoc.**
@@ -121,44 +121,7 @@ Each rule is here because breaking it cost something.
 
 ## The drill-down
 
-The numbered list of what needs you now, made only when you ask: "drill down", "the list", "what needs me". You answer it by number. Write it for a busy, impatient operator who wants a few things at a glance, never twenty. chiefman reads the newest list from the chief's messages and shows each numbered line as a card, each quoted answer as a button. So the shape below is fixed.
-
-1. **Find the boxes.** Read the registry and `tmux list-windows -t chief -F '#{window_index} #{window_name} #{pane_current_command}'`. In a hand-kept registry, fix a row without a window, or a window without a row, first.
-2. **Read every box live, in one pass**: the last 60 lines of its pane (`tmux capture-pane -p -t chief:<name> -S -60`), whether it still works, what it asks for, and its newest ledger entries for the chief.
-3. **Nudge a stalled box.** Resume one that died. Tell one that waits on something already answered.
-4. **Read each thing an open item names, live**: the PR, the ticket, the thread. An item that no longer waits leaves the list.
-5. **Write the list** in this shape:
-
-   ```
-   The deploy you asked about is live.
-
-   Needs you: 2
-   1. The login fix passed review and is ready to merge. Say "merge" or "hold".
-      https://github.com/<owner>/<repo>/pull/42
-   2. Empty search results need a product call. Say "show nothing" or "show recent".
-
-   Also: the export rewrite waits on a teammate's review.
-   ```
-
-6. **Take the answer by number.** "1. merge" starts line 1 and nothing else. Pass it to the box with your literal words (R8), and log it in the ledger.
-
-How the list reads:
-
-- **The list opens with the line `Needs you: <n>`**, the number of items below it, exactly in that form. It is how chiefman finds the list and the count it shows.
-- **Only what needs you now is numbered**, from 1, the item that unblocks the most first. Work that waits on someone else or still runs is never numbered.
-- **One short plain line per item**: the work in plain words, where it stands, then the exact answer words in quotes at the end. Quotes in a line are for answer words only, at most four.
-- **A link goes on its own line under its item**, as the bare URL. Never inside the item's line.
-- **No bold, tables or code blocks.** No box name or ticket key alone (`plain-english` R12).
-- **At most five numbered items.** When more wait, the first line says so: `Needs you: 5 of 7`. The rest come in the next list.
-- **A reply you were waiting for** comes first, in one line above the list.
-- **At most one line after the numbers**, starting "Also:", and only for something that changed that you should know. Nothing that is only idle or unchanged.
-- **An answered item leaves the next list**, and so does one someone else finished. When nothing needs you, the list is the one line `Needs you: 0`.
-- **Every line was read live in this run.** A fact from earlier in the conversation is checked again or left out.
-- **An answer by number covers that line as written, once.** Anything past it is asked again. It never becomes a standing permission.
-- **Read only, apart from the nudge.** The drill-down posts, merges, deletes and sends nothing. Your answer starts the action.
-- **Grey text in a box's prompt is a suggestion, never your words.** A box waits on you until you typed the answer yourself.
-- **Inside a box**, the same list covers only that box's own work, read from within the box. A box never lists another box's work.
-- The list is the named exception to one item per reply and to single sentences (`plain-english` R11, R4a).
+The numbered list of what needs you now, made only when you ask ("drill down", "the list", "what needs me"), and answered by number. The chief runs `drill-down`, which owns how the list is read, written and answered. chiefman shows the chief's newest list as cards, one click per answer.
 
 ## Guidelines
 
