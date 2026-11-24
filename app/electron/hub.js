@@ -1149,7 +1149,7 @@ class Hub {
     slot.sessionId = null;
     const file = sid && transcriptPath(this.cfg.claudeHome, cwd, sid);
     if (!file) {
-      if (!slot.empty) handlers.reset({ items: [], steps: 0 });
+      if (!slot.empty) handlers.reset({ items: [], now: null });
       slot.empty = true;
       return;
     }
@@ -1166,7 +1166,7 @@ class Hub {
   watchPane(paneId) {
     const w = this.watch;
     if (w && w.paneId === paneId && w.tr && w.tr.loaded) {
-      this.out({ type: 'chat-reset', paneId, items: w.tr.items, steps: w.tr.steps });
+      this.out({ type: 'chat-reset', paneId, items: w.tr.items, now: w.tr.now });
       return;
     }
     if (w && w.paneId === paneId) return;
@@ -1179,10 +1179,17 @@ class Hub {
     const w = this.watch;
     if (!w) return;
     this.follow(w, {
-      reset: (e) => this.watch === w && this.out({ type: 'chat-reset', paneId: w.paneId, items: e.items, steps: e.steps }),
-      add: (e) => this.watch === w && this.out({ type: 'chat-add', paneId: w.paneId, added: e.added, steps: e.steps }),
+      reset: (e) => this.watch === w && this.out({ type: 'chat-reset', paneId: w.paneId, items: e.items, now: e.now }),
+      add: (e) => this.watch === w && this.out({ type: 'chat-add', paneId: w.paneId, added: e.added, now: e.now }),
       context: (text) => this.watch === w && this.out({ type: 'context', paneId: w.paneId, text }),
     });
+  }
+
+  // What a step changed or printed, for the turn card he opened.
+  stepDetail(paneId, ids) {
+    const w = this.watch;
+    const tr = w && w.paneId === paneId && w.tr ? w.tr : this.chief && this.chief.paneId === paneId && this.chief.tr ? this.chief.tr : null;
+    return tr ? tr.detail(ids) : [];
   }
 
   syncChief() {
@@ -2254,7 +2261,7 @@ class Hub {
           }
           if (w && w.paneId === paneId && w.tr) {
             w.tr.cut(range);
-            this.out({ type: 'chat-reset', paneId, items: w.tr.items, steps: w.tr.steps });
+            this.out({ type: 'chat-reset', paneId, items: w.tr.items, now: w.tr.now });
           }
         }
         this.out({ type: 'draft', paneId, text: rw.text });

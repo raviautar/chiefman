@@ -1,12 +1,13 @@
 const fs = require('fs');
 const { EventEmitter } = require('events');
+const { StringDecoder } = require('string_decoder');
 const { mask } = require('./mask');
 const { unmark } = require('./mark');
 const { splitAsks } = require('./asks');
+const { describe, doing, takeResult, summarize, detailOf } = require('./steps');
 
 const CHUNK = 16 * 1024 * 1024;
-const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
-const KEEP_TYPES = ['{"type":"user"', '{"type":"assistant"', '{"type":"system"', '{"type":"attachment"'];
+const KEEP_TYPES = ['{"type":"user"', '{"type":"assistant"', '{"type":"system"', '{"type":"attachment"', '{"type":"pr-link"'];
 // Commands the app sends for its own buttons; they never show as bubbles.
 const HIDDEN = /^\/(model|effort|rename|remote-control|context|compact|clear)\b/;
 const NOT_A_MESSAGE = /^\s*(<(command-|local-command|bash-|system-reminder|task-notification|user-prompt-submit|teammate-message|tick>)|\[Request interrupted|Caveat: )/;
@@ -76,24 +77,20 @@ function typedAnswers(r) {
 
 const near = (a, b, ms) => Math.abs(Date.parse(a) - Date.parse(b)) < ms;
 
-function duration(ms) {
-  const s = Math.max(1, Math.round(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m} min`;
-  return `${Math.floor(m / 60)} h ${m % 60} min`;
-}
+const newTurn = (anchor, ts) => ({ anchor, steps: [], open: new Map(), fresh: [], startTs: ts, lastTs: ts, durationMs: null });
 
 // Skips the big log lines (API requests, file snapshots) without parsing them.
 function worthParsing(line) {
   if (!line) return false;
   if (line.startsWith('{"type":"')) return KEEP_TYPES.some((p) => line.startsWith(p));
-  return line.includes('"user"') || line.includes('"assistant"') || line.includes('turn_duration') || line.includes('queued_command') || line.includes('local_command') || line.includes('compact_boundary');
+  return line.includes('"user"') || line.includes('"assistant"') || line.includes('turn_duration') || line.includes('queued_command') || line.includes('local_command') || line.includes('compact_boundary') || line.includes('"pr-link"');
 }
 
 // Follows one session log, start to end, and keeps what is worth showing:
-// his messages, each text block the box writes, and one line per turn of work.
-// Emits 'reset' once loaded, then 'add' with each new item and where it goes.
+// his messages, each text block the box writes, and one line of facts per
+// turn of work, which carries what each step was (steps.js).
+// Emits 'reset' once loaded, then 'add' with each new item and where it goes,
+// and `now`: the turn that runs, its newest step and its failures.
 // A message the app sent carries its mark: the mark is taken out, the item
 // says app, and the box's replies to it bring their questions as `asks`.
 class Transcript extends EventEmitter {
@@ -109,6 +106,13 @@ class Transcript extends EventEmitter {
     this.turn = null;
     this.offset = 0;
     this.rest = '';
+    // Where in the log each step's call and result lines are (byte offset,
+    // length), so a change or an output loads only when he opens it.
+    this.pos = 0;
+    this.dec = new StringDecoder('utf8');
+    this.where = new Map();
+    // PR links Claude Code noted for this session: link -> number, repo.
+    this.prs = new Map();
     this.added = [];
     this.loaded = false;
     this.watcher = null;
@@ -121,7 +125,7 @@ class Transcript extends EventEmitter {
     this.placeMarks();
     this.loaded = true;
     this.added = [];
-    this.emit('reset', { items: this.items, steps: this.steps });
+    this.emit('reset', { items: this.items, now: this.now });
     if (!this.watcher) {
       try {
         this.watcher = fs.watch(this.file, () => this.follow());
@@ -137,8 +141,61 @@ class Transcript extends EventEmitter {
     this.removeAllListeners();
   }
 
-  get steps() {
-    return this.turn ? this.turn.steps : 0;
+  // The turn that runs: how many steps, the newest one's words as they read
+  // while it runs, when it started, and the steps that failed so far.
+  get now() {
+    const t = this.turn;
+    if (!t) return null;
+    const last = t.steps[t.steps.length - 1];
+    return {
+      n: t.steps.length,
+      say: last ? doing(last.say) : null,
+      since: t.startTs || null,
+      failed: t.steps
+        .filter((s) => s.failed)
+        .slice(-3)
+        .map((s) => ({ id: s.id, say: s.say })),
+    };
+  }
+
+  nowKey() {
+    const t = this.turn;
+    return t ? `${t.startTs}|${t.steps.length}|${t.steps.filter((s) => s.failed).length}` : '';
+  }
+
+  // A file's change or a step's output, read again from the log.
+  detail(ids) {
+    const out = [];
+    let fd;
+    try {
+      fd = fs.openSync(this.file, 'r');
+    } catch {
+      return out;
+    }
+    const line = (spot, id) => {
+      if (!spot || spot[1] > 64 * 1024 * 1024) return null;
+      const buf = Buffer.alloc(spot[1]);
+      fs.readSync(fd, buf, 0, spot[1], spot[0]);
+      const s = buf.toString('utf8');
+      if (!s.includes(id)) return null;
+      try {
+        return JSON.parse(s);
+      } catch {
+        return null;
+      }
+    };
+    try {
+      for (const id of ids.slice(0, 50)) {
+        const w = this.where.get(id);
+        if (!w) continue;
+        const d = detailOf(id, line(w.use, id), line(w.res, id));
+        if (d) out.push(d);
+      }
+    } catch {
+    } finally {
+      fs.closeSync(fd);
+    }
+    return out;
   }
 
   async load() {
@@ -155,7 +212,7 @@ class Transcript extends EventEmitter {
         const buf = Buffer.alloc(len);
         fs.readSync(fd, buf, 0, len, this.offset);
         this.offset += len;
-        this.takeText(buf.toString('utf8'));
+        this.takeText(this.dec.write(buf));
         await new Promise((r) => setImmediate(r));
       }
     } finally {
@@ -178,6 +235,10 @@ class Transcript extends EventEmitter {
       this.lastApp = false;
       this.offset = 0;
       this.rest = '';
+      this.pos = 0;
+      this.dec = new StringDecoder('utf8');
+      this.where.clear();
+      this.prs.clear();
       this.loaded = false;
       this.start();
       return;
@@ -192,12 +253,12 @@ class Transcript extends EventEmitter {
       fs.closeSync(fd);
     }
     this.offset = size;
-    const before = this.steps;
-    this.takeText(buf.toString('utf8'));
-    if (this.added.length || before !== this.steps) {
+    const before = this.nowKey();
+    this.takeText(this.dec.write(buf));
+    if (this.added.length || before !== this.nowKey()) {
       const added = this.added;
       this.added = [];
-      this.emit('add', { added, steps: this.steps });
+      this.emit('add', { added, now: this.now });
     }
   }
 
@@ -205,6 +266,9 @@ class Transcript extends EventEmitter {
     const lines = (this.rest + text).split('\n');
     this.rest = lines.pop();
     for (const line of lines) {
+      const at = this.pos;
+      const len = Buffer.byteLength(line, 'utf8');
+      this.pos += len + 1;
       if (!worthParsing(line)) continue;
       let d;
       try {
@@ -212,7 +276,7 @@ class Transcript extends EventEmitter {
       } catch {
         continue;
       }
-      this.take(d);
+      this.take(d, [at, len]);
     }
   }
 
@@ -240,7 +304,7 @@ class Transcript extends EventEmitter {
     if (this.loaded) {
       const added = this.added;
       this.added = [];
-      this.emit('add', { added, steps: this.steps });
+      this.emit('add', { added, now: this.now });
     }
   }
 
@@ -273,27 +337,61 @@ class Transcript extends EventEmitter {
     this.insert(item, this.items.length);
   }
 
+  // The turn's line of facts goes under its last reply. A turn that only
+  // read gets none.
   endTurn(lastTs) {
     const t = this.turn;
     this.turn = null;
-    if (!t || !t.steps) return;
+    if (!t || !t.steps.length) return;
     const ms = t.durationMs != null ? t.durationMs : Date.parse(lastTs || t.lastTs) - Date.parse(t.startTs);
-    // Short jobs get no line; the answer says enough.
-    if (!(ms >= 30000)) return;
-    let text = `Worked for ${duration(ms || 0)} · ${t.steps} ${t.steps === 1 ? 'step' : 'steps'}`;
-    if (t.files.size) text += ` · ${t.files.size} ${t.files.size === 1 ? 'file' : 'files'} changed`;
-    const item = { id: 'work:' + (t.anchor || t.startTs), k: 'work', t: text, ts: lastTs || t.lastTs };
+    const { line, turn } = summarize(t.steps, Number.isFinite(ms) ? ms : null, this.prs, t.fresh);
+    if (!line) return;
+    const item = { id: 'work:' + (t.anchor || t.startTs), k: 'work', t: line, ts: lastTs || t.lastTs, turn };
     if (this.seen.has(item.id) || this.hidden(item)) return;
     this.seen.add(item.id);
-    const a = t.anchor ? this.items.findIndex((i) => i.id === t.anchor) : -1;
-    this.insert(item, a < 0 ? this.items.length : a + 1);
+    // Above the app's own "Interrupted" for this turn.
+    let at = this.items.length;
+    const start = Date.parse(t.startTs);
+    while (at > 0 && this.items[at - 1].id.startsWith('m:') && !(Date.parse(this.items[at - 1].ts) < start)) at--;
+    this.insert(item, at);
   }
 
-  take(d) {
+  // A tool call becomes a step of the turn; its result fills it in.
+  step(b, ts, spot) {
+    if (!this.turn) this.turn = newTurn(null, ts);
+    const s = { id: typeof b.id === 'string' ? b.id : `s${this.turn.steps.length}`, tool: b.name, ...describe(String(b.name || ''), b.input) };
+    this.turn.steps.push(s);
+    this.turn.open.set(s.id, s);
+    this.where.set(s.id, { use: spot });
+  }
+
+  results(d, spot) {
+    const c = d.message && d.message.content;
+    if (!Array.isArray(c) || !this.turn) return;
+    for (const b of c) {
+      if (!b || b.type !== 'tool_result') continue;
+      const s = this.turn.open.get(b.tool_use_id);
+      if (!s) continue;
+      this.turn.open.delete(b.tool_use_id);
+      takeResult(s, b, d.toolUseResult);
+      const w = this.where.get(s.id);
+      if (w) w.res = spot;
+    }
+  }
+
+  take(d, spot) {
     if (!d || d.isSidechain) return;
     const ts = d.timestamp;
     if (this.turn && ts) this.turn.lastTs = ts;
+    if (d.type === 'pr-link') {
+      const u = typeof d.prUrl === 'string' ? d.prUrl : null;
+      if (!u || this.prs.has(u)) return;
+      this.prs.set(u, { n: Number(d.prNumber) || null, repo: typeof d.prRepository === 'string' ? d.prRepository : null });
+      if (this.turn) this.turn.fresh.push(u);
+      return;
+    }
     if (d.type === 'user') {
+      this.results(d, spot);
       if (d.isMeta || d.isCompactSummary || d.isVisibleInTranscriptOnly) return;
       // Words he typed into Claude Code's question show as his message.
       const typed = typedAnswers(d.toolUseResult);
@@ -332,7 +430,7 @@ class Transcript extends EventEmitter {
         const quiet = skillLine(cmd);
         const app = cu.app ? { app: true } : {};
         this.push(quiet ? { id: 'u:' + d.uuid, k: 'work', t: quiet, ts, ...app } : { id: 'u:' + d.uuid, k: 'you', t: mask(cmd), ts, ...app });
-        this.turn = { anchor: 'u:' + d.uuid, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
+        this.turn = newTurn('u:' + d.uuid, ts);
         return;
       }
       // Newer Claude versions log a command's output as a user line.
@@ -353,7 +451,7 @@ class Transcript extends EventEmitter {
       this.lastApp = u.app;
       const id = 'u:' + d.uuid;
       this.push({ id, k: 'you', t: mask(u.text), ts, ...(u.app ? { app: true } : {}) });
-      this.turn = { anchor: id, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
+      this.turn = newTurn(id, ts);
       return;
     }
     if (d.type === 'attachment') {
@@ -379,10 +477,7 @@ class Transcript extends EventEmitter {
           const q = this.lastApp ? splitAsks(mask(t)) : null;
           this.push(q ? { id, k: 'box', t: q.text, ts, asks: q.asks } : { id, k: 'box', t: mask(t), ts });
         } else if (b.type === 'tool_use') {
-          if (!this.turn) this.turn = { anchor: null, steps: 0, files: new Set(), startTs: ts, lastTs: ts, durationMs: null };
-          this.turn.steps++;
-          const fp = b.input && (b.input.file_path || b.input.notebook_path);
-          if (EDIT_TOOLS.has(b.name) && fp) this.turn.files.add(fp);
+          this.step(b, ts, spot);
         }
       });
       return;

@@ -79,6 +79,40 @@ export interface Item {
   app?: boolean;
   // The questions at the end of a reply to a message from the app.
   asks?: Ask[];
+  // A turn's line of facts: what the turn did, by kind.
+  turn?: Turn;
+}
+
+// What one turn of work did. Each row names the steps it came from (ids),
+// whose change or output loads when he opens it.
+export interface Turn {
+  ms: number | null;
+  n: number;
+  files: { path: string; name: string; add: number; del: number; ids: string[]; created?: boolean }[];
+  // Writes to other systems: draft, sent, or another change.
+  outside: { id: string; say: string; service: string; write: 'draft' | 'sent' | 'change'; link?: string }[];
+  git: { id: string; kind: 'commit' | 'push' | 'opened' | 'merged' | 'closed' | 'ready' | 'rebased' | 'branch' | 'pr'; say: string; link?: string; n?: number }[];
+  failed: { id: string; say: string; tail: string[] }[];
+  // The steps that only read (missed: it failed, and the box went on).
+  other: { id: string; say: string; missed?: boolean }[];
+}
+
+// The turn that runs now: its newest step as it reads while it runs, when
+// it started, and what failed so far.
+export interface TurnNow {
+  n: number;
+  say: string | null;
+  since: string | null;
+  failed: { id: string; say: string }[];
+}
+
+// A step read again from the log: a file's change, or what it printed.
+export interface StepDetail {
+  id: string;
+  diff?: string;
+  out?: string;
+  cut?: number;
+  cmd?: string;
 }
 
 export interface DrillItem {
@@ -150,8 +184,8 @@ export type HubEvent =
   | { type: 'select'; paneId: string }
   | { type: 'context'; paneId: string; text: string }
   | { type: 'notice'; text: string; bad?: boolean }
-  | { type: 'chat-reset'; paneId: string; items: Item[]; steps: number }
-  | { type: 'chat-add'; paneId: string; added: { item: Item; after: string | null }[]; steps: number }
+  | { type: 'chat-reset'; paneId: string; items: Item[]; now: TurnNow | null }
+  | { type: 'chat-add'; paneId: string; added: { item: Item; after: string | null }[]; now: TurnNow | null }
   | { type: 'drill'; drill: Drill | null }
   | ({ type: 'plan' } & PlanInfo)
   | { type: 'term'; paneId: string; data: string }
@@ -216,6 +250,7 @@ interface Bridge {
   closeBox(paneId: string): Promise<Result>;
   rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
   files(paneId: string, query: string): Promise<string[]>;
+  steps(paneId: string, ids: string[]): Promise<StepDetail[]>;
   drafts(): Promise<Record<string, Draft>>;
   saveDrafts(d: Record<string, Draft>): void;
   openUrl(url: string): void;

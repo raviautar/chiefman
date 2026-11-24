@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { api, Ask, Box, Draft, Item, MAX_SEND, Menu, Result, tooLong } from './api';
+import { api, Ask, Box, Draft, Item, MAX_SEND, Menu, Result, tooLong, type TurnNow } from './api';
 import { Arrow, Check } from './icons';
 import { Markdown, More, useFold } from './Markdown';
 import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
@@ -8,7 +8,8 @@ import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
 export interface ChatState {
   items: Item[];
   fresh: Set<string>;
-  steps: number;
+  // The turn that runs now, if any.
+  now: TurnNow | null;
   loaded: boolean;
 }
 

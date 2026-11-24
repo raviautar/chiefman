@@ -206,7 +206,7 @@ export function App() {
           setTick((t) => t + 1);
           break;
         case 'chat-reset':
-          setChats((c) => ({ ...c, [ev.paneId]: { items: ev.items, fresh: new Set(), steps: ev.steps, loaded: true } }));
+          setChats((c) => ({ ...c, [ev.paneId]: { items: ev.items, fresh: new Set(), now: ev.now, loaded: true } }));
           break;
         case 'chat-add': {
           const fresh = new Set(ev.added.map((a) => a.item.id));
@@ -228,7 +228,7 @@ export function App() {
                 else items.splice(at + 1, 0, item);
               }
             }
-            return { ...c, [ev.paneId]: { items, fresh, steps: ev.steps, loaded: true } };
+            return { ...c, [ev.paneId]: { items, fresh, now: ev.now, loaded: true } };
           });
           break;
         }

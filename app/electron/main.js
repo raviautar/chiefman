@@ -244,6 +244,9 @@ function wireIpc() {
       : { ok: false, reason: 'Bad request.' },
   );
   handle('cm:files', (p, q) => (PANE.test(p) && typeof q === 'string' && q.length < 200 ? hub.files(p, q) : []));
+  handle('cm:steps', (p, ids) =>
+    PANE.test(p) && Array.isArray(ids) && ids.length <= 50 && ids.every((i) => typeof i === 'string' && i.length < 200) ? hub.stepDetail(p, ids) : [],
+  );
   act('cm:remote', (p, what) => (PANE.test(p) && ['on', 'off', 'link'].includes(what) ? hub.remote(p, what) : { ok: false, reason: 'Bad request.' }));
   on('cm:copy', (t) => {
     if (typeof t === 'string' && /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(t)) clipboard.writeText(t);
