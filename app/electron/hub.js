@@ -6,7 +6,8 @@ const { Transcript } = require('./transcript');
 const { newestDrill } = require('./drilldown');
 const { State } = require('./state');
 const { mask } = require('./mask');
-const { promptState, parseActivity, parseMenu, parseMode, promptText, strip, SEND_ALL } = require('./screen');
+const { promptState, parseActivity, parseMenu, parseMode, promptText, strip, SEND_ALL, parseShells, planAbove } = require('./screen');
+const { Live, askWords } = require('./live');
 const { DefaultKeeper } = require('./defaults');
 const { Usage, modelName } = require('./usage');
 const { readPlan, readWorkspace } = require('./plan');
@@ -463,10 +464,35 @@ class Hub {
     return this.working.has(b.paneId) ? 'working' : null;
   }
 
+  // What the box started that still runs on its own, its todo list and its
+  // last turn's line of facts, from its log; the foot of its screen counts
+  // its background shells.
+  liveOf(b, sc) {
+    const u = this.usage.get(b.windowId);
+    const lv = b.claude && u && u.live;
+    if (!lv) return { live: null, todo: null, last: null };
+    const from = Number(new Date(b.claude.startedAt)) || 0;
+    const shells = sc.shells === undefined ? null : sc.shells;
+    return { live: lv.summary(from, shells), todo: lv.todo(from), last: lv.last };
+  }
+
+  // The long form of what runs, for the card he opened.
+  liveDetail(paneId) {
+    const b = this.boxes.find((x) => x.paneId === paneId);
+    const u = b && this.usage.get(b.windowId);
+    if (!b || !b.claude || !u || !u.live) return [];
+    const sc = this.screens.get(paneId) || {};
+    return u.live.detail(Number(new Date(b.claude.startedAt)) || 0, sc.shells === undefined ? null : sc.shells);
+  }
+
   livePublicBoxes() {
     const tabBar = this.tabFormat || [...this.tabs.values()].some(Boolean);
     return this.boxes.map((b) => {
       const sc = this.screens.get(b.paneId) || {};
+      const lv = this.liveOf(b, sc);
+      let tab = this.tabOf(b, sc, tabBar);
+      // Its turn is over, but something it started still runs: waiting.
+      if (lv.live && tab !== 'working' && tab !== 'asks' && !sc.menu && !this.working.has(b.paneId)) tab = 'waiting';
       return {
         id: b.windowId,
         name: b.name,
@@ -474,7 +500,8 @@ class Hub {
         icon: b.icon,
         color: b.color,
         status: this.status(b),
-        tab: this.tabOf(b, sc, tabBar),
+        tab,
+        ...lv,
         since: this.working.get(b.paneId) || null,
         activity: this.working.has(b.paneId) ? sc.activity || null : null,
         menu: sc.menu || null,
@@ -515,6 +542,7 @@ class Hub {
         u.cwd = b.claude.cwd;
         const f = transcriptPath(this.cfg.claudeHome, b.claude.cwd, sid);
         u.cur = f ? new Usage(f) : null;
+        u.live = f ? new Live(f) : null;
         this.soon('usage', 50, () => this.pollUsage());
       }
       if (b.claude && b.claude.pid && !this.launch.has(b.claude.pid)) {
@@ -541,15 +569,19 @@ class Hub {
     if (this.usagePolling) return;
     this.usagePolling = true;
     let changed = false;
+    // What runs, the todo list or the last turn moved: the sidebar redraws.
+    let moved = false;
     try {
       for (const u of [...this.usage.values()]) {
         // A new session writes its transcript only with its first message.
         if (u.sid && !u.cur) {
           const f = transcriptPath(this.cfg.claudeHome, u.cwd, u.sid);
           if (f) u.cur = new Usage(f);
+          if (f) u.live = new Live(f);
         }
         for (const o of u.olds) if (await o.poll()) changed = true;
         if (u.cur && (await u.cur.poll())) changed = true;
+        if (u.live && (await u.live.poll())) moved = true;
       }
     } finally {
       this.usagePolling = false;
@@ -558,7 +590,7 @@ class Hub {
       this.recordState();
       this.emitBoxes();
       this.autoName();
-    }
+    } else if (moved) this.emitBoxes();
   }
 
   // A box the app named from his first message takes the name its reply
@@ -1116,10 +1148,12 @@ class Hub {
         if (menu && this.remoteBusy.has(b.claude.pid) && menu.options.some((o) => /^Disconnect this session\b/.test(o.label))) menu = null;
         // So is the review step after his last answer to a question menu.
         if (menu && menu.review && this.confirming.has(b.paneId)) menu = null;
+        if (menu && (menu.perm || menu.plan)) await this.askedBy(b, menu, text);
         const sc = {
           activity: w ? mask(parseActivity(text) || '') || null : null,
           menu: menu && this.maskMenu(menu),
           mode: parseMode(text),
+          shells: parseShells(text),
         };
         if (JSON.stringify(sc) !== JSON.stringify(this.screens.get(b.paneId) || {})) {
           this.screens.set(b.paneId, sc);
@@ -1146,7 +1180,25 @@ class Hub {
       esc: !!menu.esc,
       free: menu.free || null,
       ...(menu.multi ? { multi: true, button: menu.button || null } : {}),
+      ...(menu.ask ? { perm: menu.ask } : {}),
+      ...(menu.plan ? { plan: mask(menu.planText || '') } : {}),
     };
+  }
+
+  // What Claude Code's own permission question asks about, in plain words,
+  // and the plan its plan approval shows: from the box's log, where the call
+  // waiting for the answer has no result yet, else from the screen.
+  async askedBy(b, menu, text) {
+    const u = this.usage.get(b.windowId);
+    const lv = u && u.live;
+    if (lv) await lv.poll().catch(() => {});
+    if (menu.plan) {
+      menu.planText = (lv && lv.plan && lv.plan.text) || planAbove(text);
+      return;
+    }
+    const screen = strip(text);
+    const calls = lv ? lv.pending() : [];
+    menu.ask = askWords(calls, menu.perm, screen);
   }
 
   // ---- chat --------------------------------------------------------------

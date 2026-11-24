@@ -162,7 +162,8 @@ function notice(boxes) {
     const now = { status: b.status, menu: !!b.menu };
     lastSeen.set(b.paneId, now);
     if (!prev) continue;
-    const done = prev.status === 'working' && b.status === 'idle';
+    // A box still waiting on something it started is not done yet.
+    const done = prev.status === 'working' && b.status === 'idle' && b.tab !== 'waiting';
     const asks = !prev.menu && now.menu;
     if (!done && !asks) continue;
     const front = win && win.isFocused() && hub && hub.watch && hub.watch.paneId === b.paneId;
@@ -281,6 +282,7 @@ function wireIpc() {
   handle('cm:steps', (p, ids) =>
     PANE.test(p) && Array.isArray(ids) && ids.length <= 50 && ids.every((i) => typeof i === 'string' && i.length < 200) ? hub.stepDetail(p, ids) : [],
   );
+  handle('cm:live', (p) => (PANE.test(p) ? hub.liveDetail(p) : []));
   act('cm:remote', (p, what) => (PANE.test(p) && ['on', 'off', 'link'].includes(what) ? hub.remote(p, what) : { ok: false, reason: 'Bad request.' }));
   // Copy buttons: a session link, a code block, a draft he posts himself.
   on('cm:copy', (t) => {

@@ -10,8 +10,14 @@ export interface Box {
   color: string;
   status: Status;
   // The same state as the box's tmux tab: working, asks (it asked him
-  // something), done. Shown only as a coloured dot.
-  tab: 'working' | 'asks' | 'done' | null;
+  // something), waiting (its turn is over but something it started still
+  // runs), done. Shown only as a coloured dot.
+  tab: 'working' | 'asks' | 'waiting' | 'done' | null;
+  // What it started that runs on its own now; its todo list while some is
+  // left; its last turn's line of facts.
+  live?: LiveSum | null;
+  todo?: Todo | null;
+  last?: { line: string; at: number } | null;
   since: number | null;
   activity: string | null;
   menu: Menu | null;
@@ -58,6 +64,55 @@ export interface Menu {
   // Several picks allowed; button is the line that sends them (Submit, Next).
   multi?: boolean;
   button?: string | null;
+  // Claude Code's own permission question: what it asks to do.
+  perm?: Perm;
+  // Claude Code's approval of a plan: the plan, as Markdown.
+  plan?: string;
+}
+
+// A tool call he is asked to allow. say: what it does in plain words; what:
+// the command, file or page; body: the change or the content (a diff when
+// diff); note: the box's own words for it.
+export interface Perm {
+  say: string;
+  what: string;
+  body: string | null;
+  note: string | null;
+  diff?: boolean;
+}
+
+// What a box started that runs on its own: how many of each, since when the
+// oldest runs, and its words (on).
+export interface LiveSum {
+  agents: number;
+  commands: number;
+  watches: number;
+  since: number;
+  on: string;
+  kind: 'agent' | 'command' | 'watch';
+  more: number;
+}
+
+// One of them in full: done is when it ended (with its status), report is
+// an agent's answer, last is the last line a command printed.
+export interface LiveItem {
+  id: string;
+  kind: 'agent' | 'command' | 'watch';
+  say: string;
+  since: number;
+  done: number | null;
+  status: 'completed' | 'failed' | 'killed' | 'stopped' | null;
+  report: string | null;
+  last: string | null;
+}
+
+// A box's todo list: s is pending, in_progress or completed; now is what it
+// does at the moment.
+export interface Todo {
+  done: number;
+  total: number;
+  now: string | null;
+  list: { t: string; s: string }[];
 }
 
 // One choice of a question: recommended when the box marked it with a *,
@@ -275,6 +330,8 @@ interface Bridge {
   rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
   files(paneId: string, query: string): Promise<string[]>;
   steps(paneId: string, ids: string[]): Promise<StepDetail[]>;
+  // What the box started that runs on its own, in full.
+  live(paneId: string): Promise<LiveItem[]>;
   drafts(): Promise<Record<string, Draft>>;
   saveDrafts(d: Record<string, Draft>): void;
   openUrl(url: string): void;

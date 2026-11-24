@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('chiefman', {
   rewind: (paneId, spec) => ipcRenderer.invoke('cm:rewind', paneId, spec),
   files: (paneId, query) => ipcRenderer.invoke('cm:files', paneId, query),
   steps: (paneId, ids) => ipcRenderer.invoke('cm:steps', paneId, ids),
+  live: (paneId) => ipcRenderer.invoke('cm:live', paneId),
   drafts: () => ipcRenderer.invoke('cm:drafts'),
   saveDrafts: (d) => ipcRenderer.send('cm:drafts-save', d),
   openUrl: (url) => ipcRenderer.send('cm:open-url', url),
