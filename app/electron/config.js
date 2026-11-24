@@ -7,7 +7,7 @@ const expand = (p) => (typeof p === 'string' ? p.replace(/^~(?=$|\/)/, home) : p
 const stateDir = expand(process.env.CHIEFMAN_STATE_DIR || '~/.chiefman');
 
 // Settings live in <stateDir>/config.json, outside the code:
-// { "workdir", "pluginDirs": [...], "tmuxSession", "model", "effort" }.
+// { "workdir", "pluginDirs": [...], "tmuxSession", "model", "effort", "replyHook" }.
 // Environment variables override it, for test runs.
 function readConfig() {
   try {
@@ -44,6 +44,8 @@ module.exports = {
   model: process.env.CHIEFMAN_MODEL || file.model || 'claude-opus-5-5',
   effort: process.env.CHIEFMAN_EFFORT || file.effort || 'xhigh',
   pluginDirs: dirs,
+  // false: no hook in the user's Claude settings, and the app takes its own away.
+  replyHook: process.env.CHIEFMAN_REPLY_HOOK !== '0' && file.replyHook !== false,
   claudeHome: path.join(home, '.claude'),
   devUrl: process.env.CHIEFMAN_DEV_URL || '',
   devHook: process.env.CHIEFMAN_DEV_HOOK || '',

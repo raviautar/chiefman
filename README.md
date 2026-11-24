@@ -41,6 +41,8 @@ flowchart TD
 
 chiefman is the visual front end of these skills. The app lives in this repo in the `app/` folder; `cd app && npm install && npm run app` builds it and installs it in ~/Applications. It is a small Mac app (Electron) over the chief's tmux session. It shows each box's conversation one message at a time, with the tool work hidden. It types your messages into a box, starts new boxes, and brings them all back after a reboot. The chief's drill-down shows as answer cards, one click per answer. The skills are shaped for it: replies read on their own without the tool work (`plain-english` R14), and the drill-down has a fixed shape the app can read (`chief`).
 
+Each message the app sends ends with the line `[sent from chiefman]`, which the app hides again. On start the app adds one `UserPromptSubmit` hook to `~/.claude/settings.json`, with its script in `~/.claude/hooks/chiefman-reply.sh`. For a message with that mark, the hook tells Claude how the app shows replies, so a box puts the questions you must settle in one `questions` block that the app turns into check marks, choices and check boxes. Messages typed in the terminal carry no mark and get nothing. To take the hook away, set `"replyHook": false` in `~/.chiefman/config.json`; the app removes its entry and script on its next start.
+
 ## Why "in the loop"
 
 Two readings, both intended. The agent runs *in a loop*, a condition re-graded every turn by an independent grader until it's met. And you, the human, stay *in the loop*: you do the architecture, resolve every decision, and prove the runway before a single turn runs. `goal-alignment` exists to make both true at once.

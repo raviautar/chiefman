@@ -1,0 +1,143 @@
+const fs = require('fs');
+const path = require('path');
+const { MARK, RULES } = require('./mark');
+const { rawValue, withValue } = require('./defaults');
+
+// One UserPromptSubmit hook in the user's Claude settings, for every box,
+// also those the app did not start. It prints chiefman's rules only for a
+// message that carries the mark, so the terminal is untouched. It is
+// chiefman's alone: its own script file, and one entry that names it.
+// "replyHook": false in config.json takes both away again.
+const SCRIPT = 'chiefman-reply.sh';
+
+function scriptText() {
+  return [
+    '#!/bin/sh',
+    '# Added by the chiefman app. For a message sent from chiefman (it carries the',
+    '# mark below), it prints how chiefman shows replies. Any other message: nothing.',
+    '# To take it away, set "replyHook": false in ~/.chiefman/config.json.',
+    'input=$(cat)',
+    'case "$input" in',
+    `  *"${MARK}"*) ;;`,
+    '  *) exit 0 ;;',
+    'esac',
+    "cat <<'CHIEFMAN_RULES'",
+    RULES,
+    'CHIEFMAN_RULES',
+    '',
+  ].join('\n');
+}
+
+const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
+
+function entryFor(file) {
+  return { hooks: [{ type: 'command', command: `sh ${quote(file)} 2>/dev/null; true`, timeout: 5 }] };
+}
+
+const ours = (e) => !!e && Array.isArray(e.hooks) && e.hooks.some((h) => h && typeof h.command === 'string' && h.command.includes(SCRIPT));
+
+function readText(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    return e && e.code === 'ENOENT' ? '' : null;
+  }
+}
+
+// Writes the settings file with only UserPromptSubmit changed, checked
+// before it is written, so the rest keeps every byte Claude wrote.
+function writeList(settings, list, log) {
+  let real = settings;
+  try {
+    real = fs.realpathSync(settings);
+  } catch {}
+  const text = readText(real);
+  if (text === null) return log('reply hook', { done: false, why: 'settings unreadable' });
+  let before = {};
+  if (text.trim()) {
+    try {
+      before = JSON.parse(text);
+    } catch {
+      return log('reply hook', { done: false, why: 'settings not JSON' });
+    }
+  }
+  // An empty list takes the key away.
+  const raw = list.length ? JSON.stringify(list, null, 2).replace(/\n/g, '\n    ') : null;
+  let next;
+  if (!text.trim()) next = JSON.stringify({ hooks: { UserPromptSubmit: list } }, null, 2) + '\n';
+  else if (rawValue(text, ['hooks']) === null) next = raw === null ? text : withValue(text, ['hooks'], JSON.stringify({ UserPromptSubmit: list }, null, 2).replace(/\n/g, '\n  '));
+  else next = withValue(text, ['hooks', 'UserPromptSubmit'], raw);
+  let after;
+  try {
+    after = JSON.parse(next);
+  } catch {
+    return log('reply hook', { done: false, why: 'edit not JSON' });
+  }
+  const strip = (o) => {
+    const c = JSON.parse(JSON.stringify(o || {}));
+    if (c.hooks && typeof c.hooks === 'object') {
+      delete c.hooks.UserPromptSubmit;
+      if (!Object.keys(c.hooks).length) delete c.hooks;
+    }
+    return JSON.stringify(c);
+  };
+  if (strip(after) !== strip(before) || JSON.stringify((after.hooks || {}).UserPromptSubmit || []) !== JSON.stringify(list)) {
+    return log('reply hook', { done: false, why: 'edit check failed' });
+  }
+  let mode = 0o600;
+  try {
+    mode = fs.statSync(real).mode & 0o777;
+  } catch {}
+  const tmp = path.join(path.dirname(real), `.${path.basename(real)}.chiefman-${process.pid}`);
+  fs.writeFileSync(tmp, next, { mode });
+  fs.renameSync(tmp, real);
+  return true;
+}
+
+function currentList(settings) {
+  const text = readText(settings);
+  if (text === null) return null;
+  if (!text.trim()) return [];
+  try {
+    const list = ((JSON.parse(text) || {}).hooks || {}).UserPromptSubmit;
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return null;
+  }
+}
+
+function ensureReplyHook(claudeHome, log) {
+  const file = path.join(claudeHome, 'hooks', SCRIPT);
+  const settings = path.join(claudeHome, 'settings.json');
+  try {
+    const body = scriptText();
+    if (readText(file) !== body) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, body, { mode: 0o755 });
+      log('reply hook script written');
+    }
+    const list = currentList(settings);
+    if (list === null) return log('reply hook', { done: false, why: 'settings unreadable' });
+    const entry = entryFor(file);
+    const mine = list.filter(ours);
+    if (mine.length === 1 && JSON.stringify(mine[0]) === JSON.stringify(entry)) return;
+    const next = list.filter((e) => !ours(e)).concat(entry);
+    if (writeList(settings, next, log) === true) log('reply hook added', { settings });
+  } catch (e) {
+    log('reply hook', { done: false, why: String((e && e.message) || e).slice(0, 160) });
+  }
+}
+
+function removeReplyHook(claudeHome, log) {
+  const file = path.join(claudeHome, 'hooks', SCRIPT);
+  const settings = path.join(claudeHome, 'settings.json');
+  try {
+    const list = currentList(settings);
+    if (list && list.some(ours) && writeList(settings, list.filter((e) => !ours(e)), log) === true) log('reply hook removed');
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch (e) {
+    log('reply hook', { removed: false, why: String((e && e.message) || e).slice(0, 160) });
+  }
+}
+
+module.exports = { ensureReplyHook, removeReplyHook };
