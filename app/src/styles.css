@@ -318,28 +318,26 @@ button {
   box-shadow: 0 1px 2px rgba(26, 26, 26, 0.1), 0 0 0 0.5px rgba(26, 26, 26, 0.06);
 }
 
-/* Plain English and Drill down: words in the Chat and Terminal switch's type,
-   quiet until hovered. */
+/* Plain English, Explain and Drill down: quiet grey words under the message
+   box, its text's left edge their left edge. */
 .skill-btn {
-  height: 28px;
-  padding: 0 10px;
+  height: 24px;
+  padding: 0 8px;
   border: 0;
   border-radius: 999px;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
-  color: var(--muted);
+  color: var(--faint);
   background: transparent;
-  transition: background 160ms ease, color 160ms ease;
 }
 
 .skill-btn:hover,
 .skill-btn.on {
-  background: var(--sand);
+  background: rgba(26, 26, 26, 0.05);
   color: var(--ink);
 }
 
@@ -1635,38 +1633,16 @@ button {
   flex-direction: column;
   align-items: center;
 }
+/* The row under the message box. Its words start where the box's text
+   starts: 12px here plus a button's 8px is the box's 20px. */
 .composer-foot {
   display: flex;
   justify-content: flex-start;
   width: 100%;
-  max-width: 560px;
+  max-width: 640px;
+  box-sizing: border-box;
   margin-top: 6px;
-  padding: 0 10px;
-}
-.mode-chip {
-  font: inherit;
-  font-size: 11.5px;
-  color: #8a8984;
-  background: transparent;
-  border: 0;
-  padding: 2px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.mode-chip:hover {
-  color: #3d3d3a;
-  background: rgba(0, 0, 0, 0.04);
-}
-.mode-chip.plan {
-  color: var(--lilac-ink);
-  background: var(--lilac);
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 999px;
-}
-.mode-chip.plan:hover {
-  color: var(--lilac-ink);
-  background: #e8c8fb;
+  padding: 0 12px;
 }
 .drill-also {
   margin: auto 2px 0;
@@ -2216,22 +2192,10 @@ button {
   gap: 2px;
   -webkit-app-region: no-drag;
 }
-/* A narrow header keeps one word per button, so it never runs out of room. */
-.skill-short {
-  display: none;
-}
-@container (max-width: 800px) {
-  .skill-long {
-    display: none;
-  }
-  .skill-short {
-    display: inline;
-  }
-}
 .nothing-pop {
   position: absolute;
-  top: 40px;
-  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
   z-index: 40;
   white-space: nowrap;
   padding: 10px 14px;

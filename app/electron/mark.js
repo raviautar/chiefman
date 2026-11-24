@@ -7,7 +7,7 @@ const MARK = '[sent from chiefman]';
 
 // The skill buttons take the mark as their arguments; any other slash
 // command, and a "!" shell line, goes as typed.
-const SKILL_CMD = /^\/(?:[\w.-]+:)?(plain-english|drill-down)$/;
+const SKILL_CMD = /^\/(?:[\w.-]+:)?(plain-english|explain|drill-down)$/;
 
 function markText(text) {
   const t = String(text);

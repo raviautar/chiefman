@@ -1,9 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
-// The skills the header has buttons for. A button sends the bare name, as he
-// would type it; Claude Code runs whichever installed copy it finds.
-const BUTTONS = ['plain-english', 'drill-down'];
+// The skills that have buttons under the message box. A button sends the bare
+// name, as he would type it; Claude Code runs whichever installed copy it finds.
+const BUTTONS = ['plain-english', 'explain', 'drill-down'];
 
 function readJson(file) {
   try {

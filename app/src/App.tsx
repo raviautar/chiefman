@@ -17,12 +17,13 @@ const NEW_BOX = 'new.box';
 // Below this width the drill-down floats over the chat instead of taking room.
 const NARROW = '(max-width: 1179px)';
 
-// The header's skill buttons. Each sends the bare name, as he would type it.
-// label is also the quiet line the chat shows for a run (transcript.js);
-// short is the word a narrow header shows.
+// The skill buttons under the message box. Each sends the bare name, as he
+// would type it. label is also the quiet tag the chat shows for a run
+// (transcript.js).
 const SKILLS = [
-  { name: 'plain-english', label: 'Plain English', short: 'Plain' },
-  { name: 'drill-down', label: 'Drill down', short: 'Drill' },
+  { name: 'plain-english', label: 'Plain English' },
+  { name: 'explain', label: 'Explain' },
+  { name: 'drill-down', label: 'Drill down' },
 ];
 type Skill = (typeof SKILLS)[number];
 
@@ -741,9 +742,44 @@ export function App() {
   const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
   // A skill the open box cannot run has no button.
   const skills: Skill[] = live ? SKILLS.filter((s) => box!.skills?.includes(s.name)) : [];
+  const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
+
+  // The skill buttons, as quiet words under the message box: things he asks
+  // the box, so they sit where he types.
+  const skillRow =
+    skills.length > 0 ? (
+      <span className="skills" role="group" aria-label="Skills">
+        {skills.map((s) => {
+          // The chief's own list fills the panel; its count shows here.
+          const chiefList = s.name === 'drill-down' && box!.name === 'chief';
+          return (
+            <button
+              key={s.name}
+              className={'skill-btn' + (chiefList && (drillShown || nothing) ? ' on' : '')}
+              title={chiefList && asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you · runs drill-down` : `Runs ${s.name} in ${box!.name}`}
+              onClick={() => runSkill(s)}
+            >
+              {s.label}
+              {chiefList && asks > 0 && !drillShown && <span className="badge">{asks}</span>}
+            </button>
+          );
+        })}
+        {nothing && (
+          <div className="nothing-pop rise" role="status">
+            Nothing needs you.
+          </div>
+        )}
+      </span>
+    ) : null;
+
+  let body;
+  // A box whose window closed has no pane, but keeps its chat and draft. Its
+  // chat keeps the old pane's key, so the field keeps his text and focus.
+  const shownPane = box ? box.paneId ?? box.lastPane ?? null : null;
   // The chief's lists fold to one line each: the newest while the panel shows
-  // it or once all of it is answered, older ones always. A list that never
-  // had items stays plain text.
+  // it or once all of it is answered. Only the newest list shows at all; an
+  // older one is hidden (an empty fold). A list that never had items stays
+  // plain text.
   const folds: Record<string, string> = {};
   if (box && box.name === 'chief' && drill) {
     for (const [id, kind] of Object.entries(drill.folds || {})) folds[id] = kind === 'answered' ? 'Drill-down · all answered' : 'Earlier drill-down';
@@ -807,6 +843,7 @@ export function App() {
         onOpen={setFull}
         onSend={sendToBox}
         onError={(t) => show(t, true)}
+        foot={skillRow}
       />
     );
   }
@@ -981,32 +1018,6 @@ export function App() {
                 <span className="seg-label">Terminal</span>
               </button>
             </div>
-          )}
-          {skills.length > 0 && (
-            <span className="skills" role="group" aria-label="Skills">
-              {skills.map((s) => {
-                // The chief's own list fills the panel; its count shows here.
-                const chiefList = s.name === 'drill-down' && box!.name === 'chief';
-                return (
-                  <button
-                    key={s.name}
-                    className={'skill-btn' + (chiefList && (drillShown || nothing) ? ' on' : '')}
-                    aria-label={s.label}
-                    title={chiefList && asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you · runs drill-down` : `Runs ${s.name} in ${box!.name}`}
-                    onClick={() => runSkill(s)}
-                  >
-                    <span className="skill-long">{s.label}</span>
-                    <span className="skill-short">{s.short}</span>
-                    {chiefList && asks > 0 && !drillShown && <span className="badge">{asks}</span>}
-                  </button>
-                );
-              })}
-              {nothing && (
-                <div className="nothing-pop rise" role="status">
-                  Nothing needs you.
-                </div>
-              )}
-            </span>
           )}
         </div>
 

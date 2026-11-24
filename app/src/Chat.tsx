@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, Ask, Box, Draft, Item, Menu, Result } from './api';
 import { Arrow, Check } from './icons';
 import { Markdown } from './Markdown';
@@ -231,6 +231,7 @@ export function ChatView({
   onOpen,
   onSend,
   onError,
+  foot,
 }: {
   box: Box;
   chat: ChatState | undefined;
@@ -251,6 +252,8 @@ export function ChatView({
   onOpen: (url: string) => void;
   onSend: (text: string, opts?: { answer?: boolean }) => Promise<boolean>;
   onError: (text: string) => void;
+  // The row under the message box: the skill buttons.
+  foot?: ReactNode;
 }) {
   const [draft, setDraft] = useState(initial?.text ?? '');
   const [sending, setSending] = useState(false);
@@ -1004,16 +1007,8 @@ export function ChatView({
             <Arrow />
           </button>
         </div>
-        {!closed && (box.mode || draft.startsWith('!')) && (
-          <div className="composer-foot">
-            {draft.startsWith('!') ? (
-              <span className="shell-hint">Runs in {box.name}'s shell</span>
-            ) : (
-              <button className={'mode-chip' + (/plan/i.test(box.mode || '') ? ' plan' : '')} onClick={cycleMode} title="Change mode (Shift+Tab)">
-                {box.mode}
-              </button>
-            )}
-          </div>
+        {!closed && (foot || draft.startsWith('!')) && (
+          <div className="composer-foot">{draft.startsWith('!') ? <span className="shell-hint">Runs in {box.name}'s shell</span> : foot}</div>
         )}
       </div>
     </>

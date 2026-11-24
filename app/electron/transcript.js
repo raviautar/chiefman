@@ -10,9 +10,10 @@ const KEEP_TYPES = ['{"type":"user"', '{"type":"assistant"', '{"type":"system"',
 // Commands the app sends for its own buttons; they never show as bubbles.
 const HIDDEN = /^\/(model|effort|rename|remote-control|context|compact|clear)\b/;
 const NOT_A_MESSAGE = /^\s*(<(command-|local-command|bash-|system-reminder|task-notification|user-prompt-submit|teammate-message|tick>)|\[Request interrupted|Caveat: )/;
-// The skills the header's buttons run. A run shows as one quiet line, the
-// same words as the button, whichever plugin's copy ran ("/p:plain-english").
-const SKILL_LINES = { 'plain-english': 'Plain English', 'drill-down': 'Drill down' };
+// The skills the buttons under the message box run. A run shows as one quiet
+// tag, the same words as the button, whichever plugin's copy ran
+// ("/p:plain-english").
+const SKILL_LINES = { 'plain-english': 'Plain English', explain: 'Explain', 'drill-down': 'Drill down' };
 
 function skillLine(cmd) {
   const m = /^\/(?:[\w.-]+:)?([\w-]+)$/.exec(cmd);
