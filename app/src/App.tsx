@@ -1,15 +1,17 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api, Box, BoxSpec, Draft, Drill, EFFORTS, HubEvent, MODELS, PhaseInfo, PlanInfo, Recent, Result, Snapshot } from './api';
+import { api, Box, BoxSpec, Draft, Drill, EFFORTS, HubEvent, Item, MODELS, PhaseInfo, PlanInfo, Recent, Result, Snapshot } from './api';
 import { Avatar, Check, Icon } from './icons';
 import { plainText } from './plain';
 import { Picker } from './Picker';
 import { Action, Confirm, costOf, meterOf, MoreMenu, Palette, RenameSheet } from './Actions';
-import { ChatState, ChatView, Pending, norm } from './Chat';
+import { askState, ChatState, ChatView, Pending, norm } from './Chat';
 import { quotesOf, quoteText } from './Quotes';
 import { TerminalView } from './Terminal';
 import { DrillPanel } from './Drill';
 import { inferName, lookFor, resumeName, ResumeList } from './NewBox';
 import { copyLink, RemoteButton } from './Remote';
+import { Peek, waitText } from './Live';
+import { madeOf, MadeSheet } from './Made';
 
 type Toast = { text: string; bad?: boolean; id: number };
 
@@ -86,12 +88,24 @@ function lineOf(b: Box) {
   if (b.status === 'resuming') return 'Coming back…';
   if (b.status === 'failed') return "Didn't start";
   if (b.ended || b.status === 'ended') return 'Ended';
+  if (b.menu?.perm) return `Asks to ${b.menu.perm.say.charAt(0).toLowerCase()}${b.menu.perm.say.slice(1)}`;
+  if (b.menu && b.menu.plan !== undefined) return 'Asks to approve its plan';
   if (b.menu) return plainText(b.menu.question.split('\n')[0]) || 'Asks you';
   if (b.status === 'working' && b.activity) return b.activity;
+  if (b.tab === 'waiting' && b.live) return waitText(b.live);
   return plainText(b.said?.line || '');
 }
 
 const modelLabel = (id: string) => (MODELS.find((m) => m[0] === id) || ['', id])[1];
+
+// The questions a box asked that got no answer: the one waiting now, and
+// those it moved past.
+function openQuestions(items: Item[]) {
+  const s = askState(items);
+  const skipped = Object.keys(s.closed).filter((id) => s.closed[id].how === 'skipped');
+  const ids = [...(s.live ? [s.live] : []), ...skipped];
+  return ids.flatMap((id) => (items.find((i) => i.id === id)?.asks || []).map((a) => ({ id, q: a.q })));
+}
 
 // Time left until a plan limit resets, as the tmux status bar says it:
 // 47m, 2h 47m, 3d 15h.
@@ -127,7 +141,10 @@ export function App() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [nothing, setNothing] = useState(false);
   const [chats, setChats] = useState<Record<string, ChatState>>({});
-  const [overlay, setOverlay] = useState<'resume' | 'switch' | 'clear' | 'rename' | 'close' | null>(null);
+  const [overlay, setOverlay] = useState<'resume' | 'switch' | 'clear' | 'rename' | 'close' | 'made' | null>(null);
+  // The sidebar row under the mouse, shown as a card after a short wait.
+  const [peek, setPeek] = useState<{ name: string; top: number; left: number; hint: string } | null>(null);
+  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // New Box: an empty conversation until his first message starts the box.
   // name: the name that message gave it, while the box comes up.
   const [newConv, setNewConv] = useState<{ name?: string } | null>(null);
@@ -534,8 +551,10 @@ export function App() {
         return;
       }
       // Esc on a menu leaves it, as in the terminal, where Claude allows that.
-      // A menu without that (the trust question) gets no Esc at all.
-      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.menu) {
+      // A menu without that (the trust question) gets no Esc at all. Its
+      // permission ask denies on Esc only while the message field is empty,
+      // which the chat sees to.
+      if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.menu && !box.menu.perm) {
         const el = document.activeElement;
         if (el && (el.closest('.drill, .qcard-wrap, .quote-bubble, .quote-tray, [data-held]') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
@@ -853,7 +872,25 @@ export function App() {
   const remoteLink = (b: Box) =>
     copyLink(b, (t) => show(t, true)).then((url) => url && b.paneId && setLinkCopied({ pane: b.paneId, url }));
   // The menu a click on the box's name opens.
-  const nameMenu: Action[] = [...boxActions, ...endedActions];
+  // A row he rests the mouse on shows its card after a short wait; moving on
+  // takes it away.
+  function showPeek(name: string, el: HTMLElement, hint: string) {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      setPeek({ name, hint, left: r.right + 10, top: Math.max(8, Math.min(r.top - 4, window.innerHeight - 240)) });
+    }, 450);
+  }
+  function hidePeek() {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = null;
+    setPeek(null);
+  }
+  const peekBox = peek ? listed.find((b) => b.name === peek.name) || (box?.name === peek.name ? box : undefined) : undefined;
+
+  const boxPane = box ? box.paneId ?? box.lastPane ?? null : null;
+  const made: Action[] = boxPane && chats[boxPane]?.items.length ? [{ label: 'Made in this box', run: () => setOverlay('made') }] : [];
+  const nameMenu: Action[] = [...boxActions, ...made, ...endedActions];
 
   // His answer to the last card: "Nothing needs you." shows for 2 s, then the
   // panel folds away. A wide window shows it again when a new item comes, if
@@ -1140,8 +1177,12 @@ export function App() {
               <button
                 key={b.id}
                 className={'row' + (on ? ' on' : '') + (off ? ' off' : '')}
-                onClick={() => goTo(b.name)}
-                title={i < 9 && !tucked(b) ? `${b.name}  ⌘${i + 1}` : b.name}
+                onClick={() => {
+                  hidePeek();
+                  goTo(b.name);
+                }}
+                onMouseEnter={(e) => showPeek(b.name, e.currentTarget, i < 9 && !tucked(b) ? `⌘${i + 1}` : '')}
+                onMouseLeave={hidePeek}
               >
                 <Avatar box={b} />
                 <span className="txt">
@@ -1276,6 +1317,19 @@ export function App() {
         {overlay === 'rename' && box && (
           <RenameSheet box={box} taken={boxes.map((b) => b.name)} onRename={rename} onClose={() => setOverlay(null)} />
         )}
+        {overlay === 'made' && box && (
+          <MadeSheet
+            name={box.name}
+            paneId={boxPane}
+            made={madeOf(chats[boxPane ?? '']?.items || [], openQuestions(chats[boxPane ?? '']?.items || []))}
+            onJump={(id) => {
+              setOverlay(null);
+              setView('chat');
+              setTimeout(() => window.dispatchEvent(new CustomEvent('cm-jump', { detail: id })), 60);
+            }}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {full && (
           <div className="lightbox" role="dialog" aria-label="Picture" onClick={() => setFull(null)}>
             <img src={full} alt="" />
@@ -1289,6 +1343,7 @@ export function App() {
           <DrillPanel drill={drill} sent={sent} floating={false} onSend={sendDrill} onClose={() => showPanel(false)} />
         </div>
       )}
+      {peek && peekBox && <Peek box={peekBox} top={peek.top} left={peek.left} hint={peek.hint} />}
     </div>
   );
 }

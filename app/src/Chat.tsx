@@ -7,6 +7,8 @@ import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
 import { NowFailed, NowLine, nowText, TurnCard } from './Turn';
 import { Jump, NEW_LINE, usePlace } from './Place';
 import { CardData, CardKeys, Cards, inferActions, isDismissed } from './Blocks';
+import { LiveDock } from './Live';
+import { PermCard, permOptions, PlanCard } from './Approve';
 
 export interface ChatState {
   items: Item[];
@@ -63,7 +65,7 @@ interface Closed {
 // number from the card (answered), or in his own words (words). A skill
 // run, a command, a shell line or a newer reply with questions of its own
 // moves past them (skipped). next: what waits to go, first in line.
-function askState(items: Item[], next?: Pending) {
+export function askState(items: Item[], next?: Pending) {
   const answers: Record<string, string> = {};
   const closed: Record<string, Closed> = {};
   let live: string | null = null;
@@ -403,6 +405,8 @@ export function ChatView({
   // widgets under a reply do. A click marks a pick; the field's Send sends
   // his picks or his words. Other menus answer on the click.
   const question = !!menu && (menu.free != null || !!menu.multi);
+  // Claude Code's permission ask and its plan approval have cards of their own.
+  const special = !!menu && (!!menu.perm || menu.plan !== undefined);
   // What is picked, his picks first; check boxes start as the box shows them.
   const menuKey = menu ? menu.question + '|' + menu.options.map((o) => `${o.n}.${o.label}`).join('|') : '';
   const ticked = !menu
@@ -417,7 +421,7 @@ export function ChatView({
   const menuChoices = menu && question ? shownOptions(menu).filter((o) => !menu.multi || o.box) : [];
   const menuN = (label: string) => menuChoices.find((o) => choiceOf(o.label).label === label)?.n;
   const menuRow: QRow | null =
-    menu && question
+    menu && question && !special
       ? {
           key: 'menu',
           n: 1,
@@ -580,6 +584,51 @@ export function ChatView({
       setMenuWords('');
     }
   }, [question]);
+
+  // Claude Code's permission ask: Enter allows and Esc denies, while the
+  // message field is empty.
+  useEffect(() => {
+    if (!menu?.perm || !box.paneId) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const el = document.activeElement;
+      if (el !== input.current && el && el !== document.body && el.closest('input, textarea, button, select, [role="dialog"], [role="menu"], .drill')) return;
+      if ((input.current?.value || '').trim() || atts.length || pop) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (menuBusy) return;
+      const { yes, no } = permOptions(menu);
+      if (e.key === 'Enter') yes && void choose(yes.n);
+      else if (no) void choose(no.n);
+      else void dismiss();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [menuKey, box.paneId, atts.length, !!pop, menuBusy]);
+
+  // "Made in this box" shows a question in the chat: its reply comes into
+  // the list if it is further up, and the chat moves to it.
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      const i = items.findIndex((x) => x.id === id);
+      if (i < 0) return;
+      setLimit((l) => Math.max(l, items.length - i + 4));
+      setJumpTo(id);
+    };
+    window.addEventListener('cm-jump', on);
+    return () => window.removeEventListener('cm-jump', on);
+  }, [items]);
+  useLayoutEffect(() => {
+    if (!jumpTo) return;
+    const el = scroller.current?.querySelector(`[data-item="${CSS.escape(jumpTo)}"]`);
+    if (!el) return;
+    setJumpTo(null);
+    stick.current = false;
+    el.scrollIntoView({ block: 'center' });
+  });
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -1009,7 +1058,7 @@ export function ChatView({
             );
           const isLive = m.id === asked.live && !closed;
           return (
-            <div key={m.id} className={'reply-group' + (cards ? ' has-cards' : '') + (isFresh ? ' rise' : '')}>
+            <div key={m.id} className={'reply-group' + (cards ? ' has-cards' : '') + (isFresh ? ' rise' : '')} data-item={m.id}>
               {text.trim() && (
                 <div className="say" data-quote="">
                   <Markdown text={text} />
@@ -1087,6 +1136,8 @@ export function ChatView({
             </div>
           ),
         )}
+        {menu && menu.perm && <PermCard key={menuKey} menu={menu} busy={menuBusy} onPick={choose} onDeny={dismiss} />}
+        {menu && menu.plan !== undefined && <PlanCard key={menuKey} menu={menu} busy={menuBusy || sending} onPick={choose} onKeep={dismiss} />}
         {menuRow && menu && (
           // The same card as a reply's questions: picks mark, Send sends.
           <div className="ask rise" key={menuKey}>
@@ -1103,7 +1154,7 @@ export function ChatView({
             />
           </div>
         )}
-        {menu && !question && (
+        {menu && !question && !special && (
           <div className="ask rise" key={menu.question + menu.options.length}>
             {menu.question && <div className="say">{menu.question}</div>}
             <div className="choices">
@@ -1212,6 +1263,7 @@ export function ChatView({
           if (e.dataTransfer.files.length) attach(e.dataTransfer.files);
         }}
       >
+        {!pop && !closed && <LiveDock box={box} />}
         {pop && (
           <div className="pop-list" role="listbox" aria-label={popTitle}>
             <div className="pop-title">{popTitle}</div>
@@ -1286,7 +1338,7 @@ export function ChatView({
             aria-expanded={pop ? 'true' : 'false'}
             // Escape here clears the newest card's picks first (App reads it).
             data-held={cardHeld && !draft ? '' : undefined}
-            placeholder={menu && (closed || !menu.free) ? 'Pick an option above' : ''}
+            placeholder={menu?.perm && !closed ? 'Enter allows · Esc denies' : menu?.plan !== undefined && !closed ? 'Or tell it what to change' : menu && (closed || !menu.free) ? 'Pick an option above' : ''}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);
@@ -1313,7 +1365,8 @@ export function ChatView({
               // clears) and its other cards (1 to 9 pick, Enter the main
               // button, Esc puts it away).
               const ck = cardKeys.current;
-              if (!draft && !atts.length && !quotes.length && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+              // Claude Code's permission ask and plan approval keep the keys.
+              if (!special && !draft && !atts.length && !quotes.length && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
                 if (questionsFirst) {
                   if (cardKey(e)) return;
                 } else if (ck && !answers && !menu) {

@@ -64,7 +64,7 @@ function Loading() {
   return <div className="turn-note">Loading…</div>;
 }
 
-function FileRow({ f, paneId }: { f: Turn['files'][number]; paneId: string | null }) {
+export function FileRow({ f, paneId }: { f: Turn['files'][number]; paneId: string | null }) {
   const [open, setOpen] = useState(false);
   const d = useDetail(paneId, f.ids, open);
   const dir = f.path.slice(0, Math.max(0, f.path.length - f.name.length)).replace(/\/$/, '');
@@ -82,7 +82,7 @@ function FileRow({ f, paneId }: { f: Turn['files'][number]; paneId: string | nul
   );
 }
 
-function LinkRow({ say, link, kind }: { say: string; link?: string; kind?: string }) {
+export function LinkRow({ say, link, kind }: { say: string; link?: string; kind?: string }) {
   if (!link)
     return (
       <div className="turn-row still">
@@ -155,7 +155,7 @@ function FailRow({ f, paneId, onAsk, canAsk }: { f: Turn['failed'][number]; pane
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="turn-sec">
       <div className="turn-h">{title}</div>
