@@ -88,4 +88,9 @@ ${F}`;
 // What every later marked message carries.
 const SHORT = `Sent from the chiefman app: reply by the chiefman rules given earlier in this session. Never quote "${MARK}".`;
 
-module.exports = { MARK, markText, unmark, RULES, SHORT };
+// The rules' version, one up whenever RULES, SHORT or the hook's script
+// change: every copy of the app shares one hook file, and only a copy with
+// newer rules rewrites it.
+const RULES_VERSION = 35;
+
+module.exports = { MARK, markText, unmark, RULES, SHORT, RULES_VERSION };

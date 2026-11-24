@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { MARK, RULES, SHORT } = require('./mark');
+const { MARK, RULES, SHORT, RULES_VERSION } = require('./mark');
 const { rawValue, withValue } = require('./defaults');
 
 // One UserPromptSubmit hook in the user's Claude settings, for every box,
@@ -9,7 +9,18 @@ const { rawValue, withValue } = require('./defaults');
 // message that carries the mark, so the terminal is untouched. It is
 // chiefman's alone: its own script file, and one entry that names it.
 // "replyHook": false in config.json takes both away again.
+//
+// Every copy of the app shares that one file, test copies and older builds
+// too: it keeps its "rules sent" folder in the user's own ~/.chiefman, and a
+// copy rewrites it only when its rules are newer than the file's version line.
 const SCRIPT = 'chiefman-reply.sh';
+const VERSION_LINE = /^# chiefman rules version (\d+)$/m;
+
+// The rules version a hook file holds; 0 for one written before versions.
+function versionOf(text) {
+  const m = VERSION_LINE.exec(text || '');
+  return m ? Number(m[1]) : 0;
+}
 
 const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 
@@ -21,6 +32,7 @@ function scriptText(seenDir) {
   const version = crypto.createHash('sha1').update(RULES + SHORT).digest('hex').slice(0, 10);
   return [
     '#!/bin/sh',
+    `# chiefman rules version ${RULES_VERSION}`,
     '# Added by the chiefman app. For a message sent from chiefman (it carries the',
     '# mark below), it prints how chiefman shows replies: in full the first time in',
     '# a session and after a compact, else one line. Any other message: nothing.',
@@ -131,11 +143,15 @@ function ensureReplyHook(claudeHome, seenDir, log) {
   const settings = path.join(claudeHome, 'settings.json');
   try {
     const body = scriptText(seenDir);
-    if (readText(file) !== body) {
+    const was = readText(file);
+    const theirs = versionOf(was);
+    if (was !== body && (!was || theirs < RULES_VERSION)) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, body, { mode: 0o755 });
-      log('reply hook script written');
-    }
+      const tmp = path.join(path.dirname(file), `.${SCRIPT}.chiefman-${process.pid}`);
+      fs.writeFileSync(tmp, body, { mode: 0o755 });
+      fs.renameSync(tmp, file);
+      log('reply hook script written', { version: RULES_VERSION, was: theirs });
+    } else if (was !== body) log('reply hook script kept', { version: theirs, ours: RULES_VERSION });
     const list = currentList(settings);
     if (list === null) return log('reply hook', { done: false, why: 'settings unreadable' });
     const entry = entryFor(file);

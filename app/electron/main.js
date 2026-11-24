@@ -456,7 +456,9 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   protocol.handle('cm-att', serveAttachment);
   log('start', { session: cfg.session, stateDir: cfg.stateDir, dev: !!cfg.devUrl, version: app.getVersion() });
-  if (cfg.replyHook) ensureReplyHook(cfg.claudeHome, path.join(cfg.stateDir, 'rules-seen'), log);
+  // The hook is shared by every copy of the app: its "rules sent" folder is
+  // the user's own, whatever state folder this copy runs with.
+  if (cfg.replyHook) ensureReplyHook(cfg.claudeHome, path.join(cfg.home, '.chiefman', 'rules-seen'), log);
   else removeReplyHook(cfg.claudeHome, log);
   hub = new Hub(cfg, send, log);
   wireIpc();
