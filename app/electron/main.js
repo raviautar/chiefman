@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, session, clipboard, Notification, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, clipboard, Notification, protocol, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -236,7 +236,9 @@ function wireIpc() {
       ? hub.resumeWith(n, m ? m.trim() : '')
       : { ok: false, reason: 'Bad request.' },
   );
-  act('cm:close-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.closeEnded(n) : { ok: false, reason: 'Bad request.' }));  act('cm:rewind', (p, spec) =>
+  act('cm:close-ended', (n) => (typeof n === 'string' && BOX_NAME.test(n) ? hub.closeEnded(n) : { ok: false, reason: 'Bad request.' }));
+  act('cm:close-box', (p) => (PANE.test(p) ? hub.closeBox(p) : { ok: false, reason: 'Bad request.' }));
+  act('cm:rewind', (p, spec) =>
     PANE.test(p) && spec && typeof spec.text === 'string' && spec.text.length < 100000
       ? hub.rewind(p, { text: spec.text, id: typeof spec.id === 'string' ? spec.id : '', dupAfter: Number(spec.dupAfter) || 0 })
       : { ok: false, reason: 'Bad request.' },
@@ -269,10 +271,37 @@ function wireIpc() {
   });
 }
 
+// The window opens where he left it, at its size, while that place is still
+// on a screen.
+const PLACE_FILE = path.join(cfg.stateDir, 'window.json');
+function lastPlace() {
+  try {
+    const p = JSON.parse(fs.readFileSync(PLACE_FILE, 'utf8'));
+    const ok = ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(p[k]));
+    if (!ok || p.width < 960 || p.height < 600) return null;
+    const seen = screen.getAllDisplays().some((d) => {
+      const a = d.workArea;
+      return p.x < a.x + a.width - 80 && p.x + p.width > a.x + 80 && p.y >= a.y - 40 && p.y < a.y + a.height - 80;
+    });
+    return seen ? { x: p.x, y: p.y, width: p.width, height: p.height, maximized: !!p.maximized } : null;
+  } catch {
+    return null;
+  }
+}
+let placeTimer = null;
+function keepPlace() {
+  if (!win || win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return;
+  try {
+    fs.writeFileSync(PLACE_FILE, JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() }), { mode: 0o600 });
+  } catch {}
+}
+
 function createWindow() {
+  const place = lastPlace();
   win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: place ? place.width : 1280,
+    height: place ? place.height : 800,
+    ...(place ? { x: place.x, y: place.y } : {}),
     minWidth: 960,
     minHeight: 600,
     title: 'chiefman',
@@ -294,7 +323,15 @@ function createWindow() {
   win.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith(appUrl())) e.preventDefault();
   });
+  const soonKeep = () => {
+    clearTimeout(placeTimer);
+    placeTimer = setTimeout(keepPlace, 500);
+  };
+  win.on('resize', soonKeep);
+  win.on('move', soonKeep);
+  win.on('close', keepPlace);
   win.once('ready-to-show', () => {
+    if (place && place.maximized) win.maximize();
     if (cfg.devHook) win.showInactive();
     else win.show();
     // The window number lets `screencapture -l` take a picture of it.
