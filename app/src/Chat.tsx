@@ -4,6 +4,8 @@ import { Arrow, Check } from './icons';
 import { Markdown, More, useFold } from './Markdown';
 import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
 import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
+import { NowFailed, NowLine, nowText, TurnCard } from './Turn';
+import { Jump, NEW_LINE, usePlace } from './Place';
 
 export interface ChatState {
   items: Item[];
@@ -11,6 +13,8 @@ export interface ChatState {
   // The turn that runs now, if any.
   now: TurnNow | null;
   loaded: boolean;
+  // How many full loads this chat had.
+  reset?: number;
 }
 
 export interface Pending {
@@ -263,20 +267,6 @@ function OptionLabel({ label }: { label: string }) {
 const PAGE = 150;
 const AT = /(^|\s)@([^\s@]*)$/;
 
-function Live({ text }: { text: string }) {
-  return (
-    <div className="live rise" aria-live="polite">
-      <span className="bars" aria-hidden="true">
-        <span className="b1" />
-        <span className="b2" />
-        <span className="b3" />
-        <span className="b4" />
-      </span>
-      <span className="shimmer">{text}</span>
-    </div>
-  );
-}
-
 function Chevron() {
   return (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -372,7 +362,6 @@ export function ChatView({
     };
   }, []);
   const items = chat?.items ?? [];
-  const shown = items.length > limit ? items.slice(-limit) : items;
   const menu = box.menu;
   const starting = box.status === 'starting';
   const resuming = box.status === 'resuming';
@@ -508,6 +497,12 @@ export function ChatView({
       keep.current = null;
     } else if (stick.current) el.scrollTop = el.scrollHeight;
   });
+
+  // His place: a New line above the first reply he has not seen, and a ↓
+  // with a count for replies that come while he reads higher up.
+  const place = usePlace({ key: box.session || box.name, items, loaded: !!chat?.loaded, reset: chat?.reset ?? 0, fresh: chat?.fresh, scroller, stick });
+  const keepN = Math.max(limit, place.need);
+  const rows = place.withLine(items.length > keepN ? items.slice(-keepN) : items);
 
   useLayoutEffect(() => {
     const el = input.current;
@@ -815,7 +810,7 @@ export function ChatView({
   if (starting && !menu && !waiting && !pending.length)
     middle = (
       <div className="empty">
-        <Live text="Starting…" />
+        <NowLine text="Starting…" />
       </div>
     );
   else if (chat?.loaded && !items.length && !pending.length && !working && !menu && !resuming && !failed && !ended && !waiting && !draft.trim())
@@ -824,7 +819,7 @@ export function ChatView({
     middle = (
       <div className="chat-col">
         {note && <div className="ended-note">{note}</div>}
-        {shown.map((m) => {
+        {rows.map((m) => {
           const isFresh = chat!.fresh.has(m.id);
           const folded = folds[m.id];
           // An older drill-down list: only the newest one shows.
@@ -868,10 +863,31 @@ export function ChatView({
                 {m.t}
               </div>
             );
+          // Where his unseen replies start.
+          if (m.id === NEW_LINE)
+            return (
+              <div key={m.id} className="new-line" role="separator">
+                New
+              </div>
+            );
+          // A turn's one line of facts; a click opens what it did.
+          if (m.k === 'work' && m.turn)
+            return (
+              <TurnCard
+                key={m.id}
+                item={m}
+                paneId={box.paneId ?? box.lastPane ?? null}
+                canAsk={!blocked}
+                onAsk={(t) => {
+                  stick.current = true;
+                  onSend(t);
+                }}
+              />
+            );
+          // "Interrupted", "Compacted": one small centred word.
           if (m.k === 'work')
             return (
-              <div key={m.id} className={'work' + (isFresh && !quiet.has(m.id) ? ' rise' : '')}>
-                <Chevron />
+              <div key={m.id} className={'mark-word' + (isFresh && !quiet.has(m.id) ? ' rise' : '')}>
                 {m.t}
               </div>
             );
@@ -1013,8 +1029,8 @@ export function ChatView({
             </div>
           </div>
         )}
-        {starting && !menu && <Live text="Starting…" />}
-        {resuming && !menu && <Live text="Coming back…" />}
+        {starting && !menu && <NowLine text="Starting…" />}
+        {resuming && !menu && <NowLine text="Coming back…" />}
         {ended && (
           <div className="ended rise" role="status">
             {/* The reason has its own line, above the actions it explains. */}
@@ -1047,7 +1063,10 @@ export function ChatView({
             </div>
           </div>
         )}
-        {working && <Live text={box.activity || 'Working'} />}
+        {/* The turn that runs: a failure shows at once, in red; then what it
+            does now, in plain words. */}
+        {chat?.now && chat.now.failed.length > 0 && !closed && <NowFailed now={chat.now} />}
+        {working && <NowLine text={nowText(chat?.now)} since={chat?.now?.since ? Date.parse(chat.now.since) : box.since} />}
       </div>
     );
 
@@ -1075,6 +1094,7 @@ export function ChatView({
         onScroll={(e) => {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+          place.onScroll(stick.current);
           if (el.scrollTop < 300 && items.length > limit && !keep.current) {
             keep.current = { h: el.scrollHeight, top: el.scrollTop };
             setLimit((l) => l + PAGE);
@@ -1082,6 +1102,7 @@ export function ChatView({
         }}
       >
         {middle}
+        <Jump n={place.below} onClick={place.jump} />
         <Quoter scroller={scroller} on={!closed || typeAhead} onKeep={keepQuote} onLeave={leaveQuote} onDone={() => input.current?.focus()} />
       </div>
       <div

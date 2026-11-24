@@ -1077,28 +1077,6 @@ button:focus-visible,
   color: var(--muted);
 }
 
-.live {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.bars {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 14px;
-}
-
-.bars span {
-  width: 2px;
-  height: 14px;
-  border-radius: 1px;
-  background: var(--working);
-}
-
 .empty {
   margin: auto;
   text-align: center;
@@ -1140,25 +1118,6 @@ button:focus-visible,
   }
 }
 
-@keyframes shimmer {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
-}
-
-@keyframes bar {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
 .rise {
   animation: rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -1167,45 +1126,14 @@ button:focus-visible,
   animation: sent 180ms ease-out both;
 }
 
-.shimmer {
-  background: linear-gradient(90deg, #2557c7 0%, #2557c7 38%, #a9c4fb 50%, #2557c7 62%, #2557c7 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 1.8s linear infinite;
-}
-
-.b1 {
-  animation: bar 900ms ease-in-out infinite;
-}
-.b2 {
-  animation: bar 900ms ease-in-out 120ms infinite;
-}
-.b3 {
-  animation: bar 900ms ease-in-out 240ms infinite;
-}
-.b4 {
-  animation: bar 900ms ease-in-out 360ms infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .sent,
-  .b1,
-  .b2,
-  .b3,
-  .b4,
   .spin,
   .dot.working,
   .mark.pulse svg,
   .drill-dock {
     animation: none;
-  }
-  .shimmer {
-    animation: none;
-    background: none;
-    color: var(--working-ink);
   }
 }
 
