@@ -1,6 +1,16 @@
-import { Fragment, ReactNode, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, Fragment, ReactNode, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import { Check } from './icons';
+import './blocks.css';
+
+// Where a picture named in a reply opens large: the chat's lightbox. With
+// none, it opens in the Mac's default app.
+export const PictureOpen = createContext<((url: string) => void) | null>(null);
+
+// A picture on this Mac, served by the app (only from his home folder and
+// the temporary folders).
+export const picUrl = (p: string) => 'cm-att://p/' + encodeURIComponent(p);
+const PIC = /\.(png|jpe?g|gif|webp)$/i;
 
 // A full local file path: a home or system folder, then at least one more
 // part, and maybe a line number.
@@ -144,12 +154,112 @@ function link(href: string, label: ReactNode, key: number, short = false) {
   );
 }
 
-function file(p: string, key: number) {
+// A local path: a picture shows as itself and opens large; any other file
+// shows its name and opens in the Mac's default app.
+function LocalFile({ p }: { p: string }) {
+  const show = useContext(PictureOpen);
+  const [bad, setBad] = useState(false);
+  const bare = p.replace(/(?::\d+){1,2}$/, '');
+  if (PIC.test(bare) && !bad)
+    return (
+      <button type="button" className="md-pic" title={p} onClick={() => (show ? show(picUrl(bare)) : api().openPath(bare))}>
+        <img src={picUrl(bare)} alt={fileName(p)} onError={() => setBad(true)} />
+      </button>
+    );
   return (
-    <code key={key} className="md-file" title={p}>
+    <code
+      className="md-file open"
+      title={p}
+      role="button"
+      tabIndex={0}
+      onClick={() => api().openPath(bare)}
+      onKeyDown={(e) => e.key === 'Enter' && api().openPath(bare)}
+    >
       {fileName(p)}
     </code>
   );
+}
+
+function file(p: string, key: number) {
+  return <LocalFile key={key} p={p} />;
+}
+
+// A PR, ticket or CI run: its site and its telling part, else null.
+function kindOf(href: string) {
+  let u: URL;
+  try {
+    u = new URL(href);
+  } catch {
+    return null;
+  }
+  const site = siteOf(u);
+  const part = tellingPart(u, site);
+  return /^(PR|issue|run|pipeline|job) \S+$/.test(part) || /^[A-Z][A-Z0-9]{1,9}-\d+$/.test(part) ? { site, part } : null;
+}
+
+// A line that is only such a link, bare or with its own words.
+const CARD_LINE = /^\s*(?:\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)|<?(https?:\/\/[^\s<>`]+?)>?|`(https?:\/\/[^`\s]+)`)\s*$/;
+function cardOf(line: string) {
+  const m = CARD_LINE.exec(line);
+  if (!m) return null;
+  const href = m[2] || m[3] || m[4];
+  const k = kindOf(href);
+  return k ? { href, label: m[1] && m[1] !== href ? m[1] : '', ...k } : null;
+}
+
+// A small card for that link: the telling part, the words around it, the site.
+function LinkCard({ href, site, part, title }: { href: string; site: string; part: string; title: string }) {
+  return (
+    <a className="md-card" title={href} onClick={() => api().openUrl(href)}>
+      <span className="md-card-part">{part}</span>
+      {title && <span className="md-card-title">{inline(title, true)}</span>}
+      <span className="md-card-site">{site}</span>
+    </a>
+  );
+}
+
+// A line that ends with a picture's path ("The new page: ~/shot.png").
+const PIC_LINE = new RegExp('^(.*?)\\s*`?((?<![\\w/.~:-])' + PATH_SRC + ')`?\\s*$');
+
+// A paragraph's lines, with a link card for each line that is only a PR,
+// ticket or run link, and a picture under a line that ends with its path. A
+// line just before a card that only leads to it ("The pull request:")
+// becomes the card's words.
+function para(ls: string[], key: number) {
+  const out: ReactNode[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    if (run.length) out.push(<p key={out.length}>{lines(run)}</p>);
+    run = [];
+  };
+  for (const l of ls) {
+    const c = cardOf(l);
+    const pic = c ? null : PIC_LINE.exec(l);
+    if (!c && !(pic && PIC.test(pic[2].replace(/(?::\d+){1,2}$/, '')))) {
+      run.push(l);
+      continue;
+    }
+    if (pic) {
+      if (pic[1].trim()) run.push(pic[1]);
+      flush();
+      out.push(
+        <div key={out.length} className="md-pics">
+          <LocalFile p={pic[2]} />
+        </div>,
+      );
+      continue;
+    }
+    let title = c!.label;
+    const prev = run[run.length - 1];
+    if (!title && prev && /:\s*$/.test(prev) && prev.length <= 90 && !/https?:|\//.test(prev)) {
+      title = prev.replace(/:\s*$/, '').trim();
+      run.pop();
+    }
+    flush();
+    out.push(<LinkCard key={out.length} href={c!.href} site={c!.site} part={c!.part} title={title} />);
+  }
+  flush();
+  return <Fragment key={key}>{out}</Fragment>;
 }
 
 // noLinks: inside a link's own text, where a second link cannot go.
@@ -249,10 +359,12 @@ function listOf(ls: string[]): List {
     const n = b ? null : NUM.exec(l);
     const m = b || n;
     if (!m) {
-      // A wrapped line belongs to the item above it.
+      // A wrapped line belongs to the item above it; a PR, ticket or run
+      // link on its own line under it is its card.
       const top = stack[stack.length - 1];
       const li = top?.items[top.items.length - 1];
-      if (li) li.text += ' ' + l.trim();
+      if (li && cardOf(l)) li.more.push({ k: 'p', ls: [l.trim()] });
+      else if (li) li.text += ' ' + l.trim();
       continue;
     }
     const indent = m[1].length;
@@ -511,6 +623,15 @@ function Quote({ bs, ls, fold }: { bs: Block[]; ls: string[]; fold: boolean }) {
 
 function ListView({ l, fold }: { l: List; fold: boolean }) {
   const items = l.items.map((it, i) => {
+    const card = cardOf(it.text);
+    if (card)
+      return (
+        <li key={i}>
+          <LinkCard href={card.href} site={card.site} part={card.part} title={card.label} />
+          {it.kids && <ListView l={it.kids} fold={fold} />}
+          {it.more.map((b, j) => block(b, j, fold))}
+        </li>
+      );
     const t = TASK.exec(it.text);
     const done = !!t && t[1] !== ' ';
     return (
@@ -562,7 +683,7 @@ function block(b: Block, key: number, fold: boolean): ReactNode {
         </div>
       );
     default:
-      return <p key={key}>{lines(b.ls)}</p>;
+      return para(b.ls, key);
   }
 }
 

@@ -34,15 +34,49 @@ const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image
 
 // Pictures he attached are shown from cm-att://f/<name>, and only from the
 // attachments folder: a name that resolves anywhere else is refused.
+// A picture a reply names by its full path is shown from cm-att://p/<path>,
+// only from his home folder or the temporary folders.
 protocol.registerSchemesAsPrivileged([{ scheme: 'cm-att', privileges: { standard: true, secure: true } }]);
+
+const ROOTS = [cfg.home, '/tmp', '/private/tmp', '/var/folders', '/private/var/folders'];
+// Apps, installers and scripts: a click shows them in the Finder, never runs them.
+const RUNS = /\.(app|command|tool|terminal|sh|bash|zsh|csh|fish|pkg|mpkg|dmg|workflow|scpt|scptd|applescript|jar|py|pyc|rb|pl|php|exe|bat|cmd|ps1|action|definition|webloc|inetloc|fileloc|prefpane|kext|plugin|bundle|osax)\/?$/i;
+
+// A full path from a reply, ~ expanded, with any line number taken off; null
+// when it is not one.
+function localPath(p) {
+  if (typeof p !== 'string' || p.length > 4096 || p.includes('\0')) return null;
+  const s = p.replace(/^~(?=\/|$)/, cfg.home).replace(/(?::\d+){1,2}$/, '');
+  return path.isAbsolute(s) ? path.normalize(s) : null;
+}
+
+const inRoots = (real) => ROOTS.some((r) => real === r || real.startsWith(r + '/'));
+
+function servePicture(file) {
+  const type = file && IMAGE_TYPES[path.extname(file).toLowerCase()];
+  if (!type) return new Response(null, { status: 404 });
+  let real;
+  try {
+    real = fs.realpathSync(file);
+  } catch {
+    return new Response(null, { status: 404 });
+  }
+  const st = fs.statSync(real);
+  if (!inRoots(real) || !st.isFile() || st.size > 30 * 1024 * 1024) return new Response(null, { status: 403 });
+  return new Response(fs.readFileSync(real), { headers: { 'content-type': type, 'cache-control': 'no-store' } });
+}
 
 function serveAttachment(req) {
   let name;
+  let host;
   try {
-    name = decodeURIComponent(new URL(req.url).pathname.replace(/^\/+/, ''));
+    const u = new URL(req.url);
+    host = u.host;
+    name = decodeURIComponent(u.pathname.replace(/^\/+/, ''));
   } catch {
     return new Response(null, { status: 400 });
   }
+  if (host === 'p') return servePicture(localPath(name));
   const type = IMAGE_TYPES[path.extname(name).toLowerCase()];
   if (!name || name.includes('/') || name.startsWith('.') || !type) return new Response(null, { status: 404 });
   let dir, real;
@@ -248,8 +282,25 @@ function wireIpc() {
     PANE.test(p) && Array.isArray(ids) && ids.length <= 50 && ids.every((i) => typeof i === 'string' && i.length < 200) ? hub.stepDetail(p, ids) : [],
   );
   act('cm:remote', (p, what) => (PANE.test(p) && ['on', 'off', 'link'].includes(what) ? hub.remote(p, what) : { ok: false, reason: 'Bad request.' }));
+  // Copy buttons: a session link, a code block, a draft he posts himself.
   on('cm:copy', (t) => {
-    if (typeof t === 'string' && /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(t)) clipboard.writeText(t);
+    if (typeof t === 'string' && t.length <= 200000) clipboard.writeText(t);
+  });
+  // A file name in a reply opens in the Mac's default app. Something that
+  // could run (an app, a script) is shown in the Finder instead.
+  on('cm:open-path', (p) => {
+    const file = localPath(p);
+    if (!file) return;
+    let st;
+    try {
+      st = fs.statSync(file);
+    } catch {
+      return log('open file', { found: false });
+    }
+    const runs = RUNS.test(file) || (st.isFile() && (st.mode & 0o111) !== 0);
+    log('open file', { shown: runs });
+    if (runs) shell.showItemInFolder(file);
+    else shell.openPath(file);
   });
   // A dropped or pasted file is kept in the state folder; Claude reads it by path.
   handle('cm:attach', (name, data) => {
@@ -403,7 +454,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   protocol.handle('cm-att', serveAttachment);
   log('start', { session: cfg.session, stateDir: cfg.stateDir, dev: !!cfg.devUrl, version: app.getVersion() });
-  if (cfg.replyHook) ensureReplyHook(cfg.claudeHome, log);
+  if (cfg.replyHook) ensureReplyHook(cfg.claudeHome, path.join(cfg.stateDir, 'rules-seen'), log);
   else removeReplyHook(cfg.claudeHome, log);
   hub = new Hub(cfg, send, log);
   wireIpc();

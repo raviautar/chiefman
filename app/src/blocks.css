@@ -1,0 +1,232 @@
+/* ---- cards under a reply (Blocks.tsx); link cards and pictures in a reply (Markdown.tsx) ---- */
+
+/* A reply with cards: they take its left edge and its width, and at least a
+   readable width under a short reply. */
+.reply-group.has-cards {
+  align-self: flex-start;
+  max-width: min(92%, 473px);
+}
+.reply-group.has-cards > .say {
+  max-width: 100%;
+}
+.bk-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  align-self: stretch;
+  contain: inline-size;
+  min-width: 320px;
+}
+.bk-cards > .wcard {
+  max-width: none;
+}
+
+/* Card's main button shares its class name with the app's main pane
+   (styles.css .main): keep the pane's layout off the button. */
+.wcard-btn.main {
+  flex: none;
+  display: inline-block;
+  min-width: 0;
+  overflow: visible;
+  container-type: normal;
+}
+
+/* Buttons the box offers: Card's buttons, in a row under the reply. */
+.bk-actions {
+  --wcard-line: rgba(17, 17, 17, 0.1);
+  --wcard-ink: #111111;
+  --wcard-hover: #f6f6f5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bk-actions .wcard-btn {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+/* A draft: the text as it will go, scrolling when long. */
+.bk-draft {
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.bk-draft .md > :last-child {
+  margin-bottom: 0;
+}
+
+/* Your turn: a checklist; a ticked step goes grey. */
+.bk-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bk-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.bk-tick {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1.5px solid #c5c0b3;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.bk-tick:hover:not(:disabled) {
+  border-color: #7a7a78;
+}
+.bk-steps li.on .bk-tick {
+  background: #111111;
+  border-color: #111111;
+}
+.bk-tick:disabled {
+  cursor: default;
+}
+.bk-step {
+  flex: 1;
+  min-width: 0;
+}
+.bk-step .md p {
+  margin: 0;
+}
+.bk-steps li.on .bk-step {
+  color: #7a7a78;
+}
+.bk-open {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--lilac-ink);
+  text-decoration: underline;
+  text-decoration-color: #c9a6dd;
+  text-underline-offset: 2.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* A test run's failures: names, a reason under a name on a click. */
+.bk-fails {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bk-fail {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #111111;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: left;
+}
+.bk-fail.more {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(17, 17, 17, 0.35);
+  text-underline-offset: 3px;
+}
+.bk-fail.more:hover {
+  text-decoration-style: solid;
+}
+.bk-why {
+  margin: 2px 0 4px;
+  color: #5b5b59;
+  font-size: 12.5px;
+}
+
+.bk-then {
+  color: #5b5b59;
+}
+
+/* A line that is only a PR, ticket or run link: a small card. */
+.md a.md-card {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 2px 0 10px;
+  padding: 6px 12px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.md a.md-card:hover {
+  background: #f6f6f5;
+}
+.md a.md-card:active {
+  background: #efefee;
+}
+.md-card-part {
+  font-weight: 600;
+}
+.md-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+.md-card-site {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+/* A picture named by its path: the picture, opening large on a click. */
+.md-pics {
+  margin: 0 0 10px;
+}
+.md .md-pic {
+  display: block;
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  line-height: 0;
+  cursor: zoom-in;
+}
+.md-pic img {
+  display: block;
+  max-width: min(100%, 320px);
+  max-height: 200px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 0.5px rgba(26, 26, 26, 0.12);
+}
+.md-table .md-pic img {
+  max-height: 64px;
+}
+
+/* Any other local file: its name opens it. */
+.md code.md-file.open {
+  cursor: pointer;
+}
+.md code.md-file.open:hover {
+  text-decoration: underline;
+  text-decoration-color: rgba(26, 26, 26, 0.35);
+  text-underline-offset: 2px;
+}

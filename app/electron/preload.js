@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('chiefman', {
   drafts: () => ipcRenderer.invoke('cm:drafts'),
   saveDrafts: (d) => ipcRenderer.send('cm:drafts-save', d),
   openUrl: (url) => ipcRenderer.send('cm:open-url', url),
+  openPath: (p) => ipcRenderer.send('cm:open-path', p),
   onEvent: (cb) => {
     const h = (_e, ev) => cb(ev);
     ipcRenderer.on('cm:event', h);
