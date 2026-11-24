@@ -99,7 +99,13 @@ export function MadeSheet({ name, paneId, made, onJump, onClose }: { name: strin
   }, [onClose]);
   const m = made;
   const total = m.prs.length + m.commits.length + m.drafts.length + m.outside.length + m.files.length;
-  const state = [m.prs.length ? plural(m.prs.length, 'PR', 'PRs') : '', m.files.length ? plural(m.files.length, 'file', 'files') : ''].filter(Boolean).join(' · ');
+  const state = [
+    m.prs.length ? plural(m.prs.length, 'PR', 'PRs') : '',
+    m.commits.length ? plural(m.commits.length, 'commit', 'commits') : '',
+    m.files.length ? plural(m.files.length, 'file', 'files') : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <>
       <div className="scrim" onMouseDown={onClose} />

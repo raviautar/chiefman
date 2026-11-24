@@ -173,7 +173,9 @@ export function Peek({ box, top, left, hint }: { box: Box; top: number; left: nu
   const now = Date.now();
   const gone = box.status === 'off' || box.status === 'ended' || box.status === 'failed' || !!box.ended;
   const [word, tone] = box.tab ? WORD[box.tab] : gone ? ['Ended', undefined] : box.status === 'starting' || box.status === 'resuming' ? ['Starting', undefined] : ['Idle', undefined];
-  const asks = box.menu ? box.menu.perm?.say || (box.menu.plan !== undefined ? 'Approve its plan' : box.menu.question.split('\n')[0]) : box.tab === 'asks' ? box.said?.line : null;
+  const perm = box.menu?.perm;
+  const permLine = perm ? perm.say + (perm.what ? `: ${perm.what.split('\n')[0]}` : '') : null;
+  const asks = box.menu ? permLine || (box.menu.plan !== undefined ? 'Approve its plan' : box.menu.question.split('\n')[0]) : box.tab === 'asks' ? box.said?.line : null;
   const lines: { k: string; t: string; c?: string; when?: string }[] = [];
   if (asks) lines.push({ k: 'asks', t: asks, c: 'peek-asks' });
   if (box.live && box.tab === 'waiting') lines.push({ k: 'wait', t: waitText(box.live, now) });

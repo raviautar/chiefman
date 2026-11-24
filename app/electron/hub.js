@@ -491,8 +491,11 @@ class Hub {
       const sc = this.screens.get(b.paneId) || {};
       const lv = this.liveOf(b, sc);
       let tab = this.tabOf(b, sc, tabBar);
-      // Its turn is over, but something it started still runs: waiting.
-      if (lv.live && tab !== 'working' && tab !== 'asks' && !sc.menu && !this.working.has(b.paneId)) tab = 'waiting';
+      // A menu on its screen asks him something, whatever the tab says.
+      if (sc.menu) tab = 'asks';
+      // Its screen shows no turn running, but something it started still
+      // runs: waiting.
+      else if (lv.live && tab !== 'asks' && !this.working.has(b.paneId)) tab = 'waiting';
       return {
         id: b.windowId,
         name: b.name,
