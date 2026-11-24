@@ -34,9 +34,11 @@ export function TerminalView({ paneId }: { paneId: string }) {
     term.open(host.current!);
     let cols = 120;
     let intent = 0;
+    // The font shrinks to fit the box's width, never below 12px: a narrower
+    // window scrolls sideways instead.
     const fit = () => {
       const w = (wrap.current?.clientWidth ?? 800) - 24;
-      const size = Math.max(8, Math.min(12.5, Math.floor((w / (cols * 0.602)) * 10) / 10));
+      const size = Math.max(12, Math.min(12.5, Math.floor((w / (cols * 0.602)) * 10) / 10));
       if (term.options.fontSize !== size) term.options.fontSize = size;
     };
     const markIntent = () => (intent = Date.now());
@@ -69,7 +71,7 @@ export function TerminalView({ paneId }: { paneId: string }) {
 
   return (
     <div className="term-wrap" ref={wrap}>
-      <div ref={host} />
+      <div className="term-host" ref={host} />
     </div>
   );
 }

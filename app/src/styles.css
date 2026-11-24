@@ -2185,6 +2185,10 @@ svg {
   padding: 10px 12px;
   box-sizing: border-box;
 }
+.term-host {
+  width: max-content;
+  min-width: 100%;
+}
 .term-wrap .xterm {
   padding: 0;
 }

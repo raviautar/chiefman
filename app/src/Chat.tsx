@@ -59,10 +59,53 @@ interface Closed {
   by?: Record<number, string>;
 }
 
+// His messages sent with a card's "In your words", as the log will keep
+// them, so that card closes as answered in his words. The newest 300 are
+// kept across restarts.
+const OWN = 'cm-own-words';
+const ownWords: string[] = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(OWN) || '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+})();
+const plainWords = (s: string) =>
+  s
+    .replace(/[*_`#>|[\]()~]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+export function keepOwnWords(text: string) {
+  const n = plainWords(text);
+  if (!n) return;
+  const i = ownWords.indexOf(n);
+  if (i >= 0) ownWords.splice(i, 1);
+  ownWords.push(n);
+  if (ownWords.length > 300) ownWords.splice(0, ownWords.length - 300);
+  try {
+    localStorage.setItem(OWN, JSON.stringify(ownWords));
+  } catch {}
+}
+
+// His message quotes a piece of the reply (its "> " lines).
+function quotes(msg: string, reply: string) {
+  const q = plainWords(
+    msg
+      .split('\n')
+      .filter((l) => /^\s*>/.test(l))
+      .map((l) => l.replace(/^\s*>\s?/, ''))
+      .join(' '),
+  );
+  return q.length >= 3 && plainWords(reply).includes(q.slice(0, 60));
+}
+
 // Which reply's questions are still open (live), which of his messages
 // answered questions (only what he wrote after the answers shows), and how
-// the other questions closed. His message right after them answers them: by
-// number from the card (answered), or in his own words (words). A skill
+// the other questions closed. His message right after them answers them by
+// number from the card (answered), or in his own words (words) when he used
+// the card's "In your words" or quoted the reply. Any other message, a skill
 // run, a command, a shell line or a newer reply with questions of its own
 // moves past them (skipped). next: what waits to go, first in line.
 export function askState(items: Item[], next?: Pending) {
@@ -72,6 +115,7 @@ export function askState(items: Item[], next?: Pending) {
   const turn = (i: Item) => i.k === 'you' || (i.k === 'work' && i.id.startsWith('u:'));
   const asks = (i: Item) => i.k === 'box' && !!i.asks?.length;
   const said = (t: string) => !/^\s*[/!]/.test(t);
+  const own = (t: string, reply: Item) => said(t) && (ownWords.includes(plainWords(t)) || quotes(t, reply.t));
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     if (!asks(it)) continue;
@@ -81,13 +125,13 @@ export function askState(items: Item[], next?: Pending) {
       const a = next?.answer ? answerLine(next.t, it.asks!) : null;
       if (!next) live = it.id;
       else if (next.skill || !said(next.t)) closed[it.id] = { how: 'skipped' };
-      else closed[it.id] = a ? { how: 'answered', by: a.by } : { how: 'words' };
+      else closed[it.id] = a ? { how: 'answered', by: a.by } : { how: next.answer || own(next.t, it) ? 'words' : 'skipped' };
     } else {
       const a = after.k === 'you' ? answerLine(after.t, it.asks!) : null;
       if (a) {
         answers[after.id] = a.rest;
         closed[it.id] = { how: 'answered', by: a.by };
-      } else closed[it.id] = { how: after.k === 'you' && said(after.t) ? 'words' : 'skipped' };
+      } else closed[it.id] = { how: after.k === 'you' && own(after.t, it) ? 'words' : 'skipped' };
     }
   }
   return { live, answers, closed };
@@ -522,6 +566,7 @@ export function ChatView({
     const was = Object.fromEntries(Object.entries(bundle).filter(([k]) => keys.has(k)));
     setBundle((b) => Object.fromEntries(Object.entries(b).filter(([k]) => !keys.has(k))));
     stick.current = true;
+    if (bundle[ownKey]?.text.trim()) keepOwnWords(answers);
     const ok = await onSend(answers, { answer: true });
     if (!ok && alive.current) setBundle((b) => ({ ...was, ...b }));
   }
@@ -786,6 +831,7 @@ export function ChatView({
     setBundle({});
     onDraft(null);
     stick.current = true;
+    if (bundle[ownKey]?.text.trim()) keepOwnWords(text);
     const ok = await onSend(text, { answer: !!answers });
     if (ok) return;
     if (!alive.current) return onLost(text);

@@ -3,6 +3,7 @@ import { api, Widget } from './api';
 import { Card, type CardButton } from './Card';
 import { Markdown, shortUrl } from './Markdown';
 import { Check, Icon } from './icons';
+import { waitingOn } from './plain';
 import './blocks.css';
 
 // The cards a box's blocks make under its reply (electron/blocks.js reads
@@ -278,11 +279,11 @@ function Waiting({ on, then, url, since, live, keys, onDismiss, onSend }: Common
   return (
     <Card
       icon={CLOCK}
-      title={`Waiting on ${on}`}
+      title={waitingOn(on)}
       state={live && since != null ? ago(Date.now() - since) : undefined}
       tone={live ? 'waiting' : undefined}
       done={!live}
-      line={`Waited on ${on}`}
+      line={waitingOn(on, true)}
       hint={away(keys)}
       buttons={buttons}
     >

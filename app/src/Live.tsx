@@ -4,6 +4,7 @@ import { Card, type Tone } from './Card';
 import { Markdown } from './Markdown';
 import { AgentIcon, Check, RunsIcon, ShellIcon, StepIcon, TodoIcon, WatchIcon } from './icons';
 import { meterOf } from './Actions';
+import { waitingOn } from './plain';
 import './live.css';
 
 // Re-renders every `ms`, for the minutes on screen.
@@ -34,10 +35,10 @@ export function runsText(l: LiveSum) {
 // a name such as "CI" or "PR 12" keeps its capital.
 const inLine = (s: string) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
 
-// The line under a waiting box's name: "Waiting on run the tests · 12m".
+// The line under a waiting box's name: "Waiting · the tests · 12m".
 export function waitText(l: LiveSum, now = Date.now()) {
   const time = mins(l.since, now);
-  return `Waiting on ${inLine(l.on)}${l.more ? ` and ${l.more} more` : ''}${time ? ` · ${time}` : ''}`;
+  return `${waitingOn(inLine(l.on))}${l.more ? ` and ${l.more} more` : ''}${time ? ` · ${time}` : ''}`;
 }
 
 const KIND_ICON = { agent: <AgentIcon />, command: <ShellIcon />, watch: <WatchIcon /> };

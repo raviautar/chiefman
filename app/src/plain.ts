@@ -18,3 +18,12 @@ export function plainText(s: string) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+// "Waiting · the CI run"; words that start with their own wait verb keep it
+// once: "Wait for CI" reads "Waiting for CI". past: "Waited …".
+export function waitingOn(on: string, past = false) {
+  const verb = past ? 'Waited' : 'Waiting';
+  const m = /^\s*(?:wait(?:ing|ed|s)?|watch(?:ing|es)?|poll(?:ing|s)?)\s+(for|on|until|till)\s+(\S[\s\S]*)$/i.exec(on);
+  if (m) return `${verb} ${m[1].toLowerCase()} ${m[2]}`;
+  return `${verb} · ${on.replace(/^\s*(?:wait(?:ing|ed|s)?)\s+/i, '')}`;
+}
