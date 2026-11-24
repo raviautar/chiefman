@@ -459,14 +459,31 @@ button:focus-visible,
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.you .paste-fold {
+/* A long message of his shows its first six lines, softly cut. */
+.you-text.cut {
+  max-height: 9em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 2.4em), transparent);
+}
+/* Opened, all of it shows, quoted lines too. */
+.you-text.open .you-quote {
+  display: block;
+}
+.you .md-more {
+  margin-top: 2px;
   color: var(--lilac-ink);
+  opacity: 0.8;
+}
+.you .md-more:hover {
+  color: var(--lilac-ink);
+  opacity: 1;
 }
 
-/* The box's replies: a soft grey bubble on the left, the same text size. */
+/* The box's replies: a soft grey bubble on the left, the same text size,
+   about 70 characters a line whatever the window's width. */
 .say {
   align-self: flex-start;
-  max-width: 92%;
+  max-width: min(92%, calc(31.5em + 32px));
   box-sizing: border-box;
   padding: 11px 16px;
   border-radius: 20px 20px 20px 6px;
@@ -475,6 +492,20 @@ button:focus-visible,
   font-size: 14px;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+.say.shell-out {
+  max-width: 92%;
+}
+
+/* Several replies in a row sit close and join at the left, so they read as
+   one run, each still its own. */
+.chat-col > .say + .say,
+.chat-col > .say + .reply-group {
+  margin-top: -8px;
+}
+.chat-col > .say + .say,
+.chat-col > .say + .reply-group > .say:first-child {
+  border-top-left-radius: 6px;
 }
 
 /* A button press of his: a small quiet tag on his side, no arrow. */
@@ -512,59 +543,283 @@ button:focus-visible,
   flex-direction: column;
 }
 
-.say p,
-.say ul,
-.say ol,
-.say pre,
-.say h4 {
+/* ---- Markdown in a bubble: set as a calm page ---- */
+
+/* Clear but small space between paragraphs, lists, code and tables. */
+.md p,
+.md ul,
+.md ol,
+.md .md-code,
+.md .md-table-wrap,
+.md .md-marks {
   margin: 0 0 10px;
 }
-
-.say > :last-child {
+/* A quote stands apart a little more. */
+.md .md-quote-wrap {
+  margin: 14px 0;
+}
+.md > :last-child,
+.md .md-body > :last-child,
+.md blockquote > :last-child,
+.md li > :last-child {
   margin-bottom: 0;
 }
-
-.say ul,
-.say ol {
-  padding-left: 22px;
+.md > :first-child,
+.md .md-body > :first-child,
+.md blockquote > :first-child {
+  margin-top: 0;
 }
 
-.say li {
-  margin: 2px 0;
-}
-
-.say h4 {
-  font-size: 14px;
+.md strong {
   font-weight: 600;
 }
 
-.say code {
-  font-family: var(--mono);
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 0 4px;
+/* Headings stay small and quiet: never bigger than a line of bold. */
+.md .md-h {
+  margin: 16px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.md .md-h3 {
+  color: var(--muted);
+}
+.md .md-h:first-child {
+  margin-top: 0;
+}
+.md .nowrap {
+  white-space: nowrap;
 }
 
-.say pre {
+/* Lists breathe a little; a nested list has a quiet dash. */
+.md ul,
+.md ol {
+  padding-left: 20px;
+}
+.md li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+.md li::marker {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.md p + ul,
+.md p + ol {
+  margin-top: -4px;
+}
+.md li ul,
+.md li ol {
+  margin: 3px 0 0;
+  padding-left: 18px;
+}
+.md li ul {
+  list-style-type: '–  ';
+}
+.md li li::marker {
+  color: var(--faint);
+}
+.md li > p,
+.md li > .md-code,
+.md li > .md-table-wrap {
+  margin: 6px 0 0;
+}
+
+/* Task lists: a quiet box, ticked when done. */
+.md li.task {
+  list-style: none;
+  position: relative;
+  margin-left: -20px;
+  padding-left: 22px;
+}
+.task-box {
+  position: absolute;
+  left: 0;
+  top: 0.3em;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1.5px solid var(--line-strong);
+}
+.task.done .task-box {
+  border-color: transparent;
+  background: rgba(3, 79, 70, 0.12);
+  color: var(--forest);
+}
+.task.done .task-t {
+  color: var(--muted);
+}
+
+/* Inline code: a soft tint, never a box. A local path shows its file name. */
+.md code {
   font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.55;
-  background: var(--white);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  font-size: 0.86em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: rgba(26, 26, 26, 0.055);
+}
+.md code.md-file {
+  cursor: default;
+}
+
+/* A code block: a quiet ground, no wrap, scrolls sideways in the bubble. */
+.md-code {
+  position: relative;
+}
+.md-code pre {
+  margin: 0;
   padding: 10px 12px;
-  overflow-x: auto;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: inset 0 0 0 0.5px rgba(26, 26, 26, 0.07);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
   white-space: pre;
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+.md-code.cut pre {
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 2.6em), transparent);
+}
+.md-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--white);
+  box-shadow: 0 0 0 0.5px rgba(26, 26, 26, 0.12), 0 1px 2px rgba(26, 26, 26, 0.06);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.md-code:hover .md-copy,
+.md-copy:focus-visible {
+  opacity: 1;
+}
+.md-copy:hover {
+  color: var(--ink);
+}
+.md-copy:active {
+  transform: scale(0.96);
+}
+.md-code pre::-webkit-scrollbar,
+.md-table::-webkit-scrollbar {
+  height: 6px;
+  background: transparent;
+}
+.md-code pre::-webkit-scrollbar-thumb,
+.md-table::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(26, 26, 26, 0.1);
+}
+.md-code:hover pre::-webkit-scrollbar-thumb,
+.md-table-wrap:hover .md-table::-webkit-scrollbar-thumb {
+  background: rgba(26, 26, 26, 0.22);
 }
 
-.say a {
+/* A quote: one block, a thin rule at its left, slightly inset, the same type. */
+.md blockquote {
+  margin: 0 0 0 1px;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--line-strong);
+}
+.md blockquote.cut,
+.md .md-body.cut {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 3em), transparent);
+}
+.md blockquote.cut {
+  max-height: 12.8em;
+}
+/* A long reply shows about its first 16 lines, then its last paragraph. */
+.md .md-body.cut {
+  max-height: 25.6em;
+}
+.md > .md-more {
+  margin: 2px 0 10px;
+}
+
+/* Show all and Show less: quiet words under what they open. */
+.md-more {
+  display: block;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.md-more:hover {
+  color: var(--ink);
+}
+.md-more:active {
+  opacity: 0.7;
+}
+
+/* Lines that start with a check mark or an arrow: the marks in one column,
+   the words lined up after them. */
+.md-mark-row {
+  display: grid;
+  grid-template-columns: 1.4em minmax(0, 1fr);
+}
+.md-mark,
+.md .sym {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+.md hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid rgba(26, 26, 26, 0.1);
+}
+
+/* Links: short words, the whole address on hover. */
+.md a {
   color: var(--lilac-ink);
   text-decoration: underline;
   text-decoration-color: #c9a6dd;
-  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2.5px;
   cursor: pointer;
+  transition: text-decoration-color 120ms ease;
+}
+.md a:hover {
+  text-decoration-color: currentColor;
+}
+.md a.short {
+  white-space: nowrap;
+}
+
+/* In his bubble, the same page in his colours. */
+.you .md a {
+  color: inherit;
+  text-decoration-color: rgba(80, 43, 102, 0.35);
+}
+.you .md code {
+  background: rgba(80, 43, 102, 0.08);
+}
+.you .md-code pre {
+  background: rgba(255, 255, 255, 0.45);
+}
+.you .md blockquote {
+  border-left-color: rgba(80, 43, 102, 0.25);
 }
 
 .pending {
@@ -2314,19 +2569,6 @@ button:focus-visible,
   background: var(--white);
   box-shadow: 0 8px 28px rgba(26, 26, 26, 0.14), 0 0 0 0.5px rgba(26, 26, 26, 0.1);
 }
-.paste-fold {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: var(--muted);
-  cursor: pointer;
-}
-.paste-fold:hover {
-  color: var(--ink);
-  text-decoration: underline;
-}
-
 /* Warnings and notices sit just above the message field. */
 .toast {
   top: auto;
@@ -2775,25 +3017,11 @@ button:focus-visible,
 }
 
 /* A list right under a sentence sits close to it; a nested one is tight. */
-.say p + ul,
-.say p + ol {
-  margin-top: -4px;
-}
-.say li > ul,
-.say li > ol {
-  margin: 2px 0 0;
-  padding-left: 18px;
-}
-.say hr {
-  margin: 4px 0 12px;
-  border: 0;
-  border-top: 1px solid var(--line);
-}
-
-/* A table in a reply: thin rules, no boxes, scrolls sideways if wide. */
+/* A table in a reply: thin rules, no boxes, words never split; a wide one
+   scrolls sideways inside the bubble. */
 .md-table {
-  margin: 0 0 10px;
   overflow-x: auto;
+  overflow-wrap: normal;
 }
 .md-table table {
   border-collapse: collapse;
@@ -2805,7 +3033,10 @@ button:focus-visible,
   padding: 5px 14px 5px 0;
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid rgba(26, 26, 26, 0.07);
+}
+.md-table td {
+  min-width: 4em;
 }
 .md-table th {
   font-weight: 600;

@@ -133,7 +133,7 @@ export function AskList({
             <span className="q-n">{a.n}</span>
             <div className="q-body">
               <div className="q-text">
-                <Markdown text={a.q} />
+                <Markdown text={a.q} fold={false} />
               </div>
               {live && (
                 <div className="q-controls">
