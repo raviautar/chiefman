@@ -1604,9 +1604,12 @@ svg {
 /* Claude's other menus (permissions, the model list): a chip each, the
    safe one dark, Cancel quiet and last. */
 .ask {
+  align-self: flex-start;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+  max-width: min(92%, calc(31.5em + 32px));
 }
 .ask > .say {
   white-space: pre-line;

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Drill, DrillItem } from './api';
 import { Icon } from './icons';
 import { arrange } from './Chat';
@@ -13,6 +13,15 @@ function rowOf(it: DrillItem, key: string, b: Bundle): QRow {
   const e = b[key];
   return { key, n: it.n, q: it.text, kind, choices: labels.map(choiceOf), picks: e?.picks ?? [], words: e?.words ?? '' };
 }
+
+// His picks, his words and the items shown outlive the panel, which mounts
+// again when the window narrows (dock to float) or he hides it. seen: every
+// item this list showed, so the answered ones keep their row.
+const kept: { bundle: Bundle; words: string; seen: { id: string; items: Map<number, DrillItem> } } = {
+  bundle: {},
+  words: '',
+  seen: { id: '', items: new Map() },
+};
 
 // Only what needs him now, every item at once, as one question card: a row
 // each, one Send at its foot. A sent answer stays as a grey row, "item ·
@@ -31,12 +40,15 @@ export function DrillPanel({
   onSend: (list: { n: number; text: string }[], words?: string) => Promise<boolean>;
   onClose: () => void;
 }) {
-  const [bundle, setBundle] = useState<Bundle>({});
-  const [words, setWords] = useState('');
+  const [bundle, setBundle] = useState<Bundle>(kept.bundle);
+  const [words, setWords] = useState(kept.words);
   const [sending, setSending] = useState(false);
-  // Every item this list showed, so the answered ones keep their row.
-  const seen = useRef<{ id: string; items: Map<number, DrillItem> }>({ id: '', items: new Map() });
-  if (drill && seen.current.id !== drill.id) seen.current = { id: drill.id, items: new Map() };
+  useEffect(() => {
+    kept.bundle = bundle;
+    kept.words = words;
+  }, [bundle, words]);
+  const seen = useRef(kept.seen);
+  if (drill && seen.current.id !== drill.id) seen.current = kept.seen = { id: drill.id, items: new Map() };
   if (drill) for (const it of drill.items) seen.current.items.set(it.n, it);
   const keyOf = (n: number) => `${drill?.id}:${n}`;
   const rows: QRow[] = !drill
