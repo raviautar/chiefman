@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api, Ask, Box, Draft, Item, MAX_SEND, Menu, Result, tooLong, type TurnNow } from './api';
-import { Arrow, Check } from './icons';
+import { Arrow, Check, Icon } from './icons';
 import { Markdown, More, PictureOpen, useFold } from './Markdown';
-import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
+import { Bundle, choiceOf, compose, currentRow, Entry, entryFor, keyPick, oneLine, QRow, QuestionCard, recommendedPick, type Kind } from './Answers';
 import { quoteKey, quotesOf, quoteText, Quoter, Tray } from './Quotes';
 import { NowFailed, NowLine, nowText, TurnCard } from './Turn';
 import { Jump, NEW_LINE, usePlace } from './Place';
@@ -31,77 +31,41 @@ export interface Pending {
 }
 
 // A message of his that answers a reply's questions by number, its first
-// lines "n. ...": the one line those fold to, and what he wrote after them
-// (rest), or null.
+// lines "n. ...": the one line those fold to, each answer by its number,
+// and what he wrote after them (rest), or null.
 export function answerLine(text: string, asks?: Ask[]) {
   const lines = text.split('\n');
   const nums: string[] = [];
+  const by: Record<number, string> = {};
   let i = 0;
   for (; i < lines.length; i++) {
     const l = lines[i].trim();
     if (!l) continue;
-    const m = /^(\d{1,2})[.)]\s+\S/.exec(l);
+    const m = /^(\d{1,2})[.)]\s+(\S.*)$/.exec(l);
     if (!m || (asks && !asks.some((a) => a.n === Number(m[1])))) break;
     nums.push(l);
+    by[Number(m[1])] = m[2].trim();
   }
   if (!nums.length) return null;
-  return { line: oneLine(nums.join('\n')), rest: lines.slice(i).join('\n').trim() };
+  return { line: oneLine(nums.join('\n')), by, rest: lines.slice(i).join('\n').trim() };
 }
 
-// His answers folded to their line, with any words he sent along under it.
-function AnswerTag({
-  line,
-  rest,
-  title,
-  fresh,
-  pending,
-  queued,
-  attachDir,
-  onOpen,
-}: {
-  line: string;
-  rest: string;
-  title: string;
-  fresh: boolean;
-  pending?: boolean;
-  queued?: boolean;
-  attachDir: string;
-  onOpen: (url: string) => void;
-}) {
-  const bubble = rest ? (
-    <div className={'you' + (fresh ? ' sent' : '')}>
-      <YouText text={rest} attachDir={attachDir} onOpen={onOpen} />
-    </div>
-  ) : null;
-  return (
-    <>
-      <div className={'tag answered' + (fresh ? ' rise' : '')} title={title}>
-        <Check />
-        <span className="tag-t">{line}</span>
-        {queued && !rest && <span className="queued">queued</span>}
-      </div>
-      {bubble && pending ? (
-        <div className="pending">
-          {bubble}
-          {queued && <span className="queued">queued</span>}
-        </div>
-      ) : (
-        bubble
-      )}
-    </>
-  );
+// How a reply's questions closed: answered by number from the card (by:
+// each answer), in his own words, or skipped.
+interface Closed {
+  how: 'answered' | 'words' | 'skipped';
+  by?: Record<number, string>;
 }
 
 // Which reply's questions are still open (live), which of his messages
-// answered questions and fold to one line, and how the other questions
-// closed. His message right after them answers them: by number from the
-// widgets (answered), or in his own words (words). A skill run, a command,
-// a shell line or a newer reply with questions of its own moves past them
-// (skipped). next: what waits to go, first in line.
+// answered questions (only what he wrote after the answers shows), and how
+// the other questions closed. His message right after them answers them: by
+// number from the card (answered), or in his own words (words). A skill
+// run, a command, a shell line or a newer reply with questions of its own
+// moves past them (skipped). next: what waits to go, first in line.
 function askState(items: Item[], next?: Pending) {
-  const answered: Record<string, { line: string; rest: string }> = {};
-  const words = new Set<string>();
-  const skipped = new Set<string>();
+  const answers: Record<string, string> = {};
+  const closed: Record<string, Closed> = {};
   let live: string | null = null;
   const turn = (i: Item) => i.k === 'you' || (i.k === 'work' && i.id.startsWith('u:'));
   const asks = (i: Item) => i.k === 'box' && !!i.asks?.length;
@@ -110,19 +74,32 @@ function askState(items: Item[], next?: Pending) {
     const it = items[i];
     if (!asks(it)) continue;
     const after = items.slice(i + 1).find((x) => turn(x) || asks(x));
-    if (after && !turn(after)) skipped.add(it.id);
+    if (after && !turn(after)) closed[it.id] = { how: 'skipped' };
     else if (!after) {
+      const a = next?.answer ? answerLine(next.t, it.asks!) : null;
       if (!next) live = it.id;
-      else if (next.skill || !said(next.t)) skipped.add(it.id);
-      else if (!next.answer) words.add(it.id);
+      else if (next.skill || !said(next.t)) closed[it.id] = { how: 'skipped' };
+      else closed[it.id] = a ? { how: 'answered', by: a.by } : { how: 'words' };
     } else {
-      const line = after.k === 'you' ? answerLine(after.t, it.asks!) : null;
-      if (line) answered[after.id] = line;
-      else if (after.k === 'you' && said(after.t)) words.add(it.id);
-      else skipped.add(it.id);
+      const a = after.k === 'you' ? answerLine(after.t, it.asks!) : null;
+      if (a) {
+        answers[after.id] = a.rest;
+        closed[it.id] = { how: 'answered', by: a.by };
+      } else closed[it.id] = { how: after.k === 'you' && said(after.t) ? 'words' : 'skipped' };
     }
   }
-  return { live, answered, words, skipped };
+  return { live, answers, closed };
+}
+
+// A reply's questions as card rows, with his picks so far, or once closed
+// with what each went with.
+function askRows(id: string, asks: Ask[], bundle: Bundle, closed?: Closed): QRow[] {
+  return asks.map((a) => {
+    const key = `${id}:${a.n}`;
+    const e = closed ? undefined : bundle[key];
+    const done = !closed ? undefined : closed.how === 'words' ? 'in your words' : closed.by?.[a.n] || 'skipped';
+    return { key, n: a.n, q: a.q, kind: a.kind as Kind, choices: (a.options as unknown[]).map(choiceOf), picks: e?.picks ?? [], words: e?.words ?? '', done };
+  });
 }
 
 // How each of the box's replies shows: its text, and the cards under it.
@@ -201,9 +178,9 @@ function Quoted({ text }: { text: string }) {
   );
 }
 
-// His whole message as he sent it. A long one shows its first lines, with
-// Show all.
-const CLIP_OVER = 10;
+// His whole message as he sent it. One over about 8 lines shows its first
+// lines, with Show all.
+const CLIP_OVER = 8;
 
 function Clip({ text }: { text: string }) {
   const f = useFold();
@@ -301,13 +278,7 @@ function OptionLabel({ label }: { label: string }) {
 const PAGE = 150;
 const AT = /(^|\s)@([^\s@]*)$/;
 
-function Chevron() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
+const Chevron = () => <Icon name="right" />;
 
 export function ChatView({
   box,
@@ -379,6 +350,8 @@ export function ChatView({
   const [ticks, setTicks] = useState<{ key: string; on: number[] } | null>(null);
   const tickNow = useRef<{ key: string; on: number[] } | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
+  // His own words on Claude Code's question card.
+  const [menuWords, setMenuWords] = useState('');
   const scroller = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -421,8 +394,11 @@ export function ChatView({
   const [, setCardTick] = useState(0);
   const replies = replyViews(items, !pending.length && !closed, box.status === 'working');
   const liveItem = asked.live ? items.find((i) => i.id === asked.live) : undefined;
-  const liveKeys = liveItem?.asks ? liveItem.asks.map((a) => `${liveItem.id}:${a.n}`) : [];
+  // The live card's own "In your words" waits under this key.
+  const ownKey = liveItem ? `${liveItem.id}:words` : '';
+  const liveKeys = liveItem?.asks ? [...liveItem.asks.map((a) => `${liveItem.id}:${a.n}`), ownKey] : [];
   const answers = compose(bundle, liveKeys);
+  const liveRows = liveItem?.asks && !closed ? askRows(liveItem.id, liveItem.asks, bundle) : [];
   // Claude Code's own question (it offers "Type something"): it works as the
   // widgets under a reply do. A click marks a pick; the field's Send sends
   // his picks or his words. Other menus answer on the click.
@@ -436,7 +412,27 @@ export function ChatView({
       : menu.multi
         ? menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n)
         : [];
-  const menuPicks = question ? ticked.map((n) => menu!.options.find((o) => o.n === n)?.label || '').filter(Boolean).join(', ') : '';
+  const menuPicks = question ? ticked.map((n) => choiceOf(menu!.options.find((o) => o.n === n)?.label || '').label).filter(Boolean).join(', ') : '';
+  // Claude Code's question as one card row: its choices, his picks.
+  const menuChoices = menu && question ? shownOptions(menu).filter((o) => !menu.multi || o.box) : [];
+  const menuN = (label: string) => menuChoices.find((o) => choiceOf(o.label).label === label)?.n;
+  const menuRow: QRow | null =
+    menu && question
+      ? {
+          key: 'menu',
+          n: 1,
+          q: menu.question,
+          kind: menu.multi ? 'any' : 'one',
+          choices: menuChoices.map((o) => choiceOf(o.label)),
+          picks: ticked.map((n) => choiceOf(menuChoices.find((o) => o.n === n)?.label || '').label).filter(Boolean),
+          words: '',
+        }
+      : null;
+  // The newest open card takes the keys of an empty message field.
+  const cardRows = menuRow ? [menuRow] : liveRows;
+  const cardHeld = menuRow ? ticked.length > 0 || !!menuWords : liveKeys.some((k) => bundle[k]);
+  const at = (id: string | null) => (id ? items.findIndex((i) => i.id === id) : -1);
+  const questionsFirst = !!menuRow || (liveRows.length > 0 && at(asked.live) >= at(replies.owner));
 
   function setEntry(key: string, e: Entry | null) {
     setBundle((b) => {
@@ -484,12 +480,52 @@ export function ChatView({
 
   const picksNow = () => (tickNow.current?.key === menuKey ? tickNow.current.on : ticked);
 
-  // Several picks toggle; one pick replaces the last, and a second click
-  // takes it back.
-  function tick(n: number) {
-    const cur = picksNow();
-    setPicks(cur.includes(n) ? cur.filter((x) => x !== n) : menu?.multi ? [...cur, n] : [n]);
+  const setMenuPicks = (labels: string[]) => setPicks(labels.map(menuN).filter((n): n is number => n != null));
+
+  function pickOn(r: QRow, picks: string[]) {
+    if (r.key === 'menu') setMenuPicks(picks);
+    else setEntry(r.key, entryFor(r.n, r.kind, picks, r.words));
   }
+
+  function clearCard() {
+    if (menuRow) {
+      setPicks([]);
+      setMenuWords('');
+    } else for (const k of liveKeys) setEntry(k, null);
+  }
+
+  // The card's Send: only its answers go, by number, his own words after;
+  // what he typed in the field stays there.
+  async function sendAnswers() {
+    if (!answers || blocked) return;
+    const keys = new Set(liveKeys);
+    const was = Object.fromEntries(Object.entries(bundle).filter(([k]) => keys.has(k)));
+    setBundle((b) => Object.fromEntries(Object.entries(b).filter(([k]) => !keys.has(k))));
+    stick.current = true;
+    const ok = await onSend(answers, { answer: true });
+    if (!ok && alive.current) setBundle((b) => ({ ...was, ...b }));
+  }
+
+  // 1 to 9 pick on the newest open card's current question, Enter takes its
+  // recommended choice, Escape clears its picks. True when the key was used.
+  function cardKey(e: KeyboardEvent) {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || !cardRows.length || closed) return false;
+    const cur = currentRow(cardRows);
+    let p: string[] | null = null;
+    if (/^[1-9]$/.test(e.key)) p = keyPick(cur, Number(e.key));
+    else if (e.key === 'Enter') p = recommendedPick(cur);
+    else if (e.key === 'Escape' && cardHeld) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearCard();
+      return true;
+    }
+    if (!p) return false;
+    e.preventDefault();
+    pickOn(cur, p);
+    return true;
+  }
+
 
   async function submitTicks(words?: string) {
     if (!box.paneId || !menu?.multi || menuBusy) return false;
@@ -502,8 +538,9 @@ export function ChatView({
   }
 
   // The one Send on Claude Code's question: his words win over a single
-  // pick, and go with the ticks where several are allowed.
-  async function answerQuestion(words: string) {
+  // pick, and go with the ticks where several are allowed. field: the words
+  // come from the message field, not the card.
+  async function answerQuestion(words: string, field = true) {
     if (!box.paneId || !menu || menuBusy) return;
     const on = picksNow();
     if (!words && !on.length) return;
@@ -511,7 +548,8 @@ export function ChatView({
     stick.current = true;
     // His words leave the field at once, as a message does.
     const was = draft;
-    if (words) {
+    if (!field) words = words.trim();
+    else if (words) {
       sentNow.current = { draft, atts, bundle };
       setDraft('');
       setHist(null);
@@ -524,18 +562,23 @@ export function ChatView({
       ok = r.ok;
     } else ok = await choose(on[0]);
     if (!alive.current) {
-      if (!ok && words) onLost(was);
+      if (!ok && words && field) onLost(was);
       return;
     }
     setSending(false);
-    if (ok) clearTicks();
-    else if (words) setDraft((d) => [was, d].filter(Boolean).join('\n'));
+    if (ok) {
+      clearTicks();
+      if (!field) setMenuWords('');
+    } else if (words && field) setDraft((d) => [was, d].filter(Boolean).join('\n'));
   }
 
   // Picks belong to the question on screen: the same question asked again
   // later starts from what the box shows.
   useEffect(() => {
-    if (!question) clearTicks();
+    if (!question) {
+      clearTicks();
+      setMenuWords('');
+    }
   }, [question]);
 
   useLayoutEffect(() => {
@@ -658,7 +701,7 @@ export function ChatView({
   async function submit(textIn?: string) {
     const typed = (textIn ?? draft).trim();
     if (menu) {
-      if (question && !sending && !closed) await answerQuestion(typed);
+      if (question && !sending && !closed) await (typed || !menuWords.trim() ? answerQuestion(typed) : answerQuestion(menuWords, false));
       return;
     }
     const paths = atts.map((a) => a.path);
@@ -855,6 +898,28 @@ export function ChatView({
     return true;
   }
 
+  // A turn's line of facts sits under the reply it closes, in that reply's
+  // column: the same left edge and width.
+  const under = new Map<string, Item>();
+  for (let i = 1; i < rows.length; i++) {
+    const t = rows[i];
+    const r = rows[i - 1];
+    if (t.k === 'work' && t.turn && r.k === 'box' && !r.mono && (!folds[r.id] || unfolded.has(r.id))) under.set(r.id, t);
+  }
+  const taken = new Set([...under.values()].map((t) => t.id));
+  const turnCard = (t: Item) => (
+    <TurnCard
+      key={t.id}
+      item={t}
+      paneId={box.paneId ?? box.lastPane ?? null}
+      canAsk={!blocked}
+      onAsk={(x) => {
+        stick.current = true;
+        onSend(x);
+      }}
+    />
+  );
+
   let middle;
   if (starting && !menu && !waiting && !pending.length)
     middle = (
@@ -869,6 +934,7 @@ export function ChatView({
       <div className="chat-col">
         {note && <div className="ended-note">{note}</div>}
         {rows.map((m) => {
+          if (taken.has(m.id)) return null;
           const isFresh = chat!.fresh.has(m.id);
           const folded = folds[m.id];
           // An older drill-down list: only the newest one shows.
@@ -885,20 +951,14 @@ export function ChatView({
                 {folded}
               </button>
             );
-          // His answers from the widgets: the one line they folded to, a tag
-          // on his side like a button press.
-          if (m.k === 'you' && asked.answered[m.id])
-            return (
-              <AnswerTag
-                key={m.id}
-                line={asked.answered[m.id].line}
-                rest={asked.answered[m.id].rest}
-                title={m.t}
-                fresh={isFresh && !quiet.has(m.id)}
-                attachDir={attachDir}
-                onOpen={onOpen}
-              />
-            );
+          // His answers from a card show on the card; only what he wrote
+          // after them is his bubble.
+          if (m.k === 'you' && asked.answers[m.id] != null)
+            return asked.answers[m.id] ? (
+              <div key={m.id} className={'you' + (isFresh && !quiet.has(m.id) ? ' sent' : '')}>
+                <YouText text={asked.answers[m.id]} attachDir={attachDir} onOpen={onOpen} />
+              </div>
+            ) : null;
           if (m.k === 'you')
             return (
               <div key={m.id} className={'you' + (isFresh && !quiet.has(m.id) ? ' sent' : '')}>
@@ -920,19 +980,7 @@ export function ChatView({
               </div>
             );
           // A turn's one line of facts; a click opens what it did.
-          if (m.k === 'work' && m.turn)
-            return (
-              <TurnCard
-                key={m.id}
-                item={m}
-                paneId={box.paneId ?? box.lastPane ?? null}
-                canAsk={!blocked}
-                onAsk={(t) => {
-                  stick.current = true;
-                  onSend(t);
-                }}
-              />
-            );
+          if (m.k === 'work' && m.turn) return <div key={m.id} className="reply-group">{turnCard(m)}</div>;
           // "Interrupted", "Compacted": one small centred word.
           if (m.k === 'work')
             return (
@@ -946,17 +994,20 @@ export function ChatView({
                 {m.t}
               </pre>
             );
-          // The box's reply sits in a soft bubble; its questions' widgets and
-          // its cards sit under it, outside the bubble.
+          // The box's reply sits in a soft bubble; its cards (its questions,
+          // its blocks, the turn's facts) sit under it, outside the bubble,
+          // in its column.
           const view = replies.views.get(m.id);
           const text = view ? view.text : m.t;
           const cards = view && view.cards.length ? view : null;
-          if (!m.asks?.length && !cards)
+          const t = under.get(m.id);
+          if (!m.asks?.length && !cards && !t)
             return (
               <div key={m.id} className={'say' + (isFresh ? ' rise' : '')} data-quote="">
                 <Markdown text={text} />
               </div>
             );
+          const isLive = m.id === asked.live && !closed;
           return (
             <div key={m.id} className={'reply-group' + (cards ? ' has-cards' : '') + (isFresh ? ' rise' : '')}>
               {text.trim() && (
@@ -964,29 +1015,17 @@ export function ChatView({
                   <Markdown text={text} />
                 </div>
               )}
-              {/* Questions he answered in his words, or skipped, fold to one
-                  quiet line; a click shows them. */}
-              {!m.asks?.length ? null : (asked.words.has(m.id) || asked.skipped.has(m.id)) && !unfolded.has(m.id + ':q') ? (
-                <button
-                  className="work fold q-fold"
-                  onClick={() => setUnfolded((s) => new Set(s).add(m.id + ':q'))}
-                  title={m.asks.map((a) => `${a.n}. ${a.q}`).join('\n')}
-                >
-                  <Chevron />
-                  {asked.words.has(m.id)
-                    ? 'Answered in your words'
-                    : m.asks.length === 1
-                      ? 'Question skipped'
-                      : `${m.asks.length} questions skipped`}
-                </button>
-              ) : (
-                <AskList
-                  id={m.id}
-                  asks={m.asks}
-                  live={m.id === asked.live && !closed}
-                  bundle={bundle}
-                  onEntry={setEntry}
-                  onSend={() => submit()}
+              {!!m.asks?.length && (
+                <QuestionCard
+                  rows={isLive ? liveRows : askRows(m.id, m.asks, bundle, asked.closed[m.id])}
+                  live={isLive}
+                  done={!!asked.closed[m.id]}
+                  words={isLive ? bundle[ownKey]?.text ?? '' : undefined}
+                  onWords={(w) => setEntry(ownKey, w ? { text: w, words: w } : null)}
+                  onPick={pickOn}
+                  onField={(r, w) => setEntry(r.key, entryFor(r.n, r.kind, r.picks, w))}
+                  onSend={sendAnswers}
+                  onClear={() => liveKeys.forEach((k) => setEntry(k, null))}
                 />
               )}
               {cards && (
@@ -999,9 +1038,10 @@ export function ChatView({
                   keys={m.id === replies.owner ? cardKeys : undefined}
                   onSend={sendCard}
                   onQuote={quoteCard}
-                  onDismiss={() => setCardTick((t) => t + 1)}
+                  onDismiss={() => setCardTick((n) => n + 1)}
                 />
               )}
+              {t && turnCard(t)}
             </div>
           );
         })}
@@ -1021,16 +1061,23 @@ export function ChatView({
               {p.queued && <span className="queued">queued</span>}
             </div>
           ) : p.answer ? (
-            <AnswerTag
-              key={p.id}
-              {...(answerLine(p.t) || { line: oneLine(p.t), rest: '' })}
-              title={p.t}
-              fresh
-              pending
-              queued={p.queued}
-              attachDir={attachDir}
-              onOpen={onOpen}
-            />
+            // His answers show on the card at once; only his own words after
+            // them are a bubble.
+            (() => {
+              const a = answerLine(p.t);
+              const rest = a ? a.rest : p.t;
+              if (!rest && !p.queued) return null;
+              return (
+                <div key={p.id} className="pending">
+                  {rest && (
+                    <div className="you sent">
+                      <YouText text={rest} attachDir={attachDir} onOpen={onOpen} />
+                    </div>
+                  )}
+                  {p.queued && <span className="queued">{rest ? 'queued' : 'Answers queued'}</span>}
+                </div>
+              );
+            })()
           ) : (
             <div key={p.id} className="pending">
               <div className="you sent">
@@ -1040,34 +1087,20 @@ export function ChatView({
             </div>
           ),
         )}
-        {menu && question && (
-          // As the widgets under a reply: picks mark, the field's Send sends.
+        {menuRow && menu && (
+          // The same card as a reply's questions: picks mark, Send sends.
           <div className="ask rise" key={menuKey}>
-            {menu.question && <div className="say">{menu.question}</div>}
-            <div className="choices">
-              {shownOptions(menu)
-                .filter((o) => !menu.multi || o.box)
-                .map((o) => {
-                  const on = ticked.includes(o.n);
-                  return (
-                    <button
-                      key={o.n}
-                      className={'chip pick' + (on ? ' on' : '')}
-                      aria-pressed={on}
-                      disabled={menuBusy || sending}
-                      onClick={(e) => e.detail < 2 && tick(o.n)}
-                    >
-                      {menu.multi && <span className="tick" aria-hidden="true">{on && <Check size={11} />}</span>}
-                      <OptionLabel label={o.label} />
-                    </button>
-                  );
-                })}
-              {canCancel(menu) && (
-                <button className="menu-cancel" onClick={dismiss} title="Esc">
-                  Cancel
-                </button>
-              )}
-            </div>
+            <QuestionCard
+              rows={[menuRow]}
+              live={!closed}
+              words={menu.free != null ? menuWords : undefined}
+              onWords={setMenuWords}
+              onPick={(_r, p) => setMenuPicks(p)}
+              onSend={() => answerQuestion(menuWords, false)}
+              onCancel={canCancel(menu) ? dismiss : undefined}
+              onClear={clearCard}
+              sending={menuBusy || sending}
+            />
           </div>
         )}
         {menu && !question && (
@@ -1082,7 +1115,7 @@ export function ChatView({
                   disabled={menuBusy}
                   onClick={() => choose(o.n)}
                 >
-                  {o.current && <Check color="currentColor" size={13} />}
+                  {o.current && <Check />}
                   <OptionLabel label={o.label} />
                 </button>
               ))}
@@ -1145,7 +1178,7 @@ export function ChatView({
         onClick={(e) => {
           // A pick made with the mouse leaves the cursor in the message
           // field, so Enter sends it instead of taking the pick back.
-          if (e.detail > 0 && (e.target as Element).closest('.chip.pick')) input.current?.focus();
+          if (e.detail > 0 && (e.target as Element).closest('.q-chip')) input.current?.focus();
         }}
         onWheel={(e) => {
           // The thin scrollbar shows only while he scrolls, not when a new
@@ -1251,6 +1284,8 @@ export function ChatView({
             value={draft}
             readOnly={blocked && !typeAhead}
             aria-expanded={pop ? 'true' : 'false'}
+            // Escape here clears the newest card's picks first (App reads it).
+            data-held={cardHeld && !draft ? '' : undefined}
             placeholder={menu && (closed || !menu.free) ? 'Pick an option above' : ''}
             onChange={(e) => {
               setDraft(e.target.value);
@@ -1273,17 +1308,24 @@ export function ChatView({
               }
               if (popKey(e)) return;
               // The newest open card takes the keys while the field is empty:
-              // 1 to 9 pick, Enter its main button, Esc puts it away.
+              // Claude's question first, then the newer of the reply's
+              // questions (1 to 9 pick, Enter the recommended one, Esc
+              // clears) and its other cards (1 to 9 pick, Enter the main
+              // button, Esc puts it away).
               const ck = cardKeys.current;
-              if (ck && !draft && !atts.length && !quotes.length && !answers && !menu && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-                if (/^[1-9]$/.test(e.key) && ck.pick?.(Number(e.key))) return e.preventDefault();
-                if (e.key === 'Enter' && ck.main) {
-                  e.preventDefault();
-                  return ck.main();
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  return ck.dismiss();
+              if (!draft && !atts.length && !quotes.length && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+                if (questionsFirst) {
+                  if (cardKey(e)) return;
+                } else if (ck && !answers && !menu) {
+                  if (/^[1-9]$/.test(e.key) && ck.pick?.(Number(e.key))) return e.preventDefault();
+                  if (e.key === 'Enter' && ck.main) {
+                    e.preventDefault();
+                    return ck.main();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    return ck.dismiss();
+                  }
                 }
               }
               if (e.key === 'Escape') {
@@ -1320,7 +1362,7 @@ export function ChatView({
             {draft.startsWith('!') && box.paneId ? <span className="shell-hint">Runs in {box.name}'s shell</span> : !closed && foot}
             <span className="tools-gap" />
             {tools}
-            <button aria-label="Send" data-tip="Send" className={'send tip up' + (!blocked && (menu ? question && !closed && (draft.trim() || ticked.length) : draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={blocked}>
+            <button aria-label="Send" data-tip="Send" className={'send tip up' + (!blocked && (menu ? question && !closed && (draft.trim() || ticked.length || menuWords.trim()) : draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={blocked}>
               <Arrow />
             </button>
           </div>

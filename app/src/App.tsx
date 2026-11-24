@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, Box, BoxSpec, Draft, Drill, EFFORTS, HubEvent, MODELS, PhaseInfo, PlanInfo, Recent, Result, Snapshot } from './api';
-import { Avatar, Check } from './icons';
+import { Avatar, Check, Icon } from './icons';
+import { plainText } from './plain';
 import { Picker } from './Picker';
 import { Action, Confirm, costOf, meterOf, MoreMenu, Palette, RenameSheet } from './Actions';
 import { ChatState, ChatView, Pending, norm } from './Chat';
@@ -18,11 +19,7 @@ const NEW_BOX = 'new.box';
 // The new conversation has nothing in it yet.
 const NO_CHAT: ChatState = { items: [], fresh: new Set(), steps: 0, loaded: true };
 
-const Chevron = () => (
-  <svg className="pill-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M6 9l6 6 6-6" />
-  </svg>
-);
+const Chevron = () => <Icon name="down" className="pill-chevron" />;
 
 // Below this width the drill-down floats over the chat instead of taking room.
 const NARROW = '(max-width: 1179px)';
@@ -89,9 +86,9 @@ function lineOf(b: Box) {
   if (b.status === 'resuming') return 'Coming back…';
   if (b.status === 'failed') return "Didn't start";
   if (b.ended || b.status === 'ended') return 'Ended';
-  if (b.menu) return b.menu.question.split('\n')[0] || 'Asks you';
+  if (b.menu) return plainText(b.menu.question.split('\n')[0]) || 'Asks you';
   if (b.status === 'working' && b.activity) return b.activity;
-  return b.said?.line || '';
+  return plainText(b.said?.line || '');
 }
 
 const modelLabel = (id: string) => (MODELS.find((m) => m[0] === id) || ['', id])[1];
@@ -540,14 +537,14 @@ export function App() {
       // A menu without that (the trust question) gets no Esc at all.
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.menu) {
         const el = document.activeElement;
-        if (el && (el.closest('.drill, .asks, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .qcard-wrap, .quote-bubble, .quote-tray, [data-held]') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         if (box.menu.esc) api().dismiss(box.paneId).then((r) => !r.ok && r.reason && show(r.reason, true));
         return;
       }
       if (e.key === 'Escape' && !e.metaKey && !overlay && !ask && !picking && !more && !newConv && view === 'chat' && box?.paneId && box.status === 'working') {
         const el = document.activeElement;
-        if (el && (el.closest('.drill, .asks, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
+        if (el && (el.closest('.drill, .qcard-wrap, .quote-bubble, .quote-tray') || el.getAttribute('aria-expanded') === 'true')) return;
         e.preventDefault();
         api()
           .interrupt(box.paneId)
@@ -660,11 +657,12 @@ export function App() {
     return true;
   }
 
-  // Answers to the chief's list, one or several, in one message by number.
-  async function sendDrill(list: { n: number; text: string }[]) {
-    if (!list.length) return false;
+  // Answers to the chief's list, one or several, in one message by number;
+  // his own words, if any, after them.
+  async function sendDrill(list: { n: number; text: string }[], words?: string) {
+    if (!list.length && !words) return false;
     const chief = boxes.find((b) => b.name === 'chief');
-    const msg = list.map((a) => `${a.n}. ${a.text}`).join('\n');
+    const msg = [...list.map((a) => `${a.n}. ${a.text}`), ...(words ? [words] : [])].join('\n');
     let r = await api().sendChief(msg);
     if (!r.ok && r.ask === 'replace') {
       if (!(await askReplace(chief ? chief.name : 'chief', r.typed || ''))) return false;
@@ -1128,9 +1126,7 @@ export function App() {
         {/* The window's lights sit here; New Box sits at the other end. */}
         <div className="nav-top">
           <button className={'new-btn tip' + (newConv ? ' on' : '')} onClick={openNew} aria-label="New box" data-tip="New box  ⌘N">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            <Icon name="plus" />
           </button>
         </div>
         <div className="nav-list">
@@ -1235,16 +1231,7 @@ export function App() {
                 aria-label={view === 'chat' ? 'Terminal' : 'Chat'}
                 data-tip={view === 'chat' ? 'Terminal  ⌘T' : 'Chat  ⌘T'}
               >
-                {view === 'chat' ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="3" y="4.5" width="18" height="15" rx="3" />
-                    <path d="M7.5 9.5l3 2.5-3 2.5 M12.5 15h4" />
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-                  </svg>
-                )}
+                <Icon name={view === 'chat' ? 'terminal' : 'chat'} />
               </button>
             )}
           </div>
@@ -1252,7 +1239,7 @@ export function App() {
 
         {toast && (
           <div className="toast" key={toast.id} role="status">
-            {toast.bad ? <span className="bang">!</span> : <Check color="#ffffff" size={14} />}
+            {toast.bad ? <span className="bang">!</span> : <Check />}
             {toast.text}
           </div>
         )}

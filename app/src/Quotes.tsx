@@ -43,10 +43,42 @@ function readPick(root: HTMLElement): Pick | null {
   const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
   const host = el?.closest('[data-quote]');
   if (!host || !root.contains(host)) return null;
-  const asks = host.querySelector('.asks');
-  if (asks && range.intersectsNode(asks)) return null;
-  const text = cleanQuote(sel.toString());
+  const text = cleanQuote(withAddresses(sel.toString(), range, host));
   return text ? { text, range: range.cloneRange() } : null;
+}
+
+// A link or a file in the picked text goes to the box as its whole address,
+// not the short words shown for it. One the pick cuts through counts too.
+function withAddresses(text: string, range: Range, host: Element) {
+  let out = text;
+  let from = 0;
+  for (const a of Array.from(host.querySelectorAll('a[title], code.md-file[title]'))) {
+    if (!range.intersectsNode(a)) continue;
+    const full = a.getAttribute('title') || '';
+    const shown = a.textContent || '';
+    if (!full || !shown || full === shown) continue;
+    const at = out.indexOf(shown, from);
+    if (at >= 0) {
+      out = out.slice(0, at) + full + out.slice(at + shown.length);
+      from = at + full.length;
+    } else if (a.contains(range.startContainer)) {
+      // The pick starts inside it: the text starts with its tail.
+      for (let k = Math.min(shown.length, out.length); k > 0; k--)
+        if (out.startsWith(shown.slice(-k))) {
+          out = full + out.slice(k);
+          from = full.length;
+          break;
+        }
+    } else if (a.contains(range.endContainer)) {
+      // The pick ends inside it: the text ends with its head.
+      for (let k = Math.min(shown.length, out.length); k > 0; k--)
+        if (out.endsWith(shown.slice(0, k))) {
+          out = out.slice(0, out.length - k) + full;
+          break;
+        }
+    }
+  }
+  return out;
 }
 
 // Where the range ends, in the chat's scrolled content. Null once its text
@@ -246,7 +278,7 @@ export function Quoter({
           {/* Escape closes it; his words, if any, go in the tray as with Enter. */}
           <Field value={reply} label="Your reply to the quote" placeholder="Reply" onChange={setReply} onKeep={() => finish(true)} onDrop={() => finish(!!now.current.reply.trim())} />
           <button className="qb-add tip up" aria-label="Add this reply" data-tip="Add this reply" onClick={() => finish(true)}>
-            <Check size={12} />
+            <Check />
           </button>
         </div>
       )}
@@ -288,7 +320,7 @@ export function Tray({
       {answers && (
         <div className="qt-line">
           <span className="qt-main qt-answers" title={answers}>
-            <Check size={12} />
+            <Check />
             {answers}
           </span>
           <button className="qt-x" aria-label="Clear these answers" title="Clear these answers" onClick={onClearAnswers}>
