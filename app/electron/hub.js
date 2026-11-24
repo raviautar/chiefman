@@ -86,7 +86,14 @@ class Hub {
     const edits = readJson(this.editsFile) || {};
     this.cuts = edits.cuts || {};
     this.marks = edits.marks || {};
-    this.guard = 0;
+    // Until this time a session someone else is still building keeps the
+    // saved list from shrinking.
+    this.hold = 0;
+    // When the tmux session was made: tells a saved list from this session
+    // apart from one of an earlier session.
+    this.created = null;
+    this.windowsFile = path.join(cfg.stateDir, 'windows');
+    this.windowsText = null;
     this.boxes = [];
     this.panes = new Set();
     this.ctl = null;
@@ -120,16 +127,21 @@ class Hub {
     try {
       this.state = this.store.load();
       if (!(await hasSession(this.cfg.session))) {
+        this.forgetClosed();
         const live = liveSessionIds(this.cfg.claudeHome);
         const resumable = this.state.boxes.filter((b) => UUID_RE.test(b.sessionId || '') && !live.has(b.sessionId));
         this.log('session missing', { saved: this.state.boxes.length, resumable: resumable.length });
         if (resumable.length) await this.openRestore(resumable);
         else await this.openFresh();
-        this.guard = 0;
+        this.hold = 0;
       } else {
-        // A session that came back with fewer windows than saved must not
-        // shrink the saved list.
-        this.guard = this.state.boxes.length;
+        // The session follows its windows: a saved box with no window was
+        // closed while chiefman was closed. Only a session made in the last
+        // two minutes by something else may still be getting its windows
+        // back, so the saved list waits for them until then.
+        const created = await this.sessionCreated();
+        const young = created && created !== this.state.created && Date.now() - created * 1000 < 120000;
+        this.hold = young ? created * 1000 + 120000 : 0;
       }
       await this.attach();
       for (const name of [...this.resuming.keys()]) this.followStart(name);
@@ -154,6 +166,8 @@ class Hub {
     ctl.on('log', (s) => this.log('tmux:', s.trim()));
     ctl.start();
     this.log('attached', { session: this.cfg.session, flags: 'ignore-size' });
+    this.created = await this.sessionCreated();
+    await this.keepWindowList();
     await this.scan();
     this.setPhase('ready');
     this.timers.push(setInterval(() => this.scan(), 5000));
@@ -185,6 +199,61 @@ class Hub {
     if (this.watch && this.watch.tr) this.watch.tr.stop();
     if (this.chief && this.chief.tr) this.chief.tr.stop();
     if (this.ctl) this.ctl.stop();
+  }
+
+  // ---- windows closed while chiefman is closed ----------------------------
+
+  async sessionCreated() {
+    const out = await run(['display', '-p', '-t', `=${this.cfg.session}:`, '#{session_created}']).catch(() => '');
+    return Number(out.trim()) || null;
+  }
+
+  // tmux itself keeps the list of the session's windows in a file, rewritten
+  // each time a window closes, also while chiefman is closed. The hook sits
+  // in one fixed slot of the session's own hooks, so other hooks stay, and
+  // writes nothing once the session itself is gone (a restart, or tmux
+  // quitting), so the list then still holds every box that was running.
+  async keepWindowList() {
+    const f = this.windowsFile;
+    if (/['"$`\\#\n]/.test(f)) return this.log('window list off', { why: 'path' });
+    const sh =
+      `{ [ -n "#{W:x}" ] && printf "%s\\n" #{session_created} #{W:#{window_id} } > "${f}.tmp" && mv -f "${f}.tmp" "${f}"; }` +
+      ' >/dev/null 2>&1; true';
+    try {
+      await run(['set-hook', '-t', `=${this.cfg.session}:`, 'window-unlinked[42]', `run-shell -b '${sh}'`]);
+    } catch (e) {
+      this.log('window list off', { why: String((e && e.message) || e).slice(0, 120) });
+    }
+  }
+
+  // The same list, written by the app while it runs.
+  writeWindows() {
+    if (!this.created || !this.boxes.length) return;
+    const text = [this.created, ...this.boxes.map((b) => b.windowId)].join('\n') + '\n';
+    if (text === this.windowsText) return;
+    try {
+      fs.writeFileSync(this.windowsFile + '.tmp', text, { mode: 0o600 });
+      fs.renameSync(this.windowsFile + '.tmp', this.windowsFile);
+      this.windowsText = text;
+    } catch {}
+  }
+
+  // Before a restore: a saved box whose window is missing from the list tmux
+  // kept for that same session was closed on purpose, so it stays closed.
+  forgetClosed() {
+    let lines;
+    try {
+      lines = fs.readFileSync(this.windowsFile, 'utf8').split('\n').map((s) => s.trim()).filter(Boolean);
+    } catch {
+      return;
+    }
+    const [created, ...open] = lines;
+    if (!open.length || !this.state.created || Number(created) !== this.state.created) return;
+    const closed = this.state.boxes.filter((b) => b.windowId && !open.includes(b.windowId));
+    if (!closed.length) return;
+    this.state.boxes = this.state.boxes.filter((b) => !closed.includes(b));
+    this.store.save(this.state);
+    this.log('closed while away', { names: closed.map((b) => b.name) });
   }
 
   soon(key, ms, fn) {
@@ -693,10 +762,11 @@ class Hub {
 
   // state.json mirrors every window: its name, session id and folder.
   recordState() {
-    if (this.guard) {
-      if (this.boxes.length < this.guard) return;
-      this.guard = 0;
+    if (this.hold) {
+      if (this.boxes.length < this.state.boxes.length && Date.now() < this.hold) return;
+      this.hold = 0;
     }
+    this.writeWindows();
     const prev = this.state.boxes;
     const boxes = this.boxes.map((b) => {
       const old = prev.find((p) => p.name === b.name) || {};
@@ -704,6 +774,7 @@ class Hub {
       const carry = this.carry(b);
       const entry = {
         name: b.name,
+        windowId: b.windowId,
         icon: b.icon,
         color: b.color,
         sessionId: (b.claude && b.claude.sessionId) || old.sessionId || null,
@@ -716,7 +787,7 @@ class Hub {
       if (!entry.sessionId && old.pending) entry.pending = true;
       return entry;
     });
-    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, boxes, ended: [...this.ended.values()], removed: this.removed };
+    const next = { version: 1, session: this.cfg.session, workdir: this.cfg.workdir, created: this.created, boxes, ended: [...this.ended.values()], removed: this.removed };
     if (JSON.stringify(next) !== JSON.stringify(this.state)) {
       this.state = next;
       try {
