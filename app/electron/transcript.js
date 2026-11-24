@@ -59,6 +59,21 @@ function shellOutput(s) {
   return t.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\s+$/, '');
 }
 
+// His own words in an answer to Claude Code's question menu: what is not one
+// of the options. Several picks come joined with ", ".
+function typedAnswers(r) {
+  if (!r || typeof r !== 'object' || !r.answers || typeof r.answers !== 'object' || !Array.isArray(r.questions)) return null;
+  const out = [];
+  for (const q of r.questions) {
+    const a = q && r.answers[q.question];
+    if (typeof a !== 'string' || !a.trim()) continue;
+    const labels = Array.isArray(q.options) ? q.options.map((o) => o && o.label) : [];
+    const rest = q.multiSelect ? a.split(', ').filter((p) => !labels.includes(p)).join(', ') : labels.includes(a) ? '' : a;
+    if (rest.trim()) out.push(rest.trim());
+  }
+  return out.length ? out.join('\n') : null;
+}
+
 const near = (a, b, ms) => Math.abs(Date.parse(a) - Date.parse(b)) < ms;
 
 function duration(ms) {
@@ -280,6 +295,12 @@ class Transcript extends EventEmitter {
     if (this.turn && ts) this.turn.lastTs = ts;
     if (d.type === 'user') {
       if (d.isMeta || d.isCompactSummary || d.isVisibleInTranscriptOnly) return;
+      // Words he typed into Claude Code's question show as his message.
+      const typed = typedAnswers(d.toolUseResult);
+      if (typed) {
+        this.push({ id: 'w:' + d.uuid, k: 'you', t: mask(typed), ts });
+        return;
+      }
       const raw = userText(d.message && d.message.content);
       if (typeof raw === 'string' && /^\s*\[Request interrupted/.test(raw)) {
         this.endTurn(ts);
