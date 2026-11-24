@@ -168,6 +168,50 @@ function reviewQuestion(lines, first) {
   return out.join('\n');
 }
 
+// What a permission question ("Do you want to proceed?") asks about, as the
+// screen shows it above the question: its title ("Bash command", "Edit
+// file") and the command or change under it, as plain lines.
+function askedAbove(lines, first) {
+  let q = first - 1;
+  while (q >= Math.max(0, first - 4) && !/^\s*do you want to\b/i.test(lines[q])) q--;
+  if (q < 0 || !/^\s*do you want to\b/i.test(lines[q] || '')) return null;
+  let top = q - 1;
+  while (top >= Math.max(0, q - 80) && !RULE.test(lines[top])) top--;
+  const block = lines
+    .slice(top + 1, q)
+    .map((l) => l.replace(/\s+$/, ''))
+    .filter((l) => !/^\s*[╌┄┈]{6,}\s*$/.test(l) && !/^\s*Tip:/.test(l));
+  while (block.length && !block[0].trim()) block.shift();
+  while (block.length && !block[block.length - 1].trim()) block.pop();
+  const title = (block.shift() || '').trim();
+  const pad = Math.min(...block.filter((l) => l.trim()).map((l) => l.search(/\S/)), 99);
+  return { title, body: block.map((l) => l.slice(pad === 99 ? 0 : pad)).join('\n').trim() };
+}
+
+// The plan in Claude Code's own approval question, as plain lines: between
+// "Here is Claude's plan:" and the question.
+function planAbove(screen) {
+  const lines = plainLines(screen);
+  const a = lines.findIndex((l) => /here is claude's plan:/i.test(l));
+  const b = lines.findIndex((l, i) => i > a && PLAN_Q.test(l));
+  if (a < 0 || b < 0) return '';
+  const body = lines.slice(a + 1, b).filter((l) => !/^\s*[╌┄┈─]{6,}\s*$/.test(l));
+  const pad = Math.min(...body.filter((l) => l.trim()).map((l) => l.search(/\S/)), 99);
+  return body.map((l) => l.slice(pad === 99 ? 0 : pad).replace(/\s+$/, '')).join('\n').trim();
+}
+
+// The background shells the foot under the prompt counts ("· 1 shell"):
+// 0 when the foot shows none, null when the foot is not on screen.
+function parseShells(screen) {
+  const lines = plainLines(screen);
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
+    if (!/(?:⏵⏵|⏸|▶▶)\s+.+?\s+on\b/.test(lines[i])) continue;
+    const m = /·\s*(\d+)\s+(?:background\s+)?shells?\b/i.exec(lines[i]);
+    return m ? Number(m[1]) : 0;
+  }
+  return null;
+}
+
 // A choice menu with a ❯ on the current option, as Claude Code draws for
 // permission prompts, AskUserQuestion, the trust question and its own menus.
 // Options are numbered, or plain lines in one column. A question that allows
@@ -189,7 +233,8 @@ function parseMenu(screen) {
   // Esc leaves the menu, unless an option is already marked as the Esc one,
   // or Esc means "exit Claude" (the trust question).
   const escOption = menu.options.some((o) => /\(esc\)\s*$/i.test(o.label));
-  const esc = !trust && !escOption && (menu.bare || /esc to (cancel|exit|close|go back)/i.test(hint));
+  // Esc on a plan's approval keeps planning.
+  const esc = !trust && !escOption && (menu.bare || menu.plan || /esc to (cancel|exit|close|go back)/i.test(hint));
   const options = menu.options.map((o) => {
     const raw = o.label.replace(ART, '').replace(/\s*\(esc\)\s*$/i, '');
     const box = menu.multi ? BOX.exec(raw) : null;
@@ -200,10 +245,14 @@ function parseMenu(screen) {
   // With several picks, his own words go in the last check box, which says
   // "Type something" until he types there.
   const boxes = options.filter((o) => o.box);
-  const free = menu.multi && menu.button ? boxes[boxes.length - 1] : options.find((o) => /^type something\.?$/i.test(o.label));
+  // A plan's approval takes his words in "Tell Claude what to change".
+  const free = menu.multi && menu.button ? boxes[boxes.length - 1] : options.find((o) => /^type something\.?$/i.test(o.label) || (menu.plan && /^tell claude what to change\b/i.test(o.label)));
   const order = menu.order || options.map((o) => o.n);
   const tabs = menu.first != null ? tabsAbove(lines, menu.first) : null;
+  const perm = !menu.plan && menu.first != null && /^do you want to\b/i.test(menu.question || '') ? askedAbove(lines, menu.first) : null;
   return {
+    plan: !!menu.plan,
+    ...(perm ? { perm } : {}),
     // The last step of a question menu, and whether one follows this question.
     review: !!menu.review,
     reviewNext: !menu.review && !!tabs && /✔\s*Submit\b/.test(tabs),
@@ -221,6 +270,7 @@ function parseMenu(screen) {
   };
 }
 
+const PLAN_Q = /\bwould you like to proceed\?/i;
 const BOX = /^\[( |✔|✓|x|X|×)\]\s+/;
 const BUTTON = /^\s*(❯\s*)?(Submit|Next)\s*$/;
 const REVIEW = /^\s*Review your answers\b/;
@@ -257,7 +307,9 @@ function parseNumbered(lines, start) {
   const review =
     lines.slice(Math.max(0, first - 30), first).some((l) => REVIEW.test(l)) &&
     (best.some((o) => SEND_ALL.test(o.label)) || (lines.slice(last + 1).every((l) => !l.trim()) && best.some((o) => o.on)));
-  if (!HINT.test(near) && !bare && !review) return null;
+  // Nor does the approval of a plan, which asks "Would you like to proceed?".
+  const plan = lines.slice(Math.max(0, first - 3), first).some((l) => PLAN_Q.test(l));
+  if (!HINT.test(near) && !bare && !review && !plan) return null;
   const multi = best.filter((o) => BOX.test(o.label)).length >= 2;
   let button = null;
   let order = null;
@@ -284,6 +336,7 @@ function parseNumbered(lines, start) {
     first,
     bare,
     review,
+    plan,
     multi,
     button,
     order,
@@ -352,4 +405,4 @@ function promptText(screen) {
   return out.join('\n').replace(/\s+$/, '');
 }
 
-module.exports = { promptState, parseActivity, parseMenu, parseMode, promptText, strip, SEND_ALL };
+module.exports = { promptState, parseActivity, parseMenu, parseMode, promptText, strip, SEND_ALL, parseShells, planAbove };
