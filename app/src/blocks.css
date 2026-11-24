@@ -17,25 +17,6 @@
   contain: inline-size;
   min-width: 320px;
 }
-.bk-cards > .wcard {
-  max-width: none;
-}
-
-/* Buttons the box offers: Card's buttons, in a row under the reply (Card
-   has no form with buttons only). */
-.bk-actions {
-  --wcard-line: var(--line);
-  --wcard-ink: var(--ink);
-  --wcard-hover: var(--fill);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.bk-actions .wcard-btn {
-  height: 30px;
-  padding: 0 14px;
-  font-size: var(--body);
-}
 
 /* A draft: the text as it will go, scrolling when long. */
 .bk-draft {

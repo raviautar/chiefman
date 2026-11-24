@@ -1,7 +1,9 @@
 /* ---- the widget card (Card.tsx): every widget is one of these ---- */
 
 .wcard,
-.wcard-line {
+.wcard-line,
+.wcard-only,
+.wcard-btn {
   /* The Mono values, named at the top of styles.css. */
   --wcard-line: var(--line);
   --wcard-ink: var(--ink);
@@ -14,11 +16,12 @@
   --wcard-waiting: var(--waiting);
 }
 
+/* As wide as where it sits allows; the chat column narrows its own. */
 .wcard {
   align-self: flex-start;
   box-sizing: border-box;
   width: 100%;
-  max-width: 92%;
+  max-width: 100%;
   background: var(--white);
   border: 1px solid var(--wcard-line);
   border-radius: var(--r-card);
@@ -26,6 +29,11 @@
   color: var(--wcard-ink);
   font-size: var(--body);
   line-height: 1.45;
+}
+/* Over the window (a hover card, a sheet): the one shadow, no line. */
+.wcard-float {
+  border-color: transparent;
+  box-shadow: var(--shadow);
 }
 
 .wcard-head {
@@ -111,7 +119,7 @@
   height: 16px;
   stroke-width: 2;
   color: var(--wcard-grey);
-  transition: transform 120ms ease;
+  transition: transform var(--quick) ease;
 }
 .wcard-fold.open {
   transform: rotate(90deg);
@@ -120,17 +128,25 @@
 .wcard-body {
   padding: 10px 12px 12px;
   border-top: 1px solid var(--wcard-line);
-  animation: wcard-in 120ms ease-out both;
+  animation: wcard-in var(--quick) ease-out both;
 }
 
 .wcard-buttons {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   padding: 0 12px 12px;
 }
 .wcard-head.still + .wcard-buttons {
   padding-top: 2px;
+}
+/* Buttons only: the row alone, under a reply. */
+.wcard-only {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .wcard-btn {
@@ -152,6 +168,10 @@
   background: var(--fill-2);
   transform: scale(0.98);
 }
+.wcard-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .wcard-btn.wcard-main {
   background: var(--wcard-ink);
   border-color: var(--wcard-ink);
@@ -162,6 +182,23 @@
 }
 .wcard-btn.wcard-main:active:not(:disabled) {
   background: var(--wcard-ink);
+}
+/* Quiet: grey words, a frame only under the pointer. */
+.wcard-btn.wcard-quiet {
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--wcard-grey);
+}
+.wcard-btn.wcard-quiet:hover:not(:disabled) {
+  background: var(--wcard-hover);
+  color: var(--wcard-ink);
+}
+.wcard-btn.wcard-quiet:active:not(:disabled) {
+  background: var(--fill-2);
+}
+.wcard-btn.wcard-left {
+  margin-right: auto;
 }
 .wcard-btn:disabled {
   opacity: 0.4;
@@ -174,7 +211,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 92%;
+  max-width: 100%;
   padding: 2px 6px;
   margin: 0 -6px;
   border: 0;
@@ -206,6 +243,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.wcard-line:disabled {
+  color: var(--t3);
+  background: transparent;
+  cursor: default;
+}
+/* A finished line of several lines: its icon at the top. */
+.wcard-line.wcard-lines {
+  align-items: flex-start;
+}
+.wcard-lines .wcard-line-t {
+  white-space: normal;
 }
 
 @keyframes wcard-in {

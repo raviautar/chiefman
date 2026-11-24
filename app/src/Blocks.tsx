@@ -103,15 +103,7 @@ function Actions({ buttons, hint, live, keys, onDismiss, onSend }: Common & { bu
     dismiss: onDismiss,
   });
   if (!live) return null;
-  return (
-    <div className="bk-actions" title={hint}>
-      {buttons.map((b, i) => (
-        <button key={b} type="button" className={'wcard-btn' + (i === 0 ? ' wcard-main' : '')} disabled={busy} title={keys ? (i === 0 ? 'Enter' : String(i + 1)) : undefined} onClick={() => go(b)}>
-          {b}
-        </button>
-      ))}
-    </div>
-  );
+  return <Card hint={hint} buttons={buttons.map((b, i) => ({ label: b, main: i === 0, disabled: busy, title: keys ? (i === 0 ? 'Enter' : String(i + 1)) : undefined, onClick: () => go(b) }))} />;
 }
 
 const WHERE: Record<string, string> = { slack: 'Slack', ticket: 'Ticket', pr: 'Pull request', email: 'Email', mail: 'Email', jira: 'Jira', github: 'GitHub', notion: 'Notion', linear: 'Linear', confluence: 'Confluence' };

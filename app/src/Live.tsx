@@ -187,15 +187,17 @@ export function Peek({ box, top, left, hint }: { box: Box; top: number; left: nu
   const meter = [meterOf(box), hint].filter(Boolean).join(' · ');
   return (
     <div className="peek" style={{ top, left }} role="tooltip">
-      <Card className="peek-card" title={box.name} state={word} tone={tone} open>
-        {lines.map((l) => (
-          <div key={l.k} className={'peek-line ' + (l.c || '')}>
-            <span className="peek-t">{l.t}</span>
-            {l.when && <span className="peek-ago">{l.when}</span>}
-          </div>
-        ))}
-        {meter && <div className="peek-meter">{meter}</div>}
-        {!lines.length && !meter && <div className="peek-line">Nothing yet.</div>}
+      <Card className="peek-card" title={box.name} state={word} tone={tone} fixed float>
+        <div className="peek-lines">
+          {lines.map((l) => (
+            <div key={l.k} className={'peek-line ' + (l.c || '')}>
+              <span className="peek-t">{l.t}</span>
+              {l.when && <span className="peek-ago">{l.when}</span>}
+            </div>
+          ))}
+          {meter && <div className="peek-meter">{meter}</div>}
+          {!lines.length && !meter && <div className="peek-line">Nothing yet.</div>}
+        </div>
       </Card>
     </div>
   );

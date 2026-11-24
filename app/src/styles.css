@@ -1007,9 +1007,10 @@ svg {
 .reply-group > .say {
   max-width: none;
 }
-.reply-group .wcard,
-.reply-group .wcard-line {
-  max-width: none;
+/* A card right in the chat (Claude Code's own asks) is as wide as a reply. */
+.chat-col > .wcard,
+.chat-col > .wcard-line {
+  max-width: 92%;
 }
 
 /* Several replies in a row sit close, each still its own: a calm run. */
@@ -1501,9 +1502,6 @@ svg {
   min-width: 0;
   font-size: var(--body);
 }
-.qcard-wrap .wcard {
-  max-width: none;
-}
 .q-rows {
   display: flex;
   flex-direction: column;
@@ -1661,30 +1659,7 @@ svg {
 .q-ans.skipped {
   color: var(--t3);
 }
-/* The card's foot: "In your words" as quiet words at the left, Send last. */
-.qcard .wcard-buttons {
-  align-items: center;
-}
-.qcard .wcard-buttons > button:not(:last-child) {
-  border-color: transparent;
-  background: transparent;
-  color: var(--t2);
-  padding: 0 6px;
-}
-.qcard .wcard-buttons > button:first-child:not(:last-child) {
-  margin-right: auto;
-}
-.qcard .wcard-buttons > button:not(:last-child):hover:not(:disabled) {
-  background: var(--fill);
-  color: var(--ink);
-}
 /* Sent: grey rows, "question · answer". */
-.wcard-line.qcard {
-  align-items: flex-start;
-}
-.wcard-line.qcard .wcard-line-t {
-  white-space: normal;
-}
 .q-lines {
   display: flex;
   flex-direction: column;
@@ -2320,9 +2295,6 @@ svg {
 .drill:hover .drill-hide,
 .drill .drill-hide:focus-visible {
   opacity: 1;
-}
-.drill .qcard-wrap .wcard {
-  max-width: none;
 }
 .drill-empty {
   color: var(--t2);

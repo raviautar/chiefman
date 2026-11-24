@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, type Item, type StepDetail, type Turn, type TurnNow } from './api';
-import { Card } from './Card';
+import { Card, CardBtn, Fold } from './Card';
 import { Icon } from './icons';
 import { Markdown, Unfolded } from './Markdown';
 import './turn.css';
@@ -147,17 +147,16 @@ function FailRow({ f, paneId, onAsk, canAsk }: { f: Turn['failed'][number]; pane
           <span className="turn-dot" aria-hidden="true" />
           <span className="turn-say">{f.say}</span>
         </button>
-        <button
-          type="button"
-          className="wcard-btn turn-ask"
-          disabled={!canAsk || asked}
-          onClick={() => {
-            setAsked(true);
-            onAsk(`This failed: "${f.say}". Please fix it.`);
+        <CardBtn
+          b={{
+            label: asked ? 'Asked' : 'Ask it to fix',
+            disabled: !canAsk || asked,
+            onClick: () => {
+              setAsked(true);
+              onAsk(`This failed: "${f.say}". Please fix it.`);
+            },
           }}
-        >
-          {asked ? 'Asked' : 'Ask it to fix'}
-        </button>
+        />
       </div>
       {all && x?.cmd && <pre className="turn-pre cmd">{x.cmd}</pre>}
       {all ? (
@@ -206,10 +205,15 @@ export function TurnCard({ item, paneId, onAsk, canAsk }: { item: Item; paneId: 
       open={open}
       onOpen={setOpen}
       icon={<Icon name="steps" />}
-      title={<Facts text={item.t} />}
+      title={
+        <span className="turn-facts">
+          <Facts text={item.t} />
+        </span>
+      }
       state={open ? took(t.ms) : undefined}
       hint={open ? undefined : 'What it did'}
     >
+      <div className="turn-body">
       {t.files.length > 0 && (
         <Section title="Files">
           {t.files.map((f) => (
@@ -258,11 +262,12 @@ export function TurnCard({ item, paneId, onAsk, canAsk }: { item: Item; paneId: 
             <span className="turn-say">
               {t.other.length} other {t.other.length === 1 ? 'step' : 'steps'}
             </span>
-            <Icon name="right" className={'wcard-fold' + (rest ? ' open' : '')} />
+            <Fold open={rest} />
           </button>
           {rest && t.other.map((s) => <StepRow key={s.id} s={s} paneId={paneId} />)}
         </div>
       )}
+      </div>
     </Card>
   );
 }

@@ -5,14 +5,15 @@
   color: var(--failed);
 }
 
-.wcard.turn .wcard-title {
+/* The line of facts reads as text, not as a heading. */
+.turn-facts {
   font-weight: var(--regular);
 }
-.wcard.turn .wcard-body {
+.turn-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-top: 8px;
+  margin-top: -2px;
 }
 
 .turn-sec {
@@ -181,11 +182,6 @@
 .turn-fail-top .turn-row {
   flex: 1;
   min-width: 0;
-}
-.turn-ask {
-  flex-shrink: 0;
-  height: 28px;
-  font-size: var(--small);
 }
 .turn-dot {
   flex-shrink: 0;

@@ -308,6 +308,7 @@ export function QuestionCard({
           className="qcard"
           done
           bare
+          lines
           icon={<Icon name="ask" />}
           title={head}
           hint="Show the questions"
@@ -327,8 +328,8 @@ export function QuestionCard({
     );
 
   const buttons: CardButton[] = [];
-  if (on && words != null && onWords) buttons.push({ label: 'In your words', onClick: () => setWriting((w) => !w || !words), title: 'Answer in your own words' });
-  if (on && onCancel) buttons.push({ label: 'Cancel', onClick: onCancel, title: 'Esc' });
+  if (on && words != null && onWords) buttons.push({ label: 'In your words', quiet: true, left: true, onClick: () => setWriting((w) => !w || !words), title: 'Answer in your own words' });
+  if (on && onCancel) buttons.push({ label: 'Cancel', quiet: true, onClick: onCancel, title: 'Esc' });
   if (on && onSend) buttons.push({ label: 'Send', main: true, onClick: send, disabled: !ready || sending, title: 'Enter' });
   return (
     <div className="qcard-wrap" onKeyDown={key}>

@@ -110,7 +110,7 @@ export function MadeSheet({ name, paneId, made, onJump, onClose }: { name: strin
     <>
       <div className="scrim" onMouseDown={onClose} />
       <div className="made-sheet" role="dialog" aria-label={`Made in ${name}`}>
-        <Card className="made-card" icon={<MadeIcon />} title={`Made in ${name}`} state={state || undefined} open>
+        <Card className="made-card" icon={<MadeIcon />} title={`Made in ${name}`} state={state || undefined} fixed float>
           {m.prs.length > 0 && (
             <Section title="PRs">
               {m.prs.map((r) => (
