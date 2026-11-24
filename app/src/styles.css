@@ -810,6 +810,19 @@ button:focus-visible,
   cursor: default;
 }
 
+/* A long message scrolls inside the dark field with a dark scrollbar. */
+.composer textarea::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+.composer textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+.composer textarea::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(245, 244, 240, 0.22);
+}
+
 .send {
   width: 34px;
   height: 34px;
