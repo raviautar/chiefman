@@ -557,6 +557,24 @@ class Hub {
     if (changed) {
       this.recordState();
       this.emitBoxes();
+      this.autoName();
+    }
+  }
+
+  // A box the app named from his first message takes the name its reply
+  // gives in a title block, once. A box he named or renamed keeps its name.
+  autoName() {
+    for (const b of this.boxes) {
+      const saved = this.state.boxes.find((s) => s.name === b.name);
+      const u = this.usage.get(b.windowId);
+      const title = u && u.cur && u.cur.title;
+      if (!saved || !saved.auto || !title || !b.paneId || b.name === 'chief') continue;
+      delete saved.auto;
+      this.store.save(this.state);
+      let name = title;
+      for (let i = 2; name !== b.name && this.nameTaken(name); i++) name = `${title.slice(0, 28)}-${i}`;
+      if (name === b.name) continue;
+      this.rename(b.paneId, name).then((r) => this.log('named by its reply', { from: b.name, to: name, ok: !!(r && r.ok) }));
     }
   }
 
@@ -859,6 +877,8 @@ class Hub {
     const saved = this.state.boxes.find((b) => b.name === box.name);
     if (saved) {
       saved.name = name;
+      // A name he gave is never changed by the app.
+      delete saved.auto;
       this.store.save(this.state);
     }
     const u = this.usage.get(box.windowId);
@@ -1015,6 +1035,7 @@ class Hub {
         costCarry: Math.round((carry != null ? carry : Number(old.costCarry) || 0) * 10000) / 10000,
       };
       if (!entry.sessionId && old.pending) entry.pending = true;
+      if (old.auto) entry.auto = true;
       return entry;
     });
     const remoteOff = this.boxes.filter((b) => b.claude && this.remoteOff.has(b.claude.pid)).map((b) => b.claude.pid);
@@ -1807,7 +1828,9 @@ class Hub {
     this.starting.add(final);
     this.endWhy.delete(final);
     try {
-      const r = await this.startBox(final, icon, color, message, model, effort, resume);
+      // A name the app made from his first message; its first reply may give a better one.
+      const auto = !resume && spec.auto === true;
+      const r = await this.startBox(final, icon, color, message, model, effort, resume, auto);
       return { ...r, name: final, ...(final !== name ? { renamed: name } : {}) };
     } finally {
       this.starting.delete(final);
@@ -1830,11 +1853,11 @@ class Hub {
     return gone ? { name: gone.name, live: false } : null;
   }
 
-  async startBox(name, icon, color, message, model, effort, resume) {
+  async startBox(name, icon, color, message, model, effort, resume, auto) {
     if (resume) this.removed = this.removed.filter((e) => e.id !== resume);
     const record = {
       name, icon, color, sessionId: resume || null, cwd: this.cfg.workdir, model, effort,
-      createdAt: new Date().toISOString(), pending: true,
+      createdAt: new Date().toISOString(), pending: true, ...(auto ? { auto: true } : {}),
     };
     this.state.boxes = this.state.boxes.filter((b) => b.name !== name).concat(record);
     this.store.save(this.state);

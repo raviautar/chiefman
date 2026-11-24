@@ -385,9 +385,16 @@ export function App() {
   const listed = boxes.filter((b) => !tucked(b));
   const endedLine = boxes.filter(tucked);
 
-  const box = useMemo(() => boxes.find((b) => b.name === selected) || listed[0] || null, [boxes, selected]);
+  // A box renamed by its own first reply stays the one he looks at.
+  const selPane = useRef<string | null>(null);
+  const renamed = selected && !boxes.some((b) => b.name === selected) ? boxes.find((b) => b.paneId && b.paneId === selPane.current) : undefined;
+  const box = useMemo(() => renamed || boxes.find((b) => b.name === selected) || listed[0] || null, [boxes, selected]);
   const paneId = box ? box.paneId : null;
   viewing.current = box ? box.name : null;
+  if (box && box.name === selected) selPane.current = box.paneId;
+  useEffect(() => {
+    if (renamed) setSelected(renamed.name);
+  }, [renamed?.name]);
 
   // Resume, or Resume and send: what he typed in an ended box goes along,
   // the way New Box's first message does, or stays in its field.
@@ -446,7 +453,7 @@ export function App() {
     const name = inferName(text, boxes.map((b) => b.name));
     const lk = lookFor(name);
     setNewConv({ name });
-    startBox({ name, icon: lk.icon, color: lk.color, message: text, model: newPick.model, effort: newPick.effort });
+    startBox({ name, icon: lk.icon, color: lk.color, message: text, model: newPick.model, effort: newPick.effort, auto: true });
     return true;
   }
 
