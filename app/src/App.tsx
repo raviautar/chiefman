@@ -53,6 +53,13 @@ function until(at: number, now: number) {
   return `${Math.floor(mins / 1440)}d ${Math.floor((mins % 1440) / 60)}h`;
 }
 
+// Dark text on a light chip, white on a dark one.
+function inkOn(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 140 ? '#16161e' : '#ffffff';
+}
+
 function meterLine(b: Box) {
   const parts = [];
   if (b.cost != null && b.cost > 0) parts.push(money(b.cost));
@@ -742,7 +749,13 @@ export function App() {
   return (
     <div className="app">
       <nav className="nav" aria-label="Sidebar">
-        <div className="nav-lights" />
+        <div className="nav-lights">
+          {planInfo.workspace && (
+            <span className="ws" style={{ background: planInfo.workspace.colour, color: inkOn(planInfo.workspace.colour) }}>
+              {planInfo.workspace.name}
+            </span>
+          )}
+        </div>
         <div className="nav-list">
           {listed.map((b, i) => {
             const on = box?.name === b.name;
