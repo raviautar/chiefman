@@ -244,7 +244,7 @@ export function Quoter({
       {open && (
         <div ref={bubble} className="quote-bubble">
           <Field value={reply} label="Your reply to the quote" placeholder="Reply" onChange={setReply} onKeep={() => finish(true)} onDrop={() => finish(false)} />
-          <button className="qb-add" aria-label="Add this reply" onClick={() => finish(true)}>
+          <button className="qb-add tip up" aria-label="Add this reply" data-tip="Add this reply" onClick={() => finish(true)}>
             <Check size={12} />
           </button>
         </div>
@@ -294,7 +294,7 @@ export function Tray({
             <Check size={12} />
             {answers}
           </span>
-          <button className="qt-x" aria-label="Clear these answers" onClick={onClearAnswers}>
+          <button className="qt-x" aria-label="Clear these answers" title="Clear these answers" onClick={onClearAnswers}>
             ×
           </button>
         </div>
@@ -325,7 +325,7 @@ export function Tray({
               <span className="qt-quote">{e.quote}</span>
               {e.text && <span className="qt-reply">{e.text}</span>}
             </button>
-            <button className="qt-x" aria-label="Remove this reply" onClick={() => onRemove(key)}>
+            <button className="qt-x" aria-label="Remove this reply" title="Remove this reply" onClick={() => onRemove(key)}>
               ×
             </button>
           </div>

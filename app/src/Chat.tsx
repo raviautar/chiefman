@@ -656,12 +656,13 @@ export function ChatView({
                 {folded}
               </button>
             );
-          // His answers from the widgets: the one line they folded to.
+          // His answers from the widgets: the one line they folded to, a tag
+          // on his side like a button press.
           if (m.k === 'you' && asked.answered[m.id])
             return (
-              <div key={m.id} className={'work answered' + (isFresh && !quiet.has(m.id) ? ' rise' : '')} title={m.t}>
+              <div key={m.id} className={'tag answered' + (isFresh && !quiet.has(m.id) ? ' rise' : '')} title={m.t}>
                 <Check />
-                {asked.answered[m.id]}
+                <span className="tag-t">{asked.answered[m.id]}</span>
               </div>
             );
           if (m.k === 'you')
@@ -723,9 +724,9 @@ export function ChatView({
               {p.queued && <span className="queued">queued</span>}
             </div>
           ) : p.answer ? (
-            <div key={p.id} className="work answered rise" title={p.t}>
+            <div key={p.id} className="tag answered rise" title={p.t}>
               <Check />
-              {oneLine(p.t)}
+              <span className="tag-t">{oneLine(p.t)}</span>
               {p.queued && <span className="queued">queued</span>}
             </div>
           ) : (

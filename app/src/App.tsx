@@ -926,7 +926,7 @@ export function App() {
             {planInfo.plan && (
               <div className="plan" role="group" aria-label="Plan usage">
                 {planInfo.plan.map((l) => (
-                  <div key={l.label} className={'plan-line' + (l.pct >= 80 ? ' high' : l.pct >= 50 ? ' mid' : '')}>
+                  <div key={l.label} className={'plan-line' + (l.pct >= 80 ? ' high' : '')}>
                     <div className="plan-text">
                       <span>
                         {l.label.charAt(0).toUpperCase() + l.label.slice(1)} {Math.round(l.pct)}% used
