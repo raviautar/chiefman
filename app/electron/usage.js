@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const { mask } = require('./mask');
+const { splitAsks } = require('./asks');
 
 // Dollars per million tokens: input, output, cache read; then the context
 // window. Read on 2026-11-20 from the claude-api skill (its table is cached
@@ -55,8 +57,32 @@ function idFromName(name) {
   return m ? `claude-${m[1].toLowerCase()}-${m[2]}${m[3] ? '-' + m[3] : ''}` : null;
 }
 
+// A reply line as plain words: no list marks, no Markdown, no table rows.
+function plainLine(l) {
+  const s = l
+    .replace(/^\s*(?:[-*+]|\d+[.)]|#{1,6}|>)\s+/, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\*\*|__|`/g, '')
+    .trim();
+  return /^\|/.test(s) || !/[A-Za-z0-9]/.test(s) ? '' : s;
+}
+
+// The one line a box's sidebar row shows from its last reply: its first
+// question when it asks him something, else its last line.
+function sayLine(text) {
+  const split = splitAsks(text);
+  if (split && split.asks.length) return mask(plainLine(split.asks[0].q)).slice(0, 160);
+  const lines = String(text || '')
+    .replace(/```[\s\S]*?(```|$)/g, '\n')
+    .split('\n')
+    .map(plainLine)
+    .filter(Boolean);
+  return mask(lines[lines.length - 1] || '').slice(0, 160);
+}
+
 // Follows one session log and its subagent logs for what they cost, which
-// model answered last, how full the context is, and model or effort switches.
+// model answered last, how full the context is, model or effort switches,
+// and the last line the box said.
 class Usage {
   constructor(file) {
     this.file = file;
@@ -66,6 +92,7 @@ class Usage {
     this.seq = 0;
     this.modelSet = null;
     this.effortSet = null;
+    this.said = null;
     this.busy = false;
   }
 
@@ -153,6 +180,14 @@ class Usage {
     this.msgs.set(msg.id, { model: msg.model, u: msg.usage });
     this.seq++;
     if (main && !d.isSidechain) this.last = { model: msg.model, u: msg.usage, seq: this.seq, at: Date.parse(d.timestamp) || 0 };
+    if (main && !d.isSidechain && Array.isArray(msg.content)) {
+      const text = msg.content
+        .filter((c) => c && c.type === 'text' && typeof c.text === 'string')
+        .map((c) => c.text)
+        .join('\n');
+      const line = text.trim() ? sayLine(text) : '';
+      if (line) this.said = { line, at: Date.parse(d.timestamp) || 0 };
+    }
   }
 
   get total() {

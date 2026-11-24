@@ -34,6 +34,9 @@ export interface Box {
   ended?: { start: boolean; window: boolean; later?: boolean; why?: string | null } | null;
   // The conversation this row holds. One row per conversation.
   session?: string | null;
+  // The last line the box said (its first question, when it asks him
+  // something), and when, for its sidebar row.
+  said?: { line: string; at: number } | null;
   lastPane?: string | null;
 }
 

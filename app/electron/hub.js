@@ -595,6 +595,7 @@ class Hub {
       model,
       modelName: modelName(model),
       effort,
+      said: cur && cur.said ? cur.said : null,
     };
   }
 
