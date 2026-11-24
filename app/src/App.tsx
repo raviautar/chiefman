@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, PlanInfo, Result, Snapshot } from './api';
+import { api, Box, BoxSpec, Draft, Drill, EFFORTS, HubEvent, MODELS, PhaseInfo, PlanInfo, Result, Snapshot } from './api';
 import { Check, StateMark } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
@@ -42,6 +42,19 @@ const store = {
     } catch {}
   },
 };
+
+// New Box starts with the model and effort he started his last box with,
+// else the app's own.
+const LAST_PICK = 'chiefman.newbox.pick';
+function lastPick(config: Snapshot['config'] | null) {
+  let p: { model?: unknown; effort?: unknown } = {};
+  try {
+    p = JSON.parse(store.get(LAST_PICK) || '{}') || {};
+  } catch {}
+  const model = MODELS.some(([id]) => id === p.model) ? (p.model as string) : config?.model ?? 'claude-opus-5-5';
+  const effort = EFFORTS.includes(p.effort as string) ? (p.effort as string) : config?.effort ?? 'xhigh';
+  return { model, effort };
+}
 
 // A wide window remembers whether the panel was docked open. A narrow one
 // always starts with it closed: there it opens only on his click.
@@ -97,7 +110,7 @@ export function App() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [nothing, setNothing] = useState(false);
   const [chats, setChats] = useState<Record<string, ChatState>>({});
-  const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | null>(null);
+  const [overlay, setOverlay] = useState<'newbox' | 'switch' | 'clear' | 'compact' | 'rename' | 'close' | null>(null);
   const [picking, setPicking] = useState(false);
   const [more, setMore] = useState(false);
   const [ctx, setCtx] = useState<string | null>(null);
@@ -375,6 +388,19 @@ export function App() {
     if (box) store.set('chiefman.selected', box.name);
   }, [box?.name]);
 
+  // Cmd+K or a sheet put away gives the cursor back to the message field.
+  const hadOverlay = useRef(false);
+  useEffect(() => {
+    const was = hadOverlay.current;
+    hadOverlay.current = !!overlay;
+    if (!was || overlay) return;
+    const t = setTimeout(() => {
+      const a = document.activeElement;
+      if (!a || a === document.body) document.getElementById('composer')?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [overlay]);
+
   // Only his click or key opens or closes the panel, and only that is saved.
   function showPanel(open: boolean) {
     setPanel(open);
@@ -478,6 +504,8 @@ export function App() {
     const p = box.paneId;
     const name = box.name;
     const skill = opts.skill;
+    // A busy box, or one still on its way up, takes it next: "queued".
+    const later = box.status === 'working' || box.status === 'starting' || box.status === 'resuming';
     // A command gets no bubble: the log shows it, or it is one the app hides.
     // A message gets its bubble before delivery ends, and keeps it until the
     // log holds one more copy of the same text than it did now.
@@ -486,14 +514,14 @@ export function App() {
     if (skill) {
       const list = pending.current[p] || [];
       const base = workCount(p, skill) + list.filter((x) => x.skill && x.n === skill).length;
-      pending.current[p] = [...list, { id, t: skill, n: skill, base, queued: box.status === 'working', skill: true }];
+      pending.current[p] = [...list, { id, t: skill, n: skill, base, queued: later, skill: true }];
       setTick((t) => t + 1);
     } else if (!text.startsWith('/')) {
       const shown = await api().mask(text);
       const n = norm(shown);
       const list = pending.current[p] || [];
       const base = youCount(p, n) + list.filter((x) => !x.skill && x.n === n).length;
-      pending.current[p] = [...list, { id, t: shown, n, base, queued: box.status === 'working', ...(opts.answer ? { answer: true } : {}) }];
+      pending.current[p] = [...list, { id, t: shown, n, base, queued: later, ...(opts.answer ? { answer: true } : {}) }];
       setTick((t) => t + 1);
     }
     const drop = () => {
@@ -521,7 +549,14 @@ export function App() {
       drop();
       return true;
     }
-    pending.current[p] = (pending.current[p] || []).map((x) => (x.id === id ? { ...x, queued: !!r.queued } : x));
+    // A box that came back in a new window got it there: its bubble moves too.
+    const to = r.paneId && r.paneId !== p ? r.paneId : p;
+    const mine = (pending.current[p] || []).find((x) => x.id === id);
+    if (to === p) pending.current[p] = (pending.current[p] || []).map((x) => (x.id === id ? { ...x, queued: !!r.queued } : x));
+    else {
+      pending.current[p] = (pending.current[p] || []).filter((x) => x.id !== id);
+      if (mine) pending.current[to] = [...(pending.current[to] || []), { ...mine, queued: !!r.queued }];
+    }
     setTick((t) => t + 1);
     return true;
   }
@@ -590,6 +625,7 @@ export function App() {
 
   function startBox(spec: BoxSpec, note?: string) {
     setOverlay(null);
+    store.set(LAST_PICK, JSON.stringify({ model: spec.model, effort: spec.effort }));
     if (note) setNotes((n) => ({ ...n, [spec.name]: note }));
     wantSelect.current = spec.name;
     // A conversation that already has a row comes back in that row.
@@ -670,12 +706,23 @@ export function App() {
     }
   }
 
+  // Close box: its Claude stops and its window closes. As with Remove on an
+  // ended box, the conversation stays for New Box, with his typed text.
+  async function closeLive(b: Box) {
+    if (!b.paneId) return;
+    const d = saved.current[b.name];
+    const r = await api().closeBox(b.paneId);
+    if (!r.ok) return show(r.reason || "Couldn't close it.", true);
+    if (r.session && d) keepForSession(r.session, d);
+  }
+
   const boxActions: Action[] =
     box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed'
       ? [
           { label: 'Compact', run: () => setOverlay('compact') },
           { label: 'Clear', run: () => setOverlay('clear') },
           { label: 'Rename', run: () => setOverlay('rename') },
+          ...(box.name !== 'chief' ? [{ label: 'Close box', run: () => setOverlay('close') }] : []),
         ]
       : [];
   // An ended box: Resume (and send what he typed), or Remove.
@@ -834,6 +881,7 @@ export function App() {
         waiting={held[box.name]}
         onOpen={setFull}
         onSend={sendToBox}
+        onLost={(t) => giveBack(box.name, undefined, t)}
         onError={(t) => show(t, true)}
         foot={skillRow}
         onFold={(id) => {
@@ -1034,6 +1082,7 @@ export function App() {
         {overlay === 'newbox' && (
           <NewBoxSheet
             boxes={boxes}
+            {...lastPick(config)}
             initialMessage={saved.current[NEW_BOX]?.text ?? ''}
             onMessage={(t) => setDraftFor(NEW_BOX, t ? { text: t, caret: t.length, atts: [] } : null)}
             onCancel={() => setOverlay(null)}
@@ -1062,6 +1111,16 @@ export function App() {
             yes={overlay === 'clear' ? 'Clear' : 'Compact'}
             ending={overlay === 'clear'}
             onYes={() => act(overlay)}
+            onClose={() => setOverlay(null)}
+          />
+        )}
+        {overlay === 'close' && box && (
+          <Confirm
+            title={`Close ${box.name}?`}
+            body="Its Claude stops and the box goes away. The conversation stays on disk and can be resumed from New Box."
+            yes="Close box"
+            ending
+            onYes={() => void closeLive(box)}
             onClose={() => setOverlay(null)}
           />
         )}

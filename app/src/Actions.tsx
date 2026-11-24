@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box } from './api';
 import { StateMark } from './icons';
+import { badChars, nameInput } from './NewBox';
 
 function useAway(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
@@ -108,12 +109,15 @@ export function Confirm({
   );
 }
 
-const slug = (s: string) => s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+/, '').slice(0, 32);
-
 export function RenameSheet({ box, taken, onRename, onClose }: { box: Box; taken: string[]; onRename: (name: string) => void; onClose: () => void }) {
   const [name, setName] = useState(box.name);
   const clean = name.replace(/-+$/, '');
-  const err = clean && clean !== box.name && taken.includes(clean) ? 'That name is taken.' : '';
+  const bad = badChars(clean);
+  const err = bad
+    ? `${bad} can't be in a name. Use letters, digits and dashes.`
+    : clean && clean !== box.name && taken.includes(clean)
+      ? 'That name is taken.'
+      : '';
   const ok = !!clean && !err && clean !== box.name;
   const go = () => {
     if (!ok) return;
@@ -130,7 +134,7 @@ export function RenameSheet({ box, taken, onRename, onClose }: { box: Box; taken
             autoFocus
             aria-label="Name"
             value={name}
-            onChange={(e) => setName(slug(e.target.value))}
+            onChange={(e) => setName(nameInput(e.target.value))}
             onKeyDown={(e) => e.key === 'Enter' && go()}
           />
         </div>

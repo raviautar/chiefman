@@ -16,22 +16,36 @@ function lookFor(name: string) {
   return { icon: AUTO[h % AUTO.length], color: PALETTE[(h >>> 8) % PALETTE.length][1] };
 }
 
+// What he typed as a name, as the name field keeps it: lowercase, spaces as
+// dashes. Characters a name cannot have stay, so the field can say so.
+export const nameInput = (s: string) => Array.from(s.toLowerCase().replace(/[\s_]+/g, '-').replace(/^-+/, '')).slice(0, 32).join('');
+
+// Those characters, for "🚀 can't be in a name", or ''.
+export function badChars(s: string) {
+  return [...new Set(Array.from(s.replace(/[a-z0-9-]/g, '')))].join(' ');
+}
+
 export function NewBoxSheet({
   boxes,
+  model: firstModel,
+  effort: firstEffort,
   initialMessage,
   onMessage,
   onCancel,
   onStart,
 }: {
   boxes: Box[];
+  // The model and effort his last box started with.
+  model: string;
+  effort: string;
   initialMessage: string;
   onMessage: (text: string) => void;
   onCancel: () => void;
   onStart: (spec: BoxSpec, note?: string) => void;
 }) {
   const taken = boxes.map((b) => b.name);
-  const [model, setModel] = useState('claude-opus-5-5');
-  const [effort, setEffort] = useState('xhigh');
+  const [model, setModel] = useState(firstModel);
+  const [effort, setEffort] = useState(firstEffort);
   const [picking, setPicking] = useState(false);
   const fired = useRef(false);
   const [recent, setRecent] = useState<Recent[]>([]);
@@ -91,8 +105,9 @@ export function NewBoxSheet({
       : clean !== base(picked)
         ? `${base(picked)} is a different conversation, so this one is ${clean}.`
         : '';
-  const err = resume || !clean ? '' : !NAME.test(clean) ? 'Lowercase letters, digits and dashes.' : taken.includes(clean) ? 'That name is taken.' : '';
-  const ready = !!clean && !err;
+  const bad = resume ? '' : badChars(clean);
+  const err = resume || !clean || bad ? '' : !NAME.test(clean) ? 'Lowercase letters, digits and dashes.' : taken.includes(clean) ? 'That name is taken.' : '';
+  const ready = !!clean && !err && !bad;
   const usedBefore = !resume && clean && !err ? recent.find((r) => nameOf(r) === clean.replace(/-+$/, '')) : undefined;
   const shown = recent.slice(0, 6);
   if (picked && !shown.includes(picked)) shown.push(picked);
@@ -136,7 +151,7 @@ export function NewBoxSheet({
               value={name}
               placeholder="release-notes"
               onChange={(e) => {
-                const v = slug(e.target.value);
+                const v = nameInput(e.target.value);
                 setName(v);
                 setOwn(v);
               }}
@@ -147,6 +162,11 @@ export function NewBoxSheet({
                 if (ready) start(null, clean);
               }}
             />
+            {bad && (
+              <div className="used-before" role="alert">
+                {bad} can't be in a name. Use letters, digits and dashes.
+              </div>
+            )}
             {usedBefore && (
               <div className="used-before">
                 This name was used before.{' '}

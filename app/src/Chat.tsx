@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { api, Ask, Box, Draft, Item, Menu, Result } from './api';
+import { api, Ask, Box, Draft, Item, MAX_SEND, Menu, Result, tooLong } from './api';
 import { Arrow, Check } from './icons';
 import { Markdown } from './Markdown';
 import { AskList, Bundle, compose, Entry, oneLine } from './Answers';
@@ -24,15 +24,66 @@ export interface Pending {
   answer?: boolean;
 }
 
-// A message of his that answers a reply's questions by number, every line
-// "n. ...": the one line it folds to, or null.
-function answerLine(text: string, asks: Ask[]) {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const ok = lines.length > 0 && lines.every((l) => {
+// A message of his that answers a reply's questions by number, its first
+// lines "n. ...": the one line those fold to, and what he wrote after them
+// (rest), or null.
+export function answerLine(text: string, asks?: Ask[]) {
+  const lines = text.split('\n');
+  const nums: string[] = [];
+  let i = 0;
+  for (; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (!l) continue;
     const m = /^(\d{1,2})[.)]\s+\S/.exec(l);
-    return !!m && asks.some((a) => a.n === Number(m[1]));
-  });
-  return ok ? oneLine(lines.join('\n')) : null;
+    if (!m || (asks && !asks.some((a) => a.n === Number(m[1])))) break;
+    nums.push(l);
+  }
+  if (!nums.length) return null;
+  return { line: oneLine(nums.join('\n')), rest: lines.slice(i).join('\n').trim() };
+}
+
+// His answers folded to their line, with any words he sent along under it.
+function AnswerTag({
+  line,
+  rest,
+  title,
+  fresh,
+  pending,
+  queued,
+  attachDir,
+  onOpen,
+}: {
+  line: string;
+  rest: string;
+  title: string;
+  fresh: boolean;
+  pending?: boolean;
+  queued?: boolean;
+  attachDir: string;
+  onOpen: (url: string) => void;
+}) {
+  const bubble = rest ? (
+    <div className={'you' + (fresh ? ' sent' : '')}>
+      <YouText text={rest} attachDir={attachDir} onOpen={onOpen} />
+    </div>
+  ) : null;
+  return (
+    <>
+      <div className={'tag answered' + (fresh ? ' rise' : '')} title={title}>
+        <Check />
+        <span className="tag-t">{line}</span>
+        {queued && !rest && <span className="queued">queued</span>}
+      </div>
+      {bubble && pending ? (
+        <div className="pending">
+          {bubble}
+          {queued && <span className="queued">queued</span>}
+        </div>
+      ) : (
+        bubble
+      )}
+    </>
+  );
 }
 
 // Which reply's questions are still open (live), which of his messages
@@ -42,7 +93,7 @@ function answerLine(text: string, asks: Ask[]) {
 // a shell line or a newer reply with questions of its own moves past them
 // (skipped). next: what waits to go, first in line.
 function askState(items: Item[], next?: Pending) {
-  const answered: Record<string, string> = {};
+  const answered: Record<string, { line: string; rest: string }> = {};
   const words = new Set<string>();
   const skipped = new Set<string>();
   let live: string | null = null;
@@ -248,6 +299,7 @@ export function ChatView({
   underEnded,
   onOpen,
   onSend,
+  onLost,
   onError,
   foot,
   onFold,
@@ -271,6 +323,8 @@ export function ChatView({
   underEnded?: boolean;
   onOpen: (url: string) => void;
   onSend: (text: string, opts?: { answer?: boolean }) => Promise<boolean>;
+  // A message that did not go, after this chat closed: back to the box's draft.
+  onLost: (text: string) => void;
   onError: (text: string) => void;
   // The row under the message box: the skill buttons.
   foot?: ReactNode;
@@ -305,6 +359,14 @@ export function ChatView({
   const keep = useRef<{ h: number; top: number } | null>(null);
   const lastEsc = useRef(0);
   const shut = useRef<string | null>(null);
+  const alive = useRef(true);
+  const sentNow = useRef<{ draft: string; atts: Attachment[]; bundle: Bundle } | null>(null);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const items = chat?.items ?? [];
   const shown = items.length > limit ? items.slice(-limit) : items;
   const menu = box.menu;
@@ -315,6 +377,10 @@ export function ChatView({
   const off = box.status === 'off';
   const ended = box.status === 'ended' || !!box.ended;
   const closed = off || starting || resuming || failed || ended;
+  // A box on its way up takes his messages: they wait, marked queued, and go
+  // once it is ready.
+  const early = starting || resuming;
+  const blocked = closed && !early;
   const quotes = quotesOf(bundle);
   const typed = !!draft.trim() || atts.length > 0 || quotes.length > 0;
   // An ended box takes text for Resume and send; it does not send itself.
@@ -401,6 +467,13 @@ export function ChatView({
     if (!words && !on.length) return;
     setSending(true);
     stick.current = true;
+    // His words leave the field at once, as a message does.
+    const was = draft;
+    if (words) {
+      sentNow.current = { draft, atts, bundle };
+      setDraft('');
+      setHist(null);
+    }
     let ok: boolean;
     if (menu.multi) ok = await submitTicks(words);
     else if (words) {
@@ -408,13 +481,13 @@ export function ChatView({
       if (!r.ok) onError(r.reason || 'Not sent.');
       ok = r.ok;
     } else ok = await choose(on[0]);
-    setSending(false);
-    if (!ok) return;
-    clearTicks();
-    if (words) {
-      setDraft('');
-      setHist(null);
+    if (!alive.current) {
+      if (!ok && words) onLost(was);
+      return;
     }
+    setSending(false);
+    if (ok) clearTicks();
+    else if (words) setDraft((d) => [was, d].filter(Boolean).join('\n'));
   }
 
   // Picks belong to the question on screen: the same question asked again
@@ -477,6 +550,10 @@ export function ChatView({
   }, []);
 
   function report() {
+    // A report still owed from before his Send must not bring back what he sent.
+    const s = sentNow.current;
+    if (s && s.draft === draft && s.atts === atts && s.bundle === bundle) return;
+    sentNow.current = null;
     const caret = input.current ? input.current.selectionStart ?? draft.length : draft.length;
     const held = Object.keys(bundle).length > 0;
     onDraft(draft || atts.length || held ? { text: draft, caret, atts, ...(held ? { bundle } : {}) } : null);
@@ -528,17 +605,25 @@ export function ChatView({
     const quoted = quoteText(bundle);
     const body = [answers, quoted, typed].filter(Boolean).join('\n\n');
     const text = [body, ...paths].filter(Boolean).join(' ');
-    if (!text || sending || closed) return;
-    setSending(true);
+    if (!text || blocked) return;
+    if (text.length > MAX_SEND) return onError(tooLong(text.length));
+    // What he sends leaves the field at once, whatever he clicks next. It
+    // comes back only if it did not go: here, or in the box's saved draft
+    // when he is on another box by then.
+    const was = { draft, atts, bundle };
+    sentNow.current = was;
+    setDraft('');
+    setAtts([]);
+    setHist(null);
+    setBundle({});
+    onDraft(null);
     stick.current = true;
-    const ok = await onSend(text, { answer: !!answers && !quoted && !typed && !paths.length });
-    setSending(false);
-    if (ok) {
-      setDraft('');
-      setAtts([]);
-      setHist(null);
-      setBundle({});
-    }
+    const ok = await onSend(text, { answer: !!answers });
+    if (ok) return;
+    if (!alive.current) return onLost(text);
+    setDraft((d) => [was.draft, d].filter(Boolean).join('\n'));
+    setAtts((a) => [...was.atts, ...a.filter((x) => !was.atts.some((y) => y.path === x.path))]);
+    setBundle((b) => ({ ...was.bundle, ...b }));
   }
 
   function walk(dir: -1 | 1) {
@@ -711,7 +796,7 @@ export function ChatView({
   }
 
   let middle;
-  if (starting && !menu && !waiting)
+  if (starting && !menu && !waiting && !pending.length)
     middle = (
       <div className="empty">
         <Live text="Starting…" />
@@ -744,10 +829,15 @@ export function ChatView({
           // on his side like a button press.
           if (m.k === 'you' && asked.answered[m.id])
             return (
-              <div key={m.id} className={'tag answered' + (isFresh && !quiet.has(m.id) ? ' rise' : '')} title={m.t}>
-                <Check />
-                <span className="tag-t">{asked.answered[m.id]}</span>
-              </div>
+              <AnswerTag
+                key={m.id}
+                line={asked.answered[m.id].line}
+                rest={asked.answered[m.id].rest}
+                title={m.t}
+                fresh={isFresh && !quiet.has(m.id)}
+                attachDir={attachDir}
+                onOpen={onOpen}
+              />
             );
           if (m.k === 'you')
             return (
@@ -818,6 +908,15 @@ export function ChatView({
             </div>
           );
         })}
+        {/* His first message until it is sent: under a start-up question, and
+            while the box comes up after his answer. What he sends after it
+            waits below it. */}
+        {waiting && (
+          <div className="pending waiting" title="Sent once the box is ready">
+            <div className="you">{waiting}</div>
+            <span className="queued">Waiting to send</span>
+          </div>
+        )}
         {pending.map((p) =>
           p.skill ? (
             <div key={p.id} className="tag rise">
@@ -825,11 +924,16 @@ export function ChatView({
               {p.queued && <span className="queued">queued</span>}
             </div>
           ) : p.answer ? (
-            <div key={p.id} className="tag answered rise" title={p.t}>
-              <Check />
-              <span className="tag-t">{oneLine(p.t)}</span>
-              {p.queued && <span className="queued">queued</span>}
-            </div>
+            <AnswerTag
+              key={p.id}
+              {...(answerLine(p.t) || { line: oneLine(p.t), rest: '' })}
+              title={p.t}
+              fresh
+              pending
+              queued={p.queued}
+              attachDir={attachDir}
+              onOpen={onOpen}
+            />
           ) : (
             <div key={p.id} className="pending">
               <div className="you sent">
@@ -891,14 +995,6 @@ export function ChatView({
                 </button>
               )}
             </div>
-          </div>
-        )}
-        {/* His first message until it is sent: under a start-up question, and
-            while the box comes up after his answer. */}
-        {waiting && (
-          <div className="pending waiting" title="Sent once the box is ready">
-            <div className="you">{waiting}</div>
-            <span className="queued">Waiting to send</span>
           </div>
         )}
         {starting && !menu && <Live text="Starting…" />}
@@ -1058,9 +1154,9 @@ export function ChatView({
             autoComplete="off"
             spellCheck={false}
             value={draft}
-            readOnly={closed && !typeAhead}
+            readOnly={blocked && !typeAhead}
             aria-expanded={pop ? 'true' : 'false'}
-            placeholder={typeAhead ? 'Type, then Resume and send' : closed ? '' : menu?.free ? 'Reply in your words' : 'Message'}
+            placeholder={typeAhead ? 'Type, then Resume and send' : blocked ? '' : menu?.free ? 'Reply in your words' : 'Message'}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);
@@ -1076,14 +1172,14 @@ export function ChatView({
             }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.defaultPrevented) return;
-              if (closed) {
+              if (blocked) {
                 if (e.key === 'Enter' && !e.shiftKey) e.preventDefault();
                 return;
               }
               if (popKey(e)) return;
               if (e.key === 'Escape') {
                 // Esc twice in an empty field: edit an earlier message.
-                if (draft || working || menu || box.status === 'working') return;
+                if (draft || working || menu || early || box.status === 'working') return;
                 const now = Date.now();
                 if (now - lastEsc.current < 600) {
                   lastEsc.current = 0;
@@ -1098,7 +1194,7 @@ export function ChatView({
               }
               if (e.key === 'Tab' && e.shiftKey && !menu) {
                 e.preventDefault();
-                cycleMode();
+                if (!early) cycleMode();
               } else if (e.key === 'Enter' && e.altKey) {
                 // Option+Enter makes a new line, as in Claude Code.
                 e.preventDefault();
@@ -1111,7 +1207,7 @@ export function ChatView({
               }
             }}
           />
-          <button aria-label="Send" data-tip="Send" className={'send tip up' + (!closed && (menu ? question && (draft.trim() || ticked.length) : draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
+          <button aria-label="Send" data-tip="Send" className={'send tip up' + (!blocked && (menu ? question && !closed && (draft.trim() || ticked.length) : draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={blocked}>
             <Arrow />
           </button>
         </div>

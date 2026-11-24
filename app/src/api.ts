@@ -208,7 +208,10 @@ interface Bridge {
   retry(paneId: string): Promise<Result>;
   // With a message: Resume and send.
   startAgain(name: string, message?: string): Promise<Result>;
-  closeEnded(name: string): Promise<Result>;  rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
+  closeEnded(name: string): Promise<Result>;
+  // Stops a running box's Claude and closes its window.
+  closeBox(paneId: string): Promise<Result>;
+  rewind(paneId: string, spec: { text: string; id: string; dupAfter: number }): Promise<Result>;
   files(paneId: string, query: string): Promise<string[]>;
   drafts(): Promise<Record<string, Draft>>;
   saveDrafts(d: Record<string, Draft>): void;
@@ -233,6 +236,10 @@ export interface BoxSpec {
   effort: string;
   resume?: string;
 }
+
+// The longest message the app sends (the hub checks it too).
+export const MAX_SEND = 50000;
+export const tooLong = (n: number) => `Messages can be up to ${MAX_SEND.toLocaleString('en-US')} characters. This one has ${n.toLocaleString('en-US')}.`;
 
 export const MODELS: [string, string][] = [
   ['claude-fable-5-2', 'Fable 5.2'],
