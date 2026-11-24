@@ -68,6 +68,21 @@ function readDrafts() {
   }
   return drafts;
 }
+// Widget answers and quote replies waiting for Send, in the order he made them.
+function cleanBundle(input) {
+  const out = {};
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return out;
+  for (const [key, e] of Object.entries(input).slice(0, 60)) {
+    if (key.length > 200 || !e || typeof e.text !== 'string' || e.text.length > 20000) continue;
+    const x = { text: e.text };
+    if (Number.isInteger(e.n)) x.n = e.n;
+    if (Array.isArray(e.picks)) x.picks = e.picks.filter((p) => typeof p === 'string').slice(0, 20).map((p) => p.slice(0, 500));
+    if (typeof e.words === 'string') x.words = e.words.slice(0, 20000);
+    if (typeof e.quote === 'string') x.quote = e.quote.slice(0, 20000);
+    out[key] = x;
+  }
+  return out;
+}
 function cleanDrafts(input) {
   const out = {};
   if (!input || typeof input !== 'object') return out;
@@ -79,8 +94,10 @@ function cleanDrafts(input) {
           .slice(0, 20)
           .map((a) => ({ path: a.path, name: a.name.slice(0, 120), image: !!a.image }))
       : [];
-    if (!d.text && !atts.length) continue;
-    out[name] = { text: d.text, caret: Number.isInteger(d.caret) ? d.caret : d.text.length, atts };
+    const bundle = cleanBundle(d.bundle);
+    const held = Object.keys(bundle).length > 0;
+    if (!d.text && !atts.length && !held) continue;
+    out[name] = { text: d.text, caret: Number.isInteger(d.caret) ? d.caret : d.text.length, atts, ...(held ? { bundle } : {}) };
   }
   return out;
 }

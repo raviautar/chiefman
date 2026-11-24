@@ -1,3 +1,5 @@
+import type { Bundle } from './Answers';
+
 export type Status = 'working' | 'idle' | 'off' | 'resuming' | 'resumed' | 'starting' | 'failed' | 'ended';
 
 export interface Box {
@@ -132,6 +134,8 @@ export interface Draft {
   text: string;
   caret: number;
   atts: { path: string; name: string; image: boolean }[];
+  // Widget answers and quote replies waiting for Send.
+  bundle?: Bundle;
 }
 
 export type HubEvent =
