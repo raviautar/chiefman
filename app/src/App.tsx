@@ -16,6 +16,15 @@ const NEW_BOX = 'new.box';
 // Below this width the drill-down floats over the chat instead of taking room.
 const NARROW = '(max-width: 1179px)';
 
+// The header's skill buttons. Each sends the bare name, as he would type it.
+// label is also the quiet line the chat shows for a run (transcript.js);
+// short is the word a narrow header shows.
+const SKILLS = [
+  { name: 'plain-english', label: 'Plain English', short: 'Plain' },
+  { name: 'drill-down', label: 'Drill down', short: 'Drill' },
+];
+type Skill = (typeof SKILLS)[number];
+
 const store = {
   get(k: string) {
     try {
@@ -106,6 +115,9 @@ export function App() {
   const quiet = useRef(new Set<string>());
   const wantSelect = useRef<string | null>(null);
   const wantPane = useRef<string | null>(null);
+  // His Drill down click in the chief: the list it had then, and when.
+  const drillAsked = useRef<{ id: string | null; at: number } | null>(null);
+  const viewing = useRef<string | null>(null);
   const boxesRef = useRef<Box[]>([]);
   boxesRef.current = boxes;
 
@@ -149,7 +161,10 @@ export function App() {
           const fresh = new Set(ev.added.map((a) => a.item.id));
           // His message, back from the log, replaces its sent bubble quietly.
           const list = pending.current[ev.paneId] || [];
-          for (const a of ev.added) if (a.item.k === 'you' && list.some((p) => p.n === norm(a.item.t))) quiet.current.add(a.item.id);
+          for (const a of ev.added) {
+            if (a.item.k === 'you' && list.some((p) => !p.skill && p.n === norm(a.item.t))) quiet.current.add(a.item.id);
+            if (a.item.k === 'work' && list.some((p) => p.skill && p.n === a.item.t)) quiet.current.add(a.item.id);
+          }
           setChats((c) => {
             const prev = c[ev.paneId];
             const items = prev ? [...prev.items] : [];
@@ -268,21 +283,25 @@ export function App() {
     if (!narrow || !drillShown) return;
     const away = (e: MouseEvent) => {
       const t = e.target as Element | null;
-      if (t && !t.closest('.drill, .drill-btn, .scrim, .sheet')) showPanel(false);
+      if (t && !t.closest('.drill, .skills, .scrim, .sheet')) showPanel(false);
     };
     document.addEventListener('mousedown', away, true);
     return () => document.removeEventListener('mousedown', away, true);
   }, [narrow, drillShown]);
 
-  // "Nothing needs you." closes on a click anywhere else.
+  // "Nothing needs you." closes on a click anywhere else, or after 6 s.
   useEffect(() => {
     if (!nothing) return;
     const away = (e: MouseEvent) => {
       const t = e.target as Element | null;
-      if (!t || !t.closest('.drill-wrap')) setNothing(false);
+      if (!t || !t.closest('.skills')) setNothing(false);
     };
     document.addEventListener('mousedown', away, true);
-    return () => document.removeEventListener('mousedown', away, true);
+    const t = setTimeout(() => setNothing(false), 6000);
+    return () => {
+      document.removeEventListener('mousedown', away, true);
+      clearTimeout(t);
+    };
   }, [nothing]);
 
   useEffect(() => {
@@ -324,6 +343,7 @@ export function App() {
 
   const box = useMemo(() => boxes.find((b) => b.name === selected) || listed[0] || null, [boxes, selected]);
   const paneId = box ? box.paneId : null;
+  viewing.current = box ? box.name : null;
 
   const wasLive = useRef<Record<string, boolean>>({});
   useEffect(() => {
@@ -457,7 +477,8 @@ export function App() {
     });
   }
 
-  async function sendToBox(text: string) {
+  // skill: the quiet line a skill button's run shows until the log has it.
+  async function sendToBox(text: string, skill?: string) {
     if (!box || !box.paneId) return false;
     const p = box.paneId;
     const name = box.name;
@@ -466,11 +487,16 @@ export function App() {
     // log holds one more copy of the same text than it did now.
     // The bubble shows the text as the log will: secrets masked.
     const id = 'p' + Date.now();
-    if (!text.startsWith('/')) {
+    if (skill) {
+      const list = pending.current[p] || [];
+      const base = workCount(p, skill) + list.filter((x) => x.skill && x.n === skill).length;
+      pending.current[p] = [...list, { id, t: skill, n: skill, base, queued: box.status === 'working', skill: true }];
+      setTick((t) => t + 1);
+    } else if (!text.startsWith('/')) {
       const shown = await api().mask(text);
       const n = norm(shown);
       const list = pending.current[p] || [];
-      const base = youCount(p, n) + list.filter((x) => x.n === n).length;
+      const base = youCount(p, n) + list.filter((x) => !x.skill && x.n === n).length;
       pending.current[p] = [...list, { id, t: shown, n, base, queued: box.status === 'working' }];
       setTick((t) => t + 1);
     }
@@ -521,15 +547,33 @@ export function App() {
     return true;
   }
 
+  // A skill button runs its skill in the open box, as if he typed it there.
+  // Drill down in the chief also opens the panel once the new list comes.
+  async function runSkill(s: Skill) {
+    if (!box?.paneId) return;
+    const chiefList = s.name === 'drill-down' && box.name === 'chief';
+    if (chiefList) {
+      setNothing(false);
+      drillAsked.current = { id: drill ? drill.id : null, at: Date.now() };
+    }
+    const ok = await sendToBox('/' + s.name, s.label);
+    if (!ok && chiefList) drillAsked.current = null;
+  }
+
   function youCount(paneId: string, n: string) {
     const items = chats[paneId]?.items || [];
     return items.filter((i) => i.k === 'you' && norm(i.t) === n).length;
   }
 
+  function workCount(paneId: string, t: string) {
+    const items = chats[paneId]?.items || [];
+    return items.filter((i) => i.k === 'work' && i.t === t).length;
+  }
+
   // Sent bubbles whose message the log now holds are gone.
   function pendingFor(paneId: string) {
     const list = pending.current[paneId] || [];
-    const keep = list.filter((x) => youCount(paneId, x.n) <= x.base);
+    const keep = list.filter((x) => (x.skill ? workCount(paneId, x.n) : youCount(paneId, x.n)) <= x.base);
     if (keep.length !== list.length) pending.current[paneId] = keep;
     return keep;
   }
@@ -673,9 +717,22 @@ export function App() {
     }
     if (narrow) setPanel(false);
   }, [asks]);
+
+  // The list his Drill down click asked the chief for: the panel opens with
+  // it. With nothing for him, he is told so, if he is still on the chief.
+  useEffect(() => {
+    const w = drillAsked.current;
+    if (!w || !drill || drill.id === w.id) return;
+    drillAsked.current = null;
+    if (Date.now() - w.at > 20 * 60000) return;
+    if (drill.items.length) showPanel(true);
+    else if (viewing.current === 'chief') setNothing(true);
+  }, [drill?.id]);
   const title = box ? box.name : 'chiefman';
   const meter = box ? meterLine(box) : '';
   const live = box && box.paneId && box.status !== 'off' && box.status !== 'starting' && box.status !== 'resuming' && box.status !== 'failed';
+  // A skill the open box cannot run has no button.
+  const skills: Skill[] = live ? SKILLS.filter((s) => box!.skills?.includes(s.name)) : [];
   // The chief's lists fold to one line each: the newest while the panel shows
   // it or once all of it is answered, older ones always. A list that never
   // had items stays plain text.
@@ -917,29 +974,32 @@ export function App() {
               </button>
             </div>
           )}
-          <span className="drill-wrap">
-            <button
-              className={'drill-btn' + (drillShown || nothing ? ' on' : '')}
-              aria-label="Drill-down"
-              title={asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you` : 'Drill-down'}
-              aria-pressed={drillShown}
-              onClick={() => {
-                // With nothing for him, a click only says so.
-                if (asks === 0 && !drillShown) setNothing(!nothing);
-                else showPanel(!drillShown);
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M15 4v16" />
-              </svg>
-              {asks > 0 && !drillShown && <span className="badge">{asks}</span>}
-            </button>
-            {nothing && (
-              <div className="nothing-pop rise" role="status">
-                Nothing needs you.
-              </div>
-            )}
-          </span>
+          {skills.length > 0 && (
+            <span className="skills" role="group" aria-label="Skills">
+              {skills.map((s) => {
+                // The chief's own list fills the panel; its count shows here.
+                const chiefList = s.name === 'drill-down' && box!.name === 'chief';
+                return (
+                  <button
+                    key={s.name}
+                    className={'skill-btn' + (chiefList && (drillShown || nothing) ? ' on' : '')}
+                    aria-label={s.label}
+                    title={chiefList && asks > 0 ? `${asks} need${asks === 1 ? 's' : ''} you · runs drill-down` : `Runs ${s.name} in ${box!.name}`}
+                    onClick={() => runSkill(s)}
+                  >
+                    <span className="skill-long">{s.label}</span>
+                    <span className="skill-short">{s.short}</span>
+                    {chiefList && asks > 0 && !drillShown && <span className="badge">{asks}</span>}
+                  </button>
+                );
+              })}
+              {nothing && (
+                <div className="nothing-pop rise" role="status">
+                  Nothing needs you.
+                </div>
+              )}
+            </span>
+          )}
         </div>
 
         {toast && (

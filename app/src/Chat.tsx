@@ -16,6 +16,8 @@ export interface Pending {
   n: string;
   base: number;
   queued: boolean;
+  // A skill button's run: a quiet line, not his bubble.
+  skill?: boolean;
 }
 
 type Attachment = Draft['atts'][number];
@@ -216,7 +218,7 @@ export function ChatView({
   const typed = !!draft.trim() || atts.length > 0;
   // An ended box takes text for Resume and send; it does not send itself.
   const typeAhead = !!ended && !!box.ended?.start;
-  const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.map((p) => p.t)];
+  const history = [...items.filter((i) => i.k === 'you').map((i) => i.t), ...pending.filter((p) => !p.skill).map((p) => p.t)];
   // His messages that Claude's rewind menu lists: no commands, no shell lines.
   const earlier = items.filter((i) => i.k === 'you' && !/^[/!]/.test(i.t));
 
@@ -525,7 +527,7 @@ export function ChatView({
             );
           if (m.k === 'work')
             return (
-              <div key={m.id} className={'work' + (isFresh ? ' rise' : '')}>
+              <div key={m.id} className={'work' + (isFresh && !quiet.has(m.id) ? ' rise' : '')}>
                 <Chevron />
                 {m.t}
               </div>
@@ -542,14 +544,22 @@ export function ChatView({
             </div>
           );
         })}
-        {pending.map((p) => (
-          <div key={p.id} className="pending">
-            <div className="you sent">
-              <YouText text={p.t} attachDir={attachDir} onOpen={onOpen} />
+        {pending.map((p) =>
+          p.skill ? (
+            <div key={p.id} className="work rise">
+              <Chevron />
+              {p.t}
+              {p.queued && <span className="queued">queued</span>}
             </div>
-            {p.queued && <span className="queued">queued</span>}
-          </div>
-        ))}
+          ) : (
+            <div key={p.id} className="pending">
+              <div className="you sent">
+                <YouText text={p.t} attachDir={attachDir} onOpen={onOpen} />
+              </div>
+              {p.queued && <span className="queued">queued</span>}
+            </div>
+          ),
+        )}
         {menu && (
           <div className="ask rise" key={menu.question + menu.options.length}>
             {menu.question && <div className="say">{menu.question}</div>}

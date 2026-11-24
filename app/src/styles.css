@@ -318,25 +318,29 @@ button {
   box-shadow: 0 1px 2px rgba(26, 26, 26, 0.1), 0 0 0 0.5px rgba(26, 26, 26, 0.06);
 }
 
-.drill-btn {
-  height: 32px;
-  padding: 0 10px 0 12px;
+/* Plain English and Drill down: words in the Chat and Terminal switch's type,
+   quiet until hovered. */
+.skill-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
   border-radius: 999px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12.5px;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
-  color: var(--ink);
-  border: 1px solid var(--line);
-  background: var(--sand);
-  -webkit-app-region: no-drag;
+  color: var(--muted);
+  background: transparent;
+  transition: background 160ms ease, color 160ms ease;
 }
 
-.drill-btn.on {
-  border-color: var(--ink);
-  background: var(--white);
+.skill-btn:hover,
+.skill-btn.on {
+  background: var(--sand);
+  color: var(--ink);
 }
 
 .badge {
@@ -1298,17 +1302,6 @@ button {
   opacity: 1;
 }
 
-.drill-btn {
-  padding: 0 9px;
-  gap: 6px;
-  border: 0;
-  background: transparent;
-}
-
-.drill-btn.on {
-  background: var(--sand);
-}
-
 .seg {
   border: 0;
 }
@@ -2034,8 +2027,7 @@ button {
   position: relative;
   flex-shrink: 0;
 }
-.seg,
-.drill-btn {
+.seg {
   flex-shrink: 0;
 }
 .seg button {
@@ -2216,10 +2208,25 @@ button {
   cursor: default;
 }
 
-.drill-wrap {
+.skills {
   position: relative;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   -webkit-app-region: no-drag;
+}
+/* A narrow header keeps one word per button, so it never runs out of room. */
+.skill-short {
+  display: none;
+}
+@container (max-width: 800px) {
+  .skill-long {
+    display: none;
+  }
+  .skill-short {
+    display: inline;
+  }
 }
 .nothing-pop {
   position: absolute;
