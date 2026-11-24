@@ -22,7 +22,7 @@ function Facts({ text }: { text: string }) {
   return (
     <>
       {parts.map((p, i) => (
-        <span key={i} className={/^\d+ failed$/.test(p) ? 'turn-bad' : undefined}>
+        <span key={i} className={/^(\d+ failed$|Failed: )/.test(p) ? 'turn-bad' : undefined}>
           {i > 0 && ' · '}
           {p}
         </span>
@@ -147,16 +147,19 @@ function FailRow({ f, paneId, onAsk, canAsk }: { f: Turn['failed'][number]; pane
           <span className="turn-dot" aria-hidden="true" />
           <span className="turn-say">{f.say}</span>
         </button>
-        <CardBtn
-          b={{
-            label: asked ? 'Asked' : 'Ask it to fix',
-            disabled: !canAsk || asked,
-            onClick: () => {
-              setAsked(true);
-              onAsk(`This failed: "${f.say}". Please fix it.`);
-            },
-          }}
-        />
+        {/* A box that ended or is off takes no message: no button at all. */}
+        {canAsk && (
+          <CardBtn
+            b={{
+              label: asked ? 'Asked' : 'Ask it to fix',
+              disabled: asked,
+              onClick: () => {
+                setAsked(true);
+                onAsk(`This failed: "${f.say}". Please fix it.`);
+              },
+            }}
+          />
+        )}
       </div>
       {all && x?.cmd && <pre className="turn-pre cmd">{x.cmd}</pre>}
       {all ? (

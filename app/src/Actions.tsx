@@ -67,7 +67,7 @@ export function meterOf(b: Box) {
   const parts = [];
   if (b.cost != null && b.cost > 0) parts.push(money(b.cost));
   if (b.context != null) parts.push(`${Math.round(b.context * 100)}% context`);
-  if (b.tokens) parts.push(`${kTokens(b.tokens.used)} of ${kTokens(b.tokens.max)} tokens`);
+  else if (b.tokens) parts.push(`${kTokens(b.tokens.used)} of ${kTokens(b.tokens.max)} tokens`);
   return parts.join(' · ');
 }
 

@@ -402,11 +402,16 @@ function summarize(steps, ms, prs, fresh) {
     parts.push(svc.size === 1 ? `${plural(changes.length, [...svc][0] + ' change')}` : `${changes.length} changes elsewhere`);
   }
   if (agents.length) parts.push(plural(agents.length, 'agent'));
+  // Background commands and watches are counted on the line only when the
+  // turn did nothing else; the open card lists them either way.
   const cmds = background.filter((b) => b.kind === 'command').length;
   const watches = background.length - cmds;
-  if (cmds) parts.push(plural(cmds, 'background command'));
-  if (watches) parts.push(plural(watches, 'watch', 'watches'));
-  if (failed.length) parts.push(`${failed.length} failed`);
+  const alone = !parts.length;
+  if (cmds && alone) parts.push(plural(cmds, 'background command'));
+  if (watches && alone) parts.push(plural(watches, 'watch', 'watches'));
+  // A turn that only failed one thing names it.
+  if (failed.length === 1 && alone) parts.push(`Failed: ${failed[0].say}`);
+  else if (failed.length) parts.push(`${failed.length} failed`);
   const turn = { ms: ms != null && ms >= 0 ? ms : null, n: steps.length, files: [...files.values()], outside, git, failed, agents, background, other };
   return { line: parts.join(' · '), turn };
 }

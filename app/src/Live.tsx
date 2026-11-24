@@ -173,7 +173,8 @@ function ago(at: number, now: number) {
 export function Peek({ box, top, left, hint }: { box: Box; top: number; left: number; hint?: string }) {
   const now = Date.now();
   const gone = box.status === 'off' || box.status === 'ended' || box.status === 'failed' || !!box.ended;
-  const [word, tone] = box.tab ? WORD[box.tab] : gone ? ['Ended', undefined] : box.status === 'starting' || box.status === 'resuming' ? ['Starting', undefined] : ['Idle', undefined];
+  // A box at rest says nothing: no dot and no word mean idle.
+  const [word, tone] = box.tab ? WORD[box.tab] : gone ? ['Ended', undefined] : box.status === 'starting' || box.status === 'resuming' ? ['Starting', undefined] : [undefined, undefined];
   const perm = box.menu?.perm;
   const permLine = perm ? perm.say + (perm.what ? `: ${perm.what.split('\n')[0]}` : '') : null;
   const asks = box.menu ? permLine || (box.menu.plan !== undefined ? 'Approve its plan' : box.menu.question.split('\n')[0]) : box.tab === 'asks' ? box.said?.line : null;

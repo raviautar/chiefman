@@ -56,7 +56,7 @@ export function PermCard({ menu, busy, onPick, onDeny }: { menu: Menu; busy: boo
   ];
   const file = !!p.body && !!p.diff;
   return (
-    <Card className="ask-card rise" icon={<ShieldIcon />} title={p.say} state="asks you" tone="asks" buttons={buttons} fixed>
+    <Card className="ask-card rise" icon={<ShieldIcon />} title={p.say} buttons={buttons} fixed>
       {(p.note || p.what || p.body) && (
         <>
           {p.note && <div className="ask-note">{p.note}</div>}
@@ -85,7 +85,7 @@ export function PlanCard({ menu, busy, onPick, onKeep }: { menu: Menu; busy: boo
     ...(approve ? [{ label: 'Approve', main: true, title: approve.label, disabled: busy, onClick: () => onPick(approve.n) }] : []),
   ];
   return (
-    <Card className="ask-card plan-card rise" icon={<PlanIcon />} title={head ? `Plan: ${head}` : 'Its plan'} state="asks you" tone="asks" buttons={buttons} fixed>
+    <Card className="ask-card plan-card rise" icon={<PlanIcon />} title={head ? `Plan: ${head}` : 'Its plan'} buttons={buttons} fixed>
       {plan ? <PlanText text={plan} /> : <div className="ask-note">The plan shows in Terminal.</div>}
     </Card>
   );
