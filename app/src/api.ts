@@ -19,6 +19,8 @@ export interface Box {
   modelName: string | null;
   effort: string | null;
   remote: boolean;
+  // Which of the header's skills (plain-english, drill-down) this box can run.
+  skills?: string[];
   mode: string | null;
   switching: { kind: 'model' | 'effort'; value: string; asking: boolean } | null;
   tokens: { used: number; max: number } | null;

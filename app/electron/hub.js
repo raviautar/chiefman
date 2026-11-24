@@ -10,6 +10,7 @@ const { promptState, parseActivity, parseMenu, parseMode, promptText } = require
 const { DefaultKeeper } = require('./defaults');
 const { Usage, modelName } = require('./usage');
 const { readPlan, readWorkspace } = require('./plan');
+const { buttonSkills, pluginDirsIn } = require('./skills');
 const { execFile } = require('child_process');
 
 const PALETTE = ['#6C358C', '#0052B4', '#C2410C', '#034F46', '#A3398F', '#496E2D', '#5B5B59'];
@@ -404,6 +405,7 @@ class Hub {
         modelName: null,
         effort: null,
         remote: false,
+        skills: [],
         ended: { start: this.hasConversation(e.sessionId, e.cwd), window: false, later: this.resumable(e.sessionId), why: this.endWhy.get(e.name) || null },
         session: UUID_RE.test(e.sessionId || '') ? e.sessionId : null,
       }));
@@ -445,6 +447,7 @@ class Hub {
         switching: this.switching.has(b.paneId) ? { ...this.switching.get(b.paneId), asking: !!sc.menu } : null,
         ...this.meter(b),
         remote: !!(b.claude && b.claude.bridge),
+        skills: (b.claude && (this.launch.get(b.claude.pid) || {}).skills) || [],
         ended: this.endedInfo(b),
         session: (b.claude && b.claude.sessionId) || (this.state.boxes.find((s) => s.name === b.name) || {}).sessionId || null,
       };
@@ -480,10 +483,16 @@ class Hub {
       }
       if (b.claude && b.claude.pid && !this.launch.has(b.claude.pid)) {
         this.launch.set(b.claude.pid, null);
+        const cwd = b.claude.cwd;
         argsOf(b.claude.pid).then((a) => {
           const m = /--model[ =](\S+)/.exec(a);
           const e = /--effort[ =](\S+)/.exec(a);
-          this.launch.set(b.claude.pid, { model: m ? ALIASES[m[1]] || m[1] : null, effort: e && EFFORTS.includes(e[1]) ? e[1] : null });
+          // A Claude finds its skills as it starts, so they are read once.
+          let skills = [];
+          try {
+            skills = buttonSkills(this.cfg.claudeHome, cwd, pluginDirsIn(a, this.cfg.pluginDirs));
+          } catch {}
+          this.launch.set(b.claude.pid, { model: m ? ALIASES[m[1]] || m[1] : null, effort: e && EFFORTS.includes(e[1]) ? e[1] : null, skills });
           this.emitBoxes();
         });
       }
