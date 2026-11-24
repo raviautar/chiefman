@@ -218,12 +218,15 @@ class Hub {
 
   // tmux itself keeps the list of the session's windows in a file, rewritten
   // each time a window closes, also while chiefman is closed. The hook sits
-  // in one fixed slot of the session's own hooks, so other hooks stay, and
-  // writes nothing once the session itself is gone (a restart, or tmux
-  // quitting), so the list then still holds every box that was running.
+  // in one fixed slot of the session's own hooks and writes nothing once the
+  // session itself is gone (a restart, or tmux quitting), so the list then
+  // still holds every box that was running. A session hook would hide a
+  // global one of the same kind, so with one of those set, none is added.
   async keepWindowList() {
     const f = this.windowsFile;
     if (/['"$`\\#\n]/.test(f)) return this.log('window list off', { why: 'path' });
+    const global = await run(['show-hooks', '-g', 'window-unlinked']).catch(() => '');
+    if (global.includes('[')) return this.log('window list off', { why: 'global hook' });
     const sh =
       `{ [ -n "#{W:x}" ] && printf "%s\\n" #{session_created} #{W:#{window_id} } > "${f}.tmp" && mv -f "${f}.tmp" "${f}"; }` +
       ' >/dev/null 2>&1; true';
