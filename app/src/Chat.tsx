@@ -94,14 +94,28 @@ export function askState(items: Item[], next?: Pending) {
 }
 
 // A reply's questions as card rows, with his picks so far, or once closed
-// with what each went with.
+// with what each went with. A recommended choice counts as picked until he
+// picks another or takes it back.
 function askRows(id: string, asks: Ask[], bundle: Bundle, closed?: Closed): QRow[] {
   return asks.map((a) => {
     const key = `${id}:${a.n}`;
     const e = closed ? undefined : bundle[key];
     const done = !closed ? undefined : closed.how === 'words' ? 'in your words' : closed.by?.[a.n] || 'skipped';
-    return { key, n: a.n, q: a.q, kind: a.kind as Kind, choices: (a.options as unknown[]).map(choiceOf), picks: e?.picks ?? [], words: e?.words ?? '', done };
+    const choices = (a.options as unknown[]).map(choiceOf);
+    const rec = !closed && !e && a.kind !== 'words' && a.kind !== 'text' ? choices.find((c) => c.recommended) : undefined;
+    return { key, n: a.n, q: a.q, kind: a.kind as Kind, choices, picks: e?.picks ?? (rec ? [rec.label] : []), words: e?.words ?? '', done };
   });
+}
+
+// His answers with the recommended picks he left as they are.
+function withPicked(bundle: Bundle, rows: QRow[]): Bundle {
+  const out = { ...bundle };
+  for (const r of rows) {
+    if (out[r.key] || r.done != null) continue;
+    const e = entryFor(r.n, r.kind, r.picks, r.words);
+    if (e) out[r.key] = e;
+  }
+  return out;
 }
 
 // How each of the box's replies shows: its text, and the cards under it.
@@ -399,8 +413,8 @@ export function ChatView({
   // The live card's own "In your words" waits under this key.
   const ownKey = liveItem ? `${liveItem.id}:words` : '';
   const liveKeys = liveItem?.asks ? [...liveItem.asks.map((a) => `${liveItem.id}:${a.n}`), ownKey] : [];
-  const answers = compose(bundle, liveKeys);
   const liveRows = liveItem?.asks && !closed ? askRows(liveItem.id, liveItem.asks, bundle) : [];
+  const answers = compose(withPicked(bundle, liveRows), liveKeys);
   // Claude Code's own question (it offers "Type something"): it works as the
   // widgets under a reply do. A click marks a pick; the field's Send sends
   // his picks or his words. Other menus answer on the click.
@@ -409,13 +423,14 @@ export function ChatView({
   const special = !!menu && (!!menu.perm || menu.plan !== undefined);
   // What is picked, his picks first; check boxes start as the box shows them.
   const menuKey = menu ? menu.question + '|' + menu.options.map((o) => `${o.n}.${o.label}`).join('|') : '';
+  // One choice: the recommended one counts as picked until he picks another.
   const ticked = !menu
     ? []
     : ticks?.key === menuKey
       ? ticks.on
       : menu.multi
         ? menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n)
-        : [];
+        : menu.options.filter((o) => o.n !== menu.free && choiceOf(o.label).recommended).slice(0, 1).map((o) => o.n);
   const menuPicks = question ? ticked.map((n) => choiceOf(menu!.options.find((o) => o.n === n)?.label || '').label).filter(Boolean).join(', ') : '';
   // Claude Code's question as one card row: its choices, his picks.
   const menuChoices = menu && question ? shownOptions(menu).filter((o) => !menu.multi || o.box) : [];
@@ -486,9 +501,10 @@ export function ChatView({
 
   const setMenuPicks = (labels: string[]) => setPicks(labels.map(menuN).filter((n): n is number => n != null));
 
+  // A recommended choice he takes back stays taken back: an empty answer.
   function pickOn(r: QRow, picks: string[]) {
     if (r.key === 'menu') setMenuPicks(picks);
-    else setEntry(r.key, entryFor(r.n, r.kind, picks, r.words));
+    else setEntry(r.key, entryFor(r.n, r.kind, picks, r.words) ?? (r.choices.some((c) => c.recommended) ? { n: r.n, text: '', picks: [], words: '' } : null));
   }
 
   function clearCard() {

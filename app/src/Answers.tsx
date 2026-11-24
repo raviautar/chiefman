@@ -113,7 +113,8 @@ export function keyPick(r: QRow, d: number): string[] | null {
   return on ? [] : [c.label];
 }
 
-// What Enter picks on a question not answered yet: its recommended choice.
+// What Enter picks on a question not answered yet: its recommended choice
+// (once he took that back).
 export function recommendedPick(r: QRow | undefined): string[] | null {
   if (!r || r.done != null || given(r)) return null;
   const c = choicesOf(r).find((x) => x.recommended);
@@ -237,7 +238,7 @@ export function QuestionCard({
   const on = live && !done;
   const count = rows.filter(counts).length;
   const ready = rows.some(given) || !!words?.trim();
-  const head = title ?? (rows.length === 1 ? (done ? (count ? 'Answered' : 'Skipped') : 'One question') : `${count} of ${rows.length} answered`);
+  const head = title ?? (rows.length === 1 && (done || !count) ? (done ? (count ? 'Answered' : 'Skipped') : 'One question') : `${count} of ${rows.length} answered`);
   const cur = on ? currentRow(rows) : undefined;
   const awake = () => Date.now() - born.current >= WAKE;
   const send = () => {
