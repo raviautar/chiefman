@@ -2760,3 +2760,49 @@ button:focus-visible,
 .reply-group > .fold.skipped {
   margin-top: 8px;
 }
+
+/* A list right under a sentence sits close to it; a nested one is tight. */
+.say p + ul,
+.say p + ol {
+  margin-top: -4px;
+}
+.say li > ul,
+.say li > ol {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+.say hr {
+  margin: 4px 0 12px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* A table in a reply: thin rules, no boxes, scrolls sideways if wide. */
+.md-table {
+  margin: 0 0 10px;
+  overflow-x: auto;
+}
+.md-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.md-table th,
+.md-table td {
+  padding: 5px 14px 5px 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+.md-table th {
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom-color: var(--line-strong);
+}
+.md-table th:last-child,
+.md-table td:last-child {
+  padding-right: 0;
+}
+.md-table tbody tr:last-child td {
+  border-bottom: 0;
+}
