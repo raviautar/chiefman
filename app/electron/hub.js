@@ -1495,7 +1495,7 @@ class Hub {
     await this.needClaude(paneId);
     const menu = parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     if (!menu || !menu.options.some((o) => o.n === n)) return { ok: false, reason: 'That choice is no longer on screen.' };
-    if (this.moved(menu, ask)) return { ok: false, stale: true };
+    if (this.moved(menu, ask)) return { ok: false, stale: true, reason: 'The question had moved on.' };
     if (/model|effort/i.test(menu.question + ' ' + menu.options.map((o) => o.label).join(' '))) {
       this.keeper.guard(['model'], 30000);
       this.keeper.guard(['modelSettings'], 30000);
@@ -1576,7 +1576,7 @@ class Hub {
     const read = async () => parseMenu(await run(['capture-pane', '-p', '-t', paneId]));
     let menu = await read();
     if (!menu || !menu.multi || !menu.order.includes(0)) return { ok: false, reason: 'That question is no longer on screen.' };
-    if (this.moved(menu, ask)) return { ok: false, stale: true };
+    if (this.moved(menu, ask)) return { ok: false, stale: true, reason: 'The question had moved on.' };
     const want = new Set(picks);
     const one = String(text || '').replace(/\s+/g, ' ').trim();
     const box = this.boxes.find((b) => b.paneId === paneId);
