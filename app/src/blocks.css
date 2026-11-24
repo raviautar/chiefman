@@ -23,17 +23,8 @@
   max-width: none;
 }
 
-/* Card's main button shares its class name with the app's main pane
-   (styles.css .main): keep the pane's layout off the button. */
-.wcard-btn.main {
-  flex: none;
-  display: inline-block;
-  min-width: 0;
-  overflow: visible;
-  container-type: normal;
-}
-
-/* Buttons the box offers: Card's buttons, in a row under the reply. */
+/* Buttons the box offers: Card's buttons, in a row under the reply (Card
+   has no form with buttons only). */
 .bk-actions {
   --wcard-line: rgba(17, 17, 17, 0.1);
   --wcard-ink: #111111;
