@@ -69,8 +69,9 @@ function Crown() {
   );
 }
 
-// A box's state, as its tmux tab says it: working, asks him something, done.
-const SAID: Record<string, string> = { working: 'working', asks: 'asks you', done: 'done' };
+// A box's state: working, asks him something, waits on something it
+// started, done.
+const SAID: Record<string, string> = { working: 'working', asks: 'asks you', waiting: 'waiting', done: 'done' };
 
 // The mark before a box's name (Cmd+K): its state as a dot, or the chief's
 // crown in its state's colour. Grey while idle, a ring once it is off.
@@ -140,3 +141,21 @@ export function Spinner() {
     </svg>
   );
 }
+
+// The cards for what runs, what it asks and what it made.
+// An agent: a small figure.
+export const AgentIcon = () => <Svg d="M12 4a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z M5 20c.8-3.6 3.6-6 7-6s6.2 2.4 7 6" />;
+// A command: a prompt and a line.
+export const ShellIcon = () => <Svg d="M5 7l5 5-5 5 M12.5 17H19" />;
+// A watch: an eye on something.
+export const WatchIcon = () => <Svg d={ICON.eye} />;
+// Several things running at once.
+export const RunsIcon = () => <Svg d="M4 6h10 M4 12h16 M4 18h7 M18 4.5v3 M16.5 6h3" />;
+// A permission he gives: a shield.
+export const ShieldIcon = () => <Svg d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5c-4.3-1.3-7.5-4.9-7.5-9.5V6z" />;
+// A plan: a sheet with lines.
+export const PlanIcon = () => <Svg d="M6 3.5h12v17H6z M9 8h6 M9 12h6 M9 16h3.5" />;
+// A todo list: ticks beside lines.
+export const TodoIcon = () => <Svg d="M4 7l1.8 1.8L9 5.5 M4 15.5l1.8 1.8L9 14 M12.5 7.5H20 M12.5 16H20" />;
+// What a box made: a box.
+export const MadeIcon = () => <Svg d="M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8" />;

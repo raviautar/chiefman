@@ -1,0 +1,350 @@
+/* ---- what runs now, waiting, Claude Code's asks, a box at a glance, what
+   a box made (Live.tsx, Approve.tsx, Made.tsx). Colours only from the app's
+   variables, and only for state. ---- */
+
+/* Waiting: its turn is over, something it started still runs. */
+.dot.waiting {
+  display: block;
+  margin: 0;
+  background: var(--b-pink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b-pink) 18%, transparent);
+}
+.av-dot.waiting {
+  display: block;
+  margin: 0;
+  background: var(--b-pink);
+}
+
+/* ---- above the message box: what runs, the todo list ---- */
+
+.live-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+  padding: 0 14px 6px;
+}
+.live-dock .wcard {
+  max-width: 100%;
+  margin-bottom: 4px;
+}
+.live-dock .wcard-line {
+  max-width: 100%;
+}
+
+.live-list,
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.live-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--wcard-ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.live-row:hover {
+  background: var(--wcard-hover);
+}
+.live-row:active {
+  background: var(--b-fill-2);
+}
+.live-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.live-row.still {
+  cursor: default;
+}
+.live-row.still:hover {
+  background: transparent;
+}
+
+.live-ic {
+  flex: none;
+  display: inline-flex;
+  color: var(--wcard-grey);
+}
+.live-say {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-item.ended .live-say {
+  color: var(--b-t2);
+}
+.live-time,
+.live-kind {
+  flex: none;
+  font-size: 12px;
+  color: var(--wcard-grey);
+  font-variant-numeric: tabular-nums;
+}
+.live-tick {
+  flex: none;
+  display: inline-flex;
+  color: var(--wcard-passed);
+}
+.live-bad {
+  flex: none;
+  font-size: 12px;
+  color: var(--wcard-failed);
+}
+.live-last {
+  padding: 0 6px 4px 28px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--wcard-grey);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  cursor: text;
+}
+.live-report {
+  margin: 2px 6px 8px 28px;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--b-fill);
+  font-size: 12.5px;
+  user-select: text;
+  cursor: text;
+}
+.live-note {
+  padding: 4px 6px;
+  font-size: 12.5px;
+  color: var(--wcard-grey);
+}
+
+.todo-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.todo-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 6px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.todo-box {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--b-t3);
+  border-radius: 4px;
+  color: var(--white);
+}
+.todo-completed .todo-box {
+  border-color: var(--wcard-passed);
+  background: var(--wcard-passed);
+}
+.todo-in_progress .todo-box {
+  border-color: var(--wcard-working);
+}
+.todo-completed .todo-t {
+  color: var(--wcard-grey);
+}
+.todo-in_progress .todo-t {
+  font-weight: 500;
+}
+
+/* ---- Claude Code's own asks: a permission, a plan ---- */
+
+.ask-card {
+  margin-top: 2px;
+}
+/* An ask stays open until he answers: its title row does not fold it. */
+.ask-card .wcard-fold {
+  display: none;
+}
+.ask-card .wcard-head {
+  cursor: default;
+}
+.ask-card .wcard-head:hover {
+  background: transparent;
+}
+.ask-note {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--b-t2);
+}
+.ask-file {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.ask-fold.cut,
+.plan-text.cut {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, var(--b-ink) 65%, transparent);
+  mask-image: linear-gradient(to bottom, var(--b-ink) 65%, transparent);
+}
+.ask-fold.cut {
+  max-height: 150px;
+}
+.plan-text.cut {
+  max-height: 190px;
+}
+.ask-card .turn-pre {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+.ask-fold.cut .turn-pre {
+  max-height: none;
+  overflow: hidden;
+}
+.ask-text {
+  font-size: 13px;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.plan-text {
+  font-size: 13px;
+  user-select: text;
+  cursor: text;
+}
+
+/* ---- a sidebar row at a glance ---- */
+
+.peek {
+  position: fixed;
+  z-index: 60;
+  width: 290px;
+  pointer-events: none;
+  animation: fade 120ms ease both;
+}
+.peek .wcard {
+  max-width: 100%;
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--b-ink) 14%, transparent), 0 1px 3px color-mix(in srgb, var(--b-ink) 8%, transparent);
+}
+.peek .wcard-fold {
+  display: none;
+}
+.peek .wcard-head {
+  min-height: 36px;
+  cursor: default;
+}
+.peek .wcard-title {
+  font-weight: 600;
+}
+.peek .wcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 10px;
+}
+.peek-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--b-t2);
+}
+.peek-t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.peek-asks .peek-t {
+  color: var(--wcard-ink);
+  font-weight: 500;
+}
+.peek-ago {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--wcard-grey);
+}
+.peek-meter {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--wcard-grey);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- what a box made ---- */
+
+.made-sheet {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(560px, calc(100% - 64px));
+  max-height: calc(100% - 112px);
+  display: flex;
+  flex-direction: column;
+  animation: sheet 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.made-sheet .wcard {
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--b-ink) 16%, transparent);
+}
+.made-sheet .wcard-head {
+  flex: none;
+  cursor: default;
+}
+.made-sheet .wcard-head:hover {
+  background: transparent;
+}
+.made-sheet .wcard-fold {
+  display: none;
+}
+.made-sheet .wcard-body {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+}
+.made-none {
+  padding: 6px;
+  font-size: 12.5px;
+  color: var(--wcard-grey);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .peek,
+  .made-sheet {
+    animation: none;
+  }
+}
