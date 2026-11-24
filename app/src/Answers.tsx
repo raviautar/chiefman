@@ -41,7 +41,8 @@ export function entryFor(n: number, kind: Ask['kind'], picks: string[], words: s
 }
 
 // Yes and No, one click each; choices to pick one; check boxes to pick several.
-// A second click on a pick takes it back.
+// A second click on a pick takes it back; the second half of a double click
+// does not.
 export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind']; options: string[]; picks: string[]; onPicks: (p: string[]) => void }) {
   if (kind === 'yesno')
     return (
@@ -49,7 +50,7 @@ export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind'];
         {['yes', 'no'].map((v) => {
           const on = picks.includes(v);
           return (
-            <button key={v} className={'chip pick' + (on ? ' on' : '')} aria-pressed={on} onClick={() => onPicks(on ? [] : [v])}>
+            <button key={v} className={'chip pick' + (on ? ' on' : '')} aria-pressed={on} onClick={(e) => e.detail < 2 && onPicks(on ? [] : [v])}>
               {v === 'yes' ? 'Yes' : 'No'}
             </button>
           );
@@ -63,7 +64,7 @@ export function Controls({ kind, options, picks, onPicks }: { kind: Ask['kind'];
         const on = picks.includes(o);
         const next = kind === 'one' ? (on ? [] : [o]) : on ? picks.filter((p) => p !== o) : [...picks, o];
         return (
-          <button key={o} className={'chip pick' + (on ? ' on' : '')} aria-pressed={on} onClick={() => onPicks(next)}>
+          <button key={o} className={'chip pick' + (on ? ' on' : '')} aria-pressed={on} onClick={(e) => e.detail < 2 && onPicks(next)}>
             {kind === 'any' && <span className="tick" aria-hidden="true">{on && <Check size={11} />}</span>}
             {o}
           </button>

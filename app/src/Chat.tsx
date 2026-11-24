@@ -310,13 +310,20 @@ export function ChatView({
   const liveItem = asked.live ? items.find((i) => i.id === asked.live) : undefined;
   const liveKeys = liveItem?.asks ? liveItem.asks.map((a) => `${liveItem.id}:${a.n}`) : [];
   const answers = compose(bundle, liveKeys);
-  // Claude's own question with check boxes: what is ticked, his ticks first.
+  // Claude Code's own question (it offers "Type something"): it works as the
+  // widgets under a reply do. A click marks a pick; the field's Send sends
+  // his picks or his words. Other menus answer on the click.
+  const question = !!menu && (menu.free != null || !!menu.multi);
+  // What is picked, his picks first; check boxes start as the box shows them.
   const menuKey = menu ? menu.question + '|' + menu.options.map((o) => `${o.n}.${o.label}`).join('|') : '';
-  const ticked = menu?.multi
-    ? ticks?.key === menuKey
+  const ticked = !menu
+    ? []
+    : ticks?.key === menuKey
       ? ticks.on
-      : menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n)
-    : [];
+      : menu.multi
+        ? menu.options.filter((o) => o.box && o.checked && o.n !== menu.free).map((o) => o.n)
+        : [];
+  const menuPicks = question ? ticked.map((n) => menu!.options.find((o) => o.n === n)?.label || '').filter(Boolean).join(', ') : '';
 
   function setEntry(key: string, e: Entry | null) {
     setBundle((b) => {
@@ -345,31 +352,60 @@ export function ChatView({
     setTicks(null);
   }
 
-  function tick(n: number) {
-    const cur = tickNow.current?.key === menuKey ? tickNow.current.on : ticked;
-    const next = { key: menuKey, on: cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n] };
+  function setPicks(on: number[]) {
+    const next = { key: menuKey, on };
     tickNow.current = next;
     setTicks(next);
   }
 
-  // His ticks and his words from the field, in one Submit.
+  const picksNow = () => (tickNow.current?.key === menuKey ? tickNow.current.on : ticked);
+
+  // Several picks toggle; one pick replaces the last, and a second click
+  // takes it back.
+  function tick(n: number) {
+    const cur = picksNow();
+    setPicks(cur.includes(n) ? cur.filter((x) => x !== n) : menu?.multi ? [...cur, n] : [n]);
+  }
+
   async function submitTicks(words?: string) {
     if (!box.paneId || !menu?.multi || menuBusy) return false;
-    const on = tickNow.current?.key === menuKey ? tickNow.current.on : ticked;
     setMenuBusy(true);
-    const r = await api().submitMenu(box.paneId, on, words, askOf(menu));
+    const r = await api().submitMenu(box.paneId, picksNow(), words, askOf(menu));
     setMenuBusy(false);
     if (!r.ok && !r.stale) onError(r.reason || 'Not sent.');
     else clearTicks();
     return r.ok;
   }
 
-  // Ticks belong to the question on screen: the same question asked again
+  // The one Send on Claude Code's question: his words win over a single
+  // pick, and go with the ticks where several are allowed.
+  async function answerQuestion(words: string) {
+    if (!box.paneId || !menu || menuBusy) return;
+    const on = picksNow();
+    if (!words && !on.length) return;
+    setSending(true);
+    stick.current = true;
+    let ok: boolean;
+    if (menu.multi) ok = await submitTicks(words);
+    else if (words) {
+      const r = await api().answer(box.paneId, words, askOf(menu));
+      if (!r.ok) onError(r.reason || 'Not sent.');
+      ok = r.ok;
+    } else ok = await choose(on[0]);
+    setSending(false);
+    if (!ok) return;
+    clearTicks();
+    if (words) {
+      setDraft('');
+      setHist(null);
+    }
+  }
+
+  // Picks belong to the question on screen: the same question asked again
   // later starts from what the box shows.
-  const multiUp = !!menu?.multi;
   useEffect(() => {
-    if (!multiUp) clearTicks();
-  }, [multiUp]);
+    if (!question) clearTicks();
+  }, [question]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -460,32 +496,29 @@ export function ChatView({
   }, [draft]);
 
   // One Send: widget answers by number, then each quote with his reply, then
-  // what he typed, all in one message. A question menu takes only his words.
+  // what he typed, all in one message. Claude Code's question takes his
+  // picks and words; any other menu is answered by its buttons, and the note
+  // above the field says so.
   async function submit(textIn?: string) {
     const typed = (textIn ?? draft).trim();
+    if (menu) {
+      if (question && !sending && !closed) await answerQuestion(typed);
+      return;
+    }
     const paths = atts.map((a) => a.path);
     const quoted = quoteText(bundle);
-    const body = menu ? typed : [answers, quoted, typed].filter(Boolean).join('\n\n');
+    const body = [answers, quoted, typed].filter(Boolean).join('\n\n');
     const text = [body, ...paths].filter(Boolean).join(' ');
     if (!text || sending || closed) return;
-    // While a question shows, the field answers it in his own words where
-    // Claude offers that; otherwise the note above the field says what to do.
-    if (menu && (!menu.free || !typed)) return;
     setSending(true);
     stick.current = true;
-    let ok: boolean;
-    if (menu?.multi) ok = await submitTicks(typed);
-    else if (menu) {
-      const r = await api().answer(box.paneId!, typed, askOf(menu));
-      if (!r.ok) onError(r.reason || 'Not sent.');
-      ok = r.ok;
-    } else ok = await onSend(text, { answer: !!answers && !quoted && !typed && !paths.length });
+    const ok = await onSend(text, { answer: !!answers && !quoted && !typed && !paths.length });
     setSending(false);
     if (ok) {
       setDraft('');
       setAtts([]);
       setHist(null);
-      if (!menu) setBundle({});
+      setBundle({});
     }
   }
 
@@ -506,17 +539,12 @@ export function ChatView({
   }
 
   async function choose(n: number) {
-    if (!box.paneId || !menu || menuBusy) return;
+    if (!box.paneId || !menu || menuBusy) return false;
     setMenuBusy(true);
     const r = await api().choose(box.paneId, n, askOf(menu));
     setMenuBusy(false);
     if (!r.ok && !r.stale) onError(r.reason || 'Not sent.');
-  }
-
-  // Submit sends what he typed in the field too, as his own answer.
-  async function submitButton() {
-    const words = menu?.free != null ? draft.trim() : '';
-    if ((await submitTicks(words)) && words) setDraft('');
+    return r.ok;
   }
 
   // A box that ended starts again on its session, or is closed with its draft.
@@ -770,13 +798,13 @@ export function ChatView({
             </div>
           ),
         )}
-        {menu?.multi && (
-          // Several picks: check boxes, then Submit, as the terminal's menu.
+        {menu && question && (
+          // As the widgets under a reply: picks mark, the field's Send sends.
           <div className="ask rise" key={menuKey}>
             {menu.question && <div className="say">{menu.question}</div>}
             <div className="choices">
-              {menu.options
-                .filter((o) => o.box && o.n !== menu.free)
+              {shownOptions(menu)
+                .filter((o) => !menu.multi || o.box)
                 .map((o) => {
                   const on = ticked.includes(o.n);
                   return (
@@ -784,26 +812,14 @@ export function ChatView({
                       key={o.n}
                       className={'chip pick' + (on ? ' on' : '')}
                       aria-pressed={on}
-                      disabled={menuBusy}
-                      onClick={() => tick(o.n)}
+                      disabled={menuBusy || sending}
+                      onClick={(e) => e.detail < 2 && tick(o.n)}
                     >
-                      <span className="tick" aria-hidden="true">{on && <Check size={11} />}</span>
+                      {menu.multi && <span className="tick" aria-hidden="true">{on && <Check size={11} />}</span>}
                       <OptionLabel label={o.label} />
                     </button>
                   );
                 })}
-            </div>
-            <div className="choices">
-              <button className="chip primary" disabled={menuBusy} onClick={submitButton}>
-                {menu.button === 'Next' ? 'Next' : 'Submit'}
-              </button>
-              {shownOptions(menu)
-                .filter((o) => !o.box)
-                .map((o) => (
-                  <button key={o.n} className="chip" disabled={menuBusy} onClick={() => choose(o.n)}>
-                    <OptionLabel label={o.label} />
-                  </button>
-                ))}
               {canCancel(menu) && (
                 <button className="menu-cancel" onClick={dismiss} title="Esc">
                   Cancel
@@ -812,7 +828,7 @@ export function ChatView({
             </div>
           </div>
         )}
-        {menu && !menu.multi && (
+        {menu && !question && (
           <div className="ask rise" key={menu.question + menu.options.length}>
             {menu.question && <div className="say">{menu.question}</div>}
             <div className="choices">
@@ -958,9 +974,10 @@ export function ChatView({
           </div>
         )}
         <Tray
-          answers={answers ? oneLine(answers) : ''}
+          answers={menuPicks || (answers ? oneLine(answers) : '')}
           quotes={quotes}
           onClearAnswers={() => {
+            if (menuPicks) return setPicks([]);
             for (const k of liveKeys) setEntry(k, null);
           }}
           onReply={(k, text) => setBundle((b) => (b[k] ? { ...b, [k]: { ...b[k], text } } : b))}
@@ -997,7 +1014,7 @@ export function ChatView({
             value={draft}
             readOnly={closed && !typeAhead}
             aria-expanded={pop ? 'true' : 'false'}
-            placeholder={typeAhead ? 'Type, then Resume and send' : closed ? '' : menu?.free ? 'Or type your answer' : 'Message'}
+            placeholder={typeAhead ? 'Type, then Resume and send' : closed ? '' : menu?.free ? 'Reply in your words' : 'Message'}
             onChange={(e) => {
               setDraft(e.target.value);
               setHist(null);
@@ -1048,7 +1065,7 @@ export function ChatView({
               }
             }}
           />
-          <button aria-label="Send" data-tip="Send" className={'send tip up' + (!closed && (draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
+          <button aria-label="Send" data-tip="Send" className={'send tip up' + (!closed && (menu ? question && (draft.trim() || ticked.length) : draft.trim() || atts.length || answers || quotes.length) ? ' ready' : '')} onClick={() => submit()} disabled={closed}>
             <Arrow />
           </button>
         </div>
