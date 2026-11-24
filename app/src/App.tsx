@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, Box, BoxSpec, Draft, Drill, HubEvent, PhaseInfo, PlanInfo, Result, Snapshot } from './api';
-import { BoxIcon, Check, Spinner } from './icons';
+import { Check, StateMark } from './icons';
 import { Picker } from './Picker';
 import { Action, Confirm, ContextPop, MoreMenu, Palette, RenameSheet } from './Actions';
 import { ChatState, ChatView, Pending, norm } from './Chat';
@@ -64,12 +64,11 @@ function until(at: number, now: number) {
   return `${Math.floor(mins / 1440)}d ${Math.floor((mins % 1440) / 60)}h`;
 }
 
-// Dark text on a light chip, white on a dark one.
-function inkOn(hex: string) {
-  const n = parseInt(hex.slice(1), 16);
-  const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
-  return lum > 140 ? '#16161e' : '#ffffff';
-}
+// Every box the app starts runs in bypass permissions, so the header names
+// the mode only when it is another one. With no mode line under its prompt,
+// Claude asks before it edits.
+const USUAL_MODE = /bypass/i;
+const DEFAULT_MODE = 'ask before edits';
 
 function meterLine(b: Box) {
   const parts = [];
@@ -111,8 +110,8 @@ export function App() {
   // First messages held while their box starts, by box name.
   const [held, setHeld] = useState<Record<string, string>>({});
   const [endedOpen, setEndedOpen] = useState(false);
-  // The ended box he is looking at that stays a row until he leaves it.
-  const [stay, setStay] = useState<string | null>(null);
+  // The docked drill panel while it slides shut.
+  const [closing, setClosing] = useState(false);
   const pending = useRef<Record<string, Pending[]>>({});
   const quiet = useRef(new Set<string>());
   const wantSelect = useRef<string | null>(null);
@@ -330,14 +329,13 @@ export function App() {
     }
   }, [boxes]);
 
-  // Ended boxes sit in the quiet "Ended" line, never on a timer. One that
-  // ends while he looks at it stays a row until he leaves it. One that holds
-  // his typed text stays a row. The chief always stays a row.
+  // Ended boxes leave the list for the quiet "Ended" line, which shows only
+  // while there are some. The chief always stays a row.
   const hasText = (name: string) => {
     const d = saved.current[name];
     return !!d && (!!d.text.trim() || d.atts.length > 0 || quotesOf(d.bundle).length > 0);
   };
-  const tucked = (b: Box) => !!b.ended && b.name !== 'chief' && b.name !== stay && !hasText(b.name);
+  const tucked = (b: Box) => !!b.ended && b.name !== 'chief';
   const listed = boxes.filter((b) => !tucked(b));
   const endedLine = boxes.filter(tucked);
   // The line stays open while he reads one of its boxes.
@@ -346,17 +344,6 @@ export function App() {
   const box = useMemo(() => boxes.find((b) => b.name === selected) || listed[0] || null, [boxes, selected]);
   const paneId = box ? box.paneId : null;
   viewing.current = box ? box.name : null;
-
-  const wasLive = useRef<Record<string, boolean>>({});
-  useEffect(() => {
-    for (const b of boxes) {
-      if (b.ended && wasLive.current[b.name] && b.name === box?.name) setStay(b.name);
-      wasLive.current[b.name] = !b.ended;
-    }
-  }, [boxes]);
-  useEffect(() => {
-    setStay((s) => (s === box?.name ? s : null));
-  }, [box?.name]);
 
   // Resume, or Resume and send: what he typed in an ended box goes along,
   // the way New Box's first message does, or stays in its field.
@@ -648,6 +635,13 @@ export function App() {
     if (!r.ok) show(r.reason || 'Not switched.', true);
   }
 
+  // Shift+Tab in the box: the mode under its prompt moves to the next one.
+  async function cycleMode() {
+    if (!box?.paneId) return;
+    const r = await api().cycleMode(box.paneId);
+    if (!r.ok) show(r.reason || 'Not changed.', true);
+  }
+
   async function remote() {
     if (!box?.paneId) return;
     const r = await api().remote(box.paneId);
@@ -785,13 +779,9 @@ export function App() {
     for (const [id, kind] of Object.entries(drill.folds || {})) folds[id] = kind === 'answered' ? 'Drill-down · all answered' : 'Earlier drill-down';
     if (asks > 0 && drillShown) folds[drill.id] = `Drill-down · ${asks} need${asks === 1 ? 's' : ''} you`;
     else if (asks === 0 && (drill.total ?? 0) > 0) folds[drill.id] = 'Drill-down · all answered';
+    const lists = ((shownPane && chats[shownPane]?.items) || []).filter((i) => i.id in folds || i.id === drill.id);
+    for (const i of lists.slice(0, -1)) if (i.id in folds) folds[i.id] = '';
   }
-  const waiting = info.restore ? boxes.find((b) => b.menu) : undefined;
-
-  let body;
-  // A box whose window closed has no pane, but keeps its chat and draft. Its
-  // chat keeps the old pane's key, so the field keeps his text and focus.
-  const shownPane = box ? box.paneId ?? box.lastPane ?? null : null;
   if (!box || (!box.paneId && box.status !== 'ended')) {
     body = (
       <div className="chat">
@@ -851,13 +841,7 @@ export function App() {
   return (
     <div className="app">
       <nav className="nav" aria-label="Sidebar">
-        <div className="nav-lights">
-          {planInfo.workspace && (
-            <span className="ws" style={{ background: planInfo.workspace.colour, color: inkOn(planInfo.workspace.colour) }}>
-              {planInfo.workspace.name}
-            </span>
-          )}
-        </div>
+        <div className="nav-lights" />
         <div className="nav-list">
           {listed.map((b, i) => {
             const on = box?.name === b.name;
@@ -868,12 +852,9 @@ export function App() {
                 onClick={() => setSelected(b.name)}
                 title={i < 9 ? `${b.name}  ⌘${i + 1}` : b.name}
               >
-                <BoxIcon icon={b.icon} color={b.status === 'off' || b.status === 'ended' ? '#B3B2AD' : b.color} />
+                <StateMark box={b} />
                 <span className="name">{b.name}</span>
                 {b.cost != null && b.cost > 0 && <span className="row-cost">{money(b.cost)}</span>}
-                {b.tab && <span className={'state ' + b.tab} aria-label={b.tab === 'asks' ? 'asks you' : b.tab} />}
-                {b.status === 'resuming' && !b.tab && <Spinner />}
-                {b.status === 'resumed' && <Check color="#034F46" />}
               </button>
             );
           })}
@@ -927,18 +908,31 @@ export function App() {
           </svg>
           <span style={{ color: '#5B5B59' }}>New Box</span>
         </button>
-        {planInfo.plan && (
-          <div className="plan" role="group" aria-label="Plan usage">
-            {planInfo.plan.map((l) => (
-              <div key={l.label} className={'plan-bar' + (l.pct >= 80 ? ' high' : l.pct >= 50 ? ' mid' : '')}>
-                <span className="plan-fill" style={{ width: `${Math.max(0, Math.min(100, l.pct))}%` }} />
-                <span className="plan-text">
-                  {l.label}
-                  {l.resets != null ? ` ${until(l.resets, now)}` : ''}
-                </span>
-                <span className="plan-text">{Math.round(l.pct)}%</span>
+        {(planInfo.plan || planInfo.workspace) && (
+          <div className="foot">
+            {planInfo.workspace && (
+              <div className="ws" title="Workspace">
+                <span className="ws-dot" style={{ background: planInfo.workspace.colour }} />
+                {planInfo.workspace.name}
               </div>
-            ))}
+            )}
+            {planInfo.plan && (
+              <div className="plan" role="group" aria-label="Plan usage">
+                {planInfo.plan.map((l) => (
+                  <div key={l.label} className={'plan-line' + (l.pct >= 80 ? ' high' : l.pct >= 50 ? ' mid' : '')}>
+                    <div className="plan-text">
+                      <span>
+                        {l.label.charAt(0).toUpperCase() + l.label.slice(1)} {Math.round(l.pct)}% used
+                      </span>
+                      {l.resets != null && <span>resets in {until(l.resets, now)}</span>}
+                    </div>
+                    <div className="plan-track">
+                      <span className="plan-fill" style={{ width: `${Math.max(0, Math.min(100, l.pct))}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </nav>
@@ -972,7 +966,15 @@ export function App() {
                         </>
                       )}
                     </button>
-                    {picking && <Picker model={box!.model} effort={box!.effort} onPick={switchBox} onClose={() => setPicking(false)} />}
+                    {picking && <Picker model={box!.model} effort={box!.effort} mode={box!.mode ?? DEFAULT_MODE} onMode={cycleMode} onPick={switchBox} onClose={() => setPicking(false)} />}
+                  </span>
+                )}
+                {/* The mode shows here only when it is not the boxes' usual one. */}
+                {box!.mode && !USUAL_MODE.test(box!.mode) && (
+                  <span className="keep">
+                    <button className={'pill mode' + (/plan/i.test(box!.mode) ? ' plan' : '')} onClick={cycleMode} title="Next mode (Shift+Tab)">
+                      {box!.mode}
+                    </button>
                   </span>
                 )}
                 <span className="keep">

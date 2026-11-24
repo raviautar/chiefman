@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box } from './api';
-import { BoxIcon } from './icons';
+import { StateMark } from './icons';
 
 function useAway(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {

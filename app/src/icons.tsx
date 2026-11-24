@@ -1,3 +1,5 @@
+import type { Box } from './api';
+
 export const ICON: Record<string, string> = {
   crown: 'M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z',
   columns: 'M12 3l9 5H3z M5 10v8 M9.5 10v8 M14.5 10v8 M19 10v8 M3 21h18',
@@ -26,6 +28,35 @@ export function BoxIcon({ icon, color, size = 16 }: { icon: string; color: strin
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={ICON[icon] || ICON.doc} />
     </svg>
+  );
+}
+
+// A box's state, the same colours as its tmux tab: blue while it works,
+// orange when it asked him something, green when its task is done.
+const TAB: Record<string, string> = { working: '#3e7bfa', asks: '#f5843a', done: '#5ea83a' };
+const SAID: Record<string, string> = { working: 'working', asks: 'asks you', done: 'done' };
+
+// The mark before a box's name: its state dot, or the chief's crown in the
+// state's colour. Grey while idle, a ring once it is off.
+export function StateMark({ box }: { box: Box }) {
+  if (box.status === 'resuming' && !box.tab)
+    return (
+      <span className="mark">
+        <Spinner />
+      </span>
+    );
+  const gone = box.status === 'off' || box.status === 'ended' || box.status === 'failed';
+  const said = box.tab ? SAID[box.tab] : gone ? 'off' : 'idle';
+  if (box.name === 'chief')
+    return (
+      <span className={'mark' + (box.tab === 'working' ? ' pulse' : '')} role="img" aria-label={said}>
+        <BoxIcon icon="crown" color={box.tab ? TAB[box.tab] : gone ? '#B3B2AD' : box.color} size={15} />
+      </span>
+    );
+  return (
+    <span className="mark" role="img" aria-label={said}>
+      <span className={'dot ' + (box.tab || (gone ? 'gone' : 'idle'))} />
+    </span>
   );
 }
 

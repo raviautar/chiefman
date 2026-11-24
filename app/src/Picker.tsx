@@ -1,15 +1,20 @@
 import { useEffect, useRef } from 'react';
 import { EFFORTS, MODELS } from './api';
 
-// Two quiet rows: which model, how much effort.
+// Quiet rows: which model, how much effort, and for a running box its mode,
+// which a click moves on as Shift+Tab does.
 export function Picker({
   model,
   effort,
+  mode,
+  onMode,
   onPick,
   onClose,
 }: {
   model: string | null;
   effort: string | null;
+  mode?: string;
+  onMode?: () => void;
   onPick: (kind: 'model' | 'effort', value: string) => void;
   onClose: () => void;
 }) {
@@ -40,6 +45,15 @@ export function Picker({
           </button>
         ))}
       </div>
+      {mode && onMode && (
+        <div className="picker-row picker-mode">
+          <span className="picker-label">Mode</span>
+          <button onClick={onMode} title="Next mode (Shift+Tab)">
+            {mode}
+            <span className="picker-key">⇧⇥</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, Box, BoxSpec, MODELS, Recent } from './api';
-import { BoxIcon, PALETTE, SYMBOLS } from './icons';
+import { PALETTE, SYMBOLS } from './icons';
 import { Picker } from './Picker';
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -8,8 +8,7 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 // "Release Notes 2" becomes "release-notes-2".
 const slug = (s: string) => s.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+/, '').slice(0, 32);
 
-// A box's icon and colour come from its name, until he picks them. The
-// crown stays the chief's.
+// A box's icon and colour come from its name. The crown stays the chief's.
 const AUTO = SYMBOLS.filter((s) => s !== 'crown');
 function lookFor(name: string) {
   let h = 0;
@@ -50,12 +49,9 @@ export function NewBoxSheet({
   const [name, setName] = useState('');
   // What he typed himself. Name shows it again when no session is picked.
   const [own, setOwn] = useState('');
-  const [chosen, setLook] = useState<{ icon: string; color: string } | null>(null);
-  const [looking, setLooking] = useState(false);
   // His message survives a restart, as a draft, until it is sent.
   const [message, setMessage] = useState(initialMessage);
   const clean = name.trim();
-  const look = chosen ?? lookFor(clean || 'box');
 
   // A session's own name: its title, or the first words he sent it.
   const nameOf = (r: Recent) => slug(r.title || r.first.split(/\s+/).slice(0, 4).join(' ')).replace(/-+$/, '');
@@ -83,7 +79,7 @@ export function NewBoxSheet({
     fired.current = true;
     const r = id ? recent.find((x) => x.id === id) : undefined;
     const note = r && !row && n !== base(r) ? `${base(r)} is a different conversation, so this one is ${n}.` : undefined;
-    const lk = id ? lookFor(n) : look;
+    const lk = lookFor(n);
     onStart({ name: n, icon: lk.icon, color: lk.color, message: message.trim(), model, effort, ...(id ? { resume: id } : {}) }, note);
   };
   const picked = recent.find((r) => r.id === resume);
@@ -168,41 +164,6 @@ export function NewBoxSheet({
             }}
           />
         </div>
-        {!picked &&
-          (looking ? (
-            <div className="field" style={{ gap: 8 }}>
-              <span className="label">Look</span>
-              <div className="dots">
-                {PALETTE.map(([label, c]) => (
-                  <button
-                    key={c}
-                    aria-label={label}
-                    onClick={() => setLook({ icon: look.icon, color: c })}
-                    style={{ background: c, boxShadow: c === look.color ? `0 0 0 2px #FCFCFB, 0 0 0 4px ${c}` : 'none' }}
-                  />
-                ))}
-              </div>
-              <div className="tiles">
-                {SYMBOLS.map((s) => (
-                  <button
-                    key={s}
-                    aria-label={s}
-                    onClick={() => setLook({ icon: s, color: look.color })}
-                    style={s === look.icon ? { borderColor: look.color, background: look.color + '14' } : undefined}
-                  >
-                    <BoxIcon icon={s} color={s === look.icon ? look.color : '#5B5B59'} size={17} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="look-line">
-              <BoxIcon icon={look.icon} color={look.color} size={15} />
-              <button className="text-btn" onClick={() => setLooking(true)}>
-                Change look
-              </button>
-            </div>
-          ))}
         {recent.length > 0 && (
           <div className="field">
             <span className="label">Or resume an earlier session</span>

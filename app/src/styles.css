@@ -65,30 +65,6 @@ button {
   height: 28px;
   margin-bottom: 16px;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-/* The machine's workspace name, right of the window buttons, in its colour. */
-.ws {
-  max-width: 140px;
-  padding: 0 7px;
-  border-radius: 5px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.nav-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-  padding: 0 10px 6px;
 }
 
 .nav-list {
@@ -145,39 +121,43 @@ button {
   color: var(--faint);
 }
 
-.row .key {
-  font-size: 11px;
-  color: var(--faint);
-  opacity: 0;
-}
-
-.nav:hover .row .key {
-  opacity: 1;
-}
-
-/* A box's state, the same colours as its tmux tab: blue while it works,
-   orange when it asked him something, green when its task is done. */
-.state {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+/* The mark before a box's name: its state as a dot in the colours of its
+   tmux tab (blue working, orange asks him, green done), grey while idle, a
+   ring once it is off. The chief keeps its crown, in the same colours. */
+.mark {
+  width: 16px;
+  height: 16px;
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.state.working {
-  background: #3e7bfa;
+.dot {
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: #d6d3cb;
+}
+.dot.working {
+  background: var(--working);
   box-shadow: 0 0 0 3px rgba(62, 123, 250, 0.16);
   animation: pulse 1.8s ease-in-out infinite;
 }
-.state.asks {
+.dot.asks {
   background: #f5843a;
   box-shadow: 0 0 0 3px rgba(245, 132, 58, 0.18);
 }
-.state.done {
+.dot.done {
   background: #5ea83a;
   box-shadow: 0 0 0 3px rgba(94, 168, 58, 0.18);
 }
-.switcher button .state {
-  flex: none;
+.dot.gone {
+  background: transparent;
+  border: 1.5px solid var(--line-strong);
+}
+.mark.pulse svg {
+  animation: pulse 1.8s ease-in-out infinite;
 }
 
 @keyframes pulse {
@@ -186,45 +166,66 @@ button {
   }
 }
 
-/* The plan's usage at the foot of the sidebar, as on the tmux status bar:
-   one bar per limit, blue, amber from 50%, rose from 80%. */
+/* The foot of the sidebar: the workspace name, then one thin line per plan
+   limit, saying how much is used and when it resets. Blue, amber from 50%,
+   rose from 80%, as on the tmux status bar. */
+.foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+.ws {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+}
 .plan {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 6px;
-  flex-shrink: 0;
+  gap: 8px;
 }
-.plan-bar {
-  position: relative;
+.plan-text {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  height: 18px;
-  padding: 0 8px;
-  border-radius: 6px;
-  background: rgba(26, 26, 26, 0.04);
-  overflow: hidden;
-  font-size: 10.5px;
-  color: var(--muted);
+  gap: 8px;
+  font-size: 11px;
+  color: var(--faint);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.plan-track {
+  height: 2px;
+  margin-top: 4px;
+  border-radius: 1px;
+  background: rgba(26, 26, 26, 0.07);
+  overflow: hidden;
+}
 .plan-fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(62, 123, 250, 0.16);
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--working);
 }
-.plan-bar.mid .plan-fill {
-  background: rgba(224, 160, 64, 0.26);
+.plan-line.mid .plan-fill {
+  background: #e0a040;
 }
-.plan-bar.high .plan-fill {
-  background: rgba(232, 86, 112, 0.24);
-}
-.plan-text {
-  position: relative;
+.plan-line.high .plan-fill {
+  background: #e85670;
 }
 
 .spin {
@@ -1110,28 +1111,6 @@ button {
   gap: 8px;
 }
 
-.dots button {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.tiles button {
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: var(--white);
-}
-
 .sheet-foot {
   display: flex;
   justify-content: flex-end;
@@ -1248,6 +1227,31 @@ button {
 .picker-row button.on {
   background: var(--ink);
   color: var(--paper);
+}
+
+.picker-mode {
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.picker-label {
+  padding-left: 10px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.picker-mode button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.picker-key {
+  font-size: 11px;
+  color: var(--faint);
 }
 
 .icon-btn {
@@ -1596,14 +1600,6 @@ button {
 }
 .picked-name {
   font-weight: 600;
-}
-.look-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.look-line .text-btn {
-  color: var(--muted);
 }
 .recent button.on .sub {
   color: inherit;

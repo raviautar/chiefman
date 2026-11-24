@@ -646,6 +646,8 @@ export function ChatView({
         {shown.map((m) => {
           const isFresh = chat!.fresh.has(m.id);
           const folded = folds[m.id];
+          // An older drill-down list: only the newest one shows.
+          if (folded === '') return null;
           if (folded && !unfolded.has(m.id))
             return (
               <button key={m.id} className="work fold" onClick={() => setUnfolded((s) => new Set(s).add(m.id))} title="Show the whole message">
@@ -824,13 +826,7 @@ export function ChatView({
               </button>
             </div>
             {box.ended?.start ? (
-              <div className="ended-note">
-                {underEnded
-                  ? 'Kept under Ended. Resume brings it back.'
-                  : typed
-                    ? 'Stays in the list while it holds your text.'
-                    : 'Moves under Ended when you leave.'}
-              </div>
+              underEnded && <div className="ended-note">Kept under Ended. Resume brings it back.</div>
             ) : (
               typed && <div className="ended-note">Remove takes your typed text too.</div>
             )}
@@ -988,7 +984,7 @@ export function ChatView({
                 setPop({ kind: 'search', q: draft, at: 0 });
                 return;
               }
-              if (e.key === 'Tab' && e.shiftKey && box.mode) {
+              if (e.key === 'Tab' && e.shiftKey && !menu) {
                 e.preventDefault();
                 cycleMode();
               } else if (e.key === 'Enter' && e.altKey) {
